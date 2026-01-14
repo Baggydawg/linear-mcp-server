@@ -72,12 +72,9 @@ export class KvTokenStore implements TokenStore {
     try {
       const raw = await this.encrypt(toJson(value));
       await this.kv.put(key, raw, options);
-      console.log(`[KV] ✏️ WRITE: ${key}${options?.expiration ? ` (TTL)` : ''}`);
     } catch (error) {
-      // KV write failed (likely quota exceeded) - log but don't crash
-      // Fallback memory store will still have the data
       console.error('[KV] ❌ Write failed:', key, (error as Error).message);
-      throw error; // Re-throw so caller knows KV failed
+      throw error;
     }
   }
 
@@ -108,17 +105,12 @@ export class KvTokenStore implements TokenStore {
 
     // Then try KV (may fail due to quota)
     try {
-      console.log('[KV] 📦 storeRsMapping: 2 writes (access + refresh)');
       await Promise.all([
         this.putJson(`rs:access:${rec.rs_access_token}`, rec),
         this.putJson(`rs:refresh:${rec.rs_refresh_token}`, rec),
       ]);
     } catch (error) {
-      console.warn(
-        '[KV] Failed to persist RS mapping (using memory fallback):',
-        (error as Error).message,
-      );
-      // Don't throw - memory fallback has the data
+      console.warn('[KV] storeRsMapping failed:', (error as Error).message);
     }
 
     return rec;
@@ -145,6 +137,14 @@ export class KvTokenStore implements TokenStore {
     }
 
     const rsAccessChanged = maybeNewRsAccess && maybeNewRsAccess !== existing.rs_access_token;
+    const providerChanged = provider.access_token !== existing.provider.access_token ||
+      provider.refresh_token !== existing.provider.refresh_token;
+
+    // Skip KV writes if nothing changed
+    if (!rsAccessChanged && !providerChanged) {
+      return existing;
+    }
+
     const next: RsRecord = {
       rs_access_token: maybeNewRsAccess || existing.rs_access_token,
       rs_refresh_token: rsRefresh,
@@ -155,32 +155,21 @@ export class KvTokenStore implements TokenStore {
     // Update memory fallback first
     await this.fallback.updateByRsRefresh(rsRefresh, provider, maybeNewRsAccess);
 
-    // Then try KV (may fail due to quota)
-    // Optimize: only delete old access key if RS access token actually changed
     try {
       if (rsAccessChanged) {
-        // RS access token changed: delete old + write new access + write refresh (3 ops)
-        console.log('[KV] 🔄 updateByRsRefresh: RS rotated → 3 ops (1 delete + 2 writes)');
-        console.log(`[KV] 🗑️ DELETE: rs:access:${existing.rs_access_token}`);
         await Promise.all([
           this.kv.delete(`rs:access:${existing.rs_access_token}`),
           this.putJson(`rs:access:${next.rs_access_token}`, next),
           this.putJson(`rs:refresh:${rsRefresh}`, next),
         ]);
       } else {
-        // RS access token unchanged: update both keys in place (2 ops, no delete)
-        console.log('[KV] 🔄 updateByRsRefresh: RS unchanged → 2 ops (no delete)');
         await Promise.all([
           this.putJson(`rs:access:${existing.rs_access_token}`, next),
           this.putJson(`rs:refresh:${rsRefresh}`, next),
         ]);
       }
-    } catch (error) {
-      console.warn(
-        '[KV] Failed to update RS mapping (using memory fallback):',
-        (error as Error).message,
-      );
-      // Don't throw - memory fallback has the data
+    } catch {
+      // Memory fallback has it
     }
 
     return next;
@@ -191,19 +180,11 @@ export class KvTokenStore implements TokenStore {
     txn: Transaction,
     ttlSeconds = 600,
   ): Promise<void> {
-    // Memory fallback first (critical for OAuth flow)
     await this.fallback.saveTransaction(txnId, txn);
-
-    // KV is optional (nice to have for persistence across instances)
     try {
-      console.log('[KV] 📝 saveTransaction: 1 write');
       await this.putJson(`txn:${txnId}`, txn, { expiration: ttl(ttlSeconds) });
-    } catch (error) {
-      console.warn(
-        '[KV] Failed to save transaction (using memory):',
-        (error as Error).message,
-      );
-      // Don't throw - memory has it
+    } catch {
+      // Memory fallback has it
     }
   }
 
@@ -213,26 +194,16 @@ export class KvTokenStore implements TokenStore {
   }
 
   async deleteTransaction(txnId: string): Promise<void> {
-    // Skip KV delete - transactions have TTL and will auto-expire
-    // This saves 1 write operation per OAuth flow
-    console.log('[KV] ⏭️ deleteTransaction: SKIPPED (TTL auto-expire)');
+    // Skip KV delete - TTL auto-expires
     await this.fallback.deleteTransaction(txnId);
   }
 
   async saveCode(code: string, txnId: string, ttlSeconds = 600): Promise<void> {
-    // Memory fallback first (critical for OAuth flow)
     await this.fallback.saveCode(code, txnId);
-
-    // KV is optional
     try {
-      console.log('[KV] 📝 saveCode: 1 write');
       await this.putJson(`code:${code}`, { v: txnId }, { expiration: ttl(ttlSeconds) });
-    } catch (error) {
-      console.warn(
-        '[KV] Failed to save code (using memory):',
-        (error as Error).message,
-      );
-      // Don't throw - memory has it
+    } catch {
+      // Memory fallback has it
     }
   }
 
@@ -242,9 +213,7 @@ export class KvTokenStore implements TokenStore {
   }
 
   async deleteCode(code: string): Promise<void> {
-    // Skip KV delete - codes have TTL and will auto-expire
-    // This saves 1 write operation per OAuth flow
-    console.log('[KV] ⏭️ deleteCode: SKIPPED (TTL auto-expire)');
+    // Skip KV delete - TTL auto-expires
     await this.fallback.deleteCode(code);
   }
 }
@@ -273,7 +242,6 @@ export class KvSessionStore implements SessionStore {
   }
 
   private async putSession(key: string, value: SessionRecord): Promise<void> {
-    console.log(`[KV] ✏️ WRITE session: ${SESSION_KEY_PREFIX}${key.slice(0, 8)}...`);
     const raw = await this.encrypt(toJson(value));
     await this.kv.put(`${SESSION_KEY_PREFIX}${key}`, raw, {
       expiration: ttl(SESSION_TTL_SECONDS),
@@ -291,13 +259,9 @@ export class KvSessionStore implements SessionStore {
   }
 
   async ensure(sessionId: string): Promise<void> {
-    // Memory-only session ensure - no KV writes
-    // Sessions are ephemeral per-isolate state; the actual session state
-    // (sessionStateMap, cancellationRegistry) is already memory-only.
-    // This saves 1 write operation per request with new session ID.
+    // Memory-only - no KV writes for sessions
     const existing = await this.fallback.get(sessionId);
     if (!existing) {
-      console.log(`[KV] 💾 session.ensure: MEMORY ONLY (no KV write) - ${sessionId.slice(0, 8)}...`);
       await this.fallback.put(sessionId, { created_at: Date.now() });
     }
   }

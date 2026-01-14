@@ -22,5 +22,8 @@ export { listCyclesTool } from './cycles.js';
 // Projects
 export { listProjectsTool, createProjectsTool, updateProjectsTool } from './projects.js';
 
+// UI
+export { showIssuesUITool } from './show-issues-ui.js';
+
 // Shared utilities (for use in tools)
 export * from './shared/index.js';

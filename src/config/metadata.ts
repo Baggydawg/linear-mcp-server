@@ -159,6 +159,13 @@ export const toolsMetadata = {
     description:
       "List cycles for a team (only if team.cyclesEnabled=true). Inputs: { teamId, includeArchived?, orderBy?(updatedAt|createdAt), limit?, cursor? }.\nReturns: { items[], cursor?, nextCursor?, limit? } where items include id, name?, number?, startsAt?, endsAt?, completedAt?, teamId, status?. Next: Use teamId from 'workspace_metadata' to target the right team; avoid this tool if cyclesEnabled=false.",
   },
+
+  show_issues_ui: {
+    name: 'show_issues_ui',
+    title: 'Show Issues Dashboard',
+    description:
+      'Opens an interactive Linear issues dashboard. The UI displays issues in a dark, minimalistic Linear-style interface where users can browse, filter, and manage issues visually. Inputs: { teamId?, stateType?, assignedToMe? }. Use this when the user wants to see their issues in a visual interface rather than text output.',
+  },
 } as const satisfies Record<string, ToolMetadata>;
 
 /**

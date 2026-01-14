@@ -96,11 +96,11 @@ function isAllowedRedirect(uri: string, config: OAuthConfig, isDev: boolean): bo
     );
     const url = new URL(uri);
 
-    if (isDev) {
-      const loopback = new Set(['localhost', '127.0.0.1', '::1']);
-      if (loopback.has(url.hostname)) {
-        return true;
-      }
+    // Always allow localhost/loopback for CLI tools like Claude Code
+    // These use dynamic ports (e.g., http://localhost:50905/callback)
+    const loopback = new Set(['localhost', '127.0.0.1', '::1']);
+    if (loopback.has(url.hostname)) {
+      return true;
     }
 
     if (config.redirectAllowAll) {
@@ -357,9 +357,8 @@ export async function handleProviderCallback(
   });
 
   const clientRedirect = decoded.cr || oauthConfig.redirectUri;
-  const safe = isAllowedRedirect(clientRedirect, oauthConfig, options.isDev)
-    ? clientRedirect
-    : oauthConfig.redirectUri;
+  const isAllowed = isAllowedRedirect(clientRedirect, oauthConfig, options.isDev);
+  const safe = isAllowed ? clientRedirect : oauthConfig.redirectUri;
 
   const redirect = new URL(safe);
   redirect.searchParams.set('code', asCode);
@@ -557,9 +556,7 @@ export async function handleToken(
   const expected = txn.codeChallenge;
   const actual = await sha256B64UrlAsync(input.codeVerifier);
   if (expected !== actual) {
-    logger.error('oauth_token', {
-      message: 'PKCE verification failed',
-    });
+    logger.error('oauth_token', { message: 'PKCE verification failed' });
     throw new Error('invalid_grant');
   }
 

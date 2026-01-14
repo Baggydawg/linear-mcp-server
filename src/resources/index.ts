@@ -1,20 +1,26 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { logger } from '../utils/logger.js';
+import { issuesUIResource, issuesUIMetadata } from './issues-ui.resource.js';
 
 /**
  * Register resources with the MCP server.
  * 
- * Add Linear-specific resources here, e.g.:
- * - linear://teams/{id} - Team data
- * - linear://projects/{id} - Project metadata
- * - linear://me - Current user profile
+ * Resources:
+ * - ui://linear/issues - Interactive issues dashboard UI
  */
 export function registerResources(server: McpServer): void {
-  // TODO: Add Linear-specific resources here
-  // Example:
-  // server.registerResource('linear-team', 'linear://teams/{id}', { ... }, handler);
+  // Register the Linear Issues UI resource
+  server.resource(
+    issuesUIMetadata.name,
+    issuesUIMetadata.uri,
+    {
+      description: issuesUIMetadata.description,
+      mimeType: issuesUIMetadata.mimeType,
+    },
+    async () => issuesUIResource.handler(),
+  );
 
-  logger.debug('resources', { message: 'No resources registered (placeholder)' });
+  logger.debug('resources', { message: 'Registered Linear Issues UI resource', uri: issuesUIMetadata.uri });
 }
 
 /**

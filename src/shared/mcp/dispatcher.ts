@@ -6,6 +6,7 @@
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { buildCapabilities } from '../../core/capabilities.js';
 import { serverMetadata } from '../../config/metadata.js';
+import { issuesUIResource, issuesUIMetadata } from '../../resources/issues-ui.resource.js';
 import { executeSharedTool, sharedTools } from '../tools/registry.js';
 import type { ToolContext } from '../tools/types.js';
 import { sharedLogger as logger } from '../utils/logger.js';
@@ -194,9 +195,47 @@ async function handleToolsCall(
 }
 
 async function handleResourcesList(): Promise<JsonRpcResult> {
-  // Resources are registered via SDK in Node.js
-  // Workers template doesn't have resources yet
-  return { result: { resources: [] } };
+  // Return the Linear Issues UI resource
+  return {
+    result: {
+      resources: [
+        {
+          uri: issuesUIMetadata.uri,
+          name: issuesUIMetadata.name,
+          description: issuesUIMetadata.description,
+          mimeType: issuesUIMetadata.mimeType,
+        },
+      ],
+    },
+  };
+}
+
+async function handleResourcesRead(
+  params: Record<string, unknown> | undefined,
+): Promise<JsonRpcResult> {
+  const uri = String(params?.uri || '');
+
+  logger.debug('mcp_dispatch', {
+    message: 'Reading resource',
+    uri,
+  });
+
+  // Handle the Linear Issues UI resource
+  if (uri === issuesUIMetadata.uri) {
+    const result = await issuesUIResource.handler();
+    return {
+      result: {
+        contents: result.contents,
+      },
+    };
+  }
+
+  return {
+    error: {
+      code: JsonRpcErrorCode.InvalidParams,
+      message: `Resource not found: ${uri}`,
+    },
+  };
 }
 
 async function handleResourcesTemplatesList(): Promise<JsonRpcResult> {
@@ -286,6 +325,9 @@ export async function dispatchMcpMethod(
 
     case 'resources/list':
       return handleResourcesList();
+
+    case 'resources/read':
+      return handleResourcesRead(params);
 
     case 'resources/templates/list':
       return handleResourcesTemplatesList();
