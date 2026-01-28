@@ -72,7 +72,7 @@ function parseCustomHeaders(value: string | undefined): Record<string, string> {
 
 /**
  * Parse auth strategy from config.
- * 
+ *
  * Reads from:
  * - AUTH_STRATEGY: 'oauth' | 'bearer' | 'api_key' | 'custom' | 'none'
  * - API_KEY: The API key value (for api_key strategy)
@@ -117,7 +117,9 @@ export function parseAuthStrategy(env: Record<string, unknown>): AuthStrategyCon
  * Build auth headers from strategy config.
  * Used for non-OAuth strategies where headers are static.
  */
-export function buildAuthHeaders(strategyConfig: AuthStrategyConfig): Record<string, string> {
+export function buildAuthHeaders(
+  strategyConfig: AuthStrategyConfig,
+): Record<string, string> {
   const headers: Record<string, string> = {};
 
   switch (strategyConfig.type) {
@@ -151,7 +153,7 @@ export function buildAuthHeaders(strategyConfig: AuthStrategyConfig): Record<str
 
 /**
  * Resolve auth for a request.
- * 
+ *
  * For OAuth: requires incoming RS token to be mapped
  * For other strategies: uses static config values
  */
@@ -221,4 +223,3 @@ export function validateAuthConfig(config: AuthStrategyConfig): string[] {
 
   return errors;
 }
-

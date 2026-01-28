@@ -48,7 +48,13 @@ export function buildOAuthRoutes(
       const input = parseAuthorizeInput(url);
       const options = buildFlowOptions(url, config);
 
-      const result = await handleAuthorize(input, store, providerConfig, oauthConfig, options);
+      const result = await handleAuthorize(
+        input,
+        store,
+        providerConfig,
+        oauthConfig,
+        options,
+      );
 
       logger.info('oauth_hono', { message: 'Authorize redirect' });
       return c.redirect(result.redirectTo, 302);

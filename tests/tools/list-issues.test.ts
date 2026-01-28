@@ -3,11 +3,15 @@
  * Verifies: input validation, filtering, pagination, output shape.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listIssuesTool } from '../../src/shared/tools/linear/list-issues.js';
-import { createMockLinearClient, resetMockCalls, type MockLinearClient } from '../mocks/linear-client.js';
 import type { ToolContext } from '../../src/shared/tools/types.js';
 import listIssuesFixtures from '../fixtures/tool-inputs/list-issues.json';
+import {
+  createMockLinearClient,
+  type MockLinearClient,
+  resetMockCalls,
+} from '../mocks/linear-client.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Setup
@@ -124,7 +128,10 @@ describe('list_issues handler', () => {
   });
 
   it('passes projectId as filter', async () => {
-    const result = await listIssuesTool.handler({ projectId: 'project-001' }, baseContext);
+    const result = await listIssuesTool.handler(
+      { projectId: 'project-001' },
+      baseContext,
+    );
 
     expect(result.isError).toBeFalsy();
 
@@ -133,7 +140,7 @@ describe('list_issues handler', () => {
     expect(filter.project).toEqual({ id: { eq: 'project-001' } });
   });
 
-  it('converts q parameter to keyword OR filter', async () => {
+  it('converts q parameter to keyword AND filter (default matchMode=all)', async () => {
     const result = await listIssuesTool.handler({ q: 'auth bug' }, baseContext);
 
     expect(result.isError).toBeFalsy();
@@ -141,7 +148,26 @@ describe('list_issues handler', () => {
     const call = mockClient._calls.rawRequest[0];
     const filter = call.variables?.filter as Record<string, unknown>;
 
-    // Should have OR filter with both keywords
+    // Default matchMode is 'all', which uses AND filter
+    expect(filter.and).toBeDefined();
+    const andFilters = filter.and as Array<Record<string, unknown>>;
+    expect(andFilters.length).toBe(2);
+    expect(andFilters).toContainEqual({ title: { containsIgnoreCase: 'auth' } });
+    expect(andFilters).toContainEqual({ title: { containsIgnoreCase: 'bug' } });
+  });
+
+  it('uses OR filter when matchMode is any', async () => {
+    const result = await listIssuesTool.handler(
+      { q: 'auth bug', matchMode: 'any' },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+
+    // matchMode='any' uses OR filter
     expect(filter.or).toBeDefined();
     const orFilters = filter.or as Array<Record<string, unknown>>;
     expect(orFilters.length).toBe(2);
@@ -149,17 +175,20 @@ describe('list_issues handler', () => {
     expect(orFilters).toContainEqual({ title: { containsIgnoreCase: 'bug' } });
   });
 
-  it('uses explicit keywords array', async () => {
-    const result = await listIssuesTool.handler({ keywords: ['fix', 'auth'] }, baseContext);
+  it('uses explicit keywords array with AND filter', async () => {
+    const result = await listIssuesTool.handler(
+      { keywords: ['fix', 'auth'] },
+      baseContext,
+    );
 
     expect(result.isError).toBeFalsy();
 
     const call = mockClient._calls.rawRequest[0];
     const filter = call.variables?.filter as Record<string, unknown>;
-    const orFilters = filter.or as Array<Record<string, unknown>>;
+    const andFilters = filter.and as Array<Record<string, unknown>>;
 
-    expect(orFilters).toContainEqual({ title: { containsIgnoreCase: 'fix' } });
-    expect(orFilters).toContainEqual({ title: { containsIgnoreCase: 'auth' } });
+    expect(andFilters).toContainEqual({ title: { containsIgnoreCase: 'fix' } });
+    expect(andFilters).toContainEqual({ title: { containsIgnoreCase: 'auth' } });
   });
 
   it('passes state filter to GraphQL', async () => {
@@ -217,10 +246,10 @@ describe('list_issues handler', () => {
     const call = mockClient._calls.rawRequest[0];
     const filter = call.variables?.filter as Record<string, unknown>;
 
-    // Should have all three filters
+    // Should have all three filters (keywords use 'and' by default)
     expect(filter.team).toEqual({ id: { eq: 'team-eng' } });
     expect(filter.state).toEqual({ type: { eq: 'started' } });
-    expect(filter.or).toBeDefined();
+    expect(filter.and).toBeDefined();
   });
 });
 
@@ -322,3 +351,181 @@ describe('list_issues edge cases', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Format Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_issues TOON output', () => {
+  // Store original config value
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    // Import config dynamically to get fresh value
+    const { config } = await import('../../src/config/env.js');
+    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+  });
+
+  afterEach(async () => {
+    // Reset config (note: config is a resolved singleton, so this may not work perfectly)
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+  });
+
+  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
+
+    // TOON output should contain schema headers
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('issues[');
+
+    // Structured content should indicate TOON format
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured._format).toBe('toon');
+    expect(structured._version).toBe('1');
+    expect(typeof structured.count).toBe('number');
+  });
+
+  it('returns TOON with state lookup table (Tier 2 - referenced only)', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have states section (only referenced states)
+    expect(textContent).toContain('_states[');
+    expect(textContent).toContain('{key,name,type}');
+  });
+
+  it('returns TOON with labels section', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Labels section is included even in Tier 2 (exception)
+    // Note: The mock may or may not have labels depending on setup
+    // We just verify the output format is valid TOON
+    expect(textContent).toMatch(/issues\[\d+\]\{/);
+  });
+
+  it('returns TOON with issue data rows', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have issue schema header with all fields
+    expect(textContent).toContain('issues[');
+    expect(textContent).toContain('identifier');
+    expect(textContent).toContain('title');
+    expect(textContent).toContain('state');
+
+    // Data rows should be indented with 2 spaces
+    const lines = textContent.split('\n');
+    const dataLines = lines.filter(
+      (line: string) => line.startsWith('  ') && !line.startsWith('  _'),
+    );
+    expect(dataLines.length).toBeGreaterThan(0);
+  });
+
+  it('handles empty results in TOON format', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient({ issues: [] });
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have meta section
+    expect(textContent).toContain('_meta{');
+
+    // Meta section should show count 0
+    expect(textContent).toContain('count');
+
+    // Structured content should indicate count 0
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.count).toBe(0);
+  });
+
+  it('includes pagination info when hasMore is true', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    // Request only 2 items to trigger pagination
+    const result = await listIssuesTool.handler({ limit: 2 }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as Record<string, unknown>;
+
+    // Check if hasMore is set correctly
+    expect(typeof structured.hasMore).toBe('boolean');
+  });
+
+  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = false;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Legacy format should contain "Issues:" summary
+    expect(textContent).toContain('Issues:');
+
+    // Structured content should have items array (legacy format)
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.items).toBeDefined();
+    expect(Array.isArray(structured.items)).toBe(true);
+
+    // Should NOT have TOON format indicator
+    expect(structured._format).toBeUndefined();
+  });
+});

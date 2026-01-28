@@ -3,15 +3,15 @@
  * Verifies: cycle listing, team filtering, cyclesEnabled check, output shape.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listCyclesTool } from '../../src/shared/tools/linear/cycles.js';
+import type { ToolContext } from '../../src/shared/tools/types.js';
 import {
   createMockLinearClient,
-  resetMockCalls,
-  type MockLinearClient,
   defaultMockCycles,
+  type MockLinearClient,
+  resetMockCalls,
 } from '../mocks/linear-client.js';
-import type { ToolContext } from '../../src/shared/tools/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Setup
@@ -70,7 +70,10 @@ describe('list_cycles input validation', () => {
   });
 
   it('accepts optional limit', () => {
-    const result = listCyclesTool.inputSchema.safeParse({ teamId: 'team-eng', limit: 10 });
+    const result = listCyclesTool.inputSchema.safeParse({
+      teamId: 'team-eng',
+      limit: 10,
+    });
     expect(result.success).toBe(true);
   });
 
@@ -128,7 +131,10 @@ describe('list_cycles handler', () => {
   });
 
   it('respects limit parameter', async () => {
-    const result = await listCyclesTool.handler({ teamId: 'team-eng', limit: 1 }, baseContext);
+    const result = await listCyclesTool.handler(
+      { teamId: 'team-eng', limit: 1 },
+      baseContext,
+    );
 
     const structured = result.structuredContent as Record<string, unknown>;
     expect(structured.limit).toBe(1);
@@ -141,7 +147,7 @@ describe('list_cycles handler', () => {
     );
 
     expect(result.isError).toBeFalsy();
-    
+
     const structured = result.structuredContent as Record<string, unknown>;
     expect(structured.cursor).toBe('test-cursor');
   });
@@ -202,7 +208,7 @@ describe('list_cycles output shape', () => {
     const items = structured.items as Array<Record<string, unknown>>;
 
     expect(items.length).toBeGreaterThan(0);
-    
+
     const firstCycle = items[0];
     expect(firstCycle.name).toBeDefined();
     expect(firstCycle.number).toBeDefined();
@@ -289,7 +295,8 @@ describe('list_cycles edge cases', () => {
           states: () => Promise.resolve({ nodes: [] }),
           labels: () => Promise.resolve({ nodes: [] }),
           projects: () => Promise.resolve({ nodes: [] }),
-          cycles: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
+          cycles: () =>
+            Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
         },
       ],
       cycles: [],
@@ -306,3 +313,165 @@ describe('list_cycles edge cases', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Format Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_cycles TOON output', () => {
+  // Store original config value
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    // Import config dynamically to get fresh value
+    const { config } = await import('../../src/config/env.js');
+    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+    mockClient = createMockLinearClient({ cycles: defaultMockCycles });
+    resetMockCalls(mockClient);
+  });
+
+  afterEach(async () => {
+    // Reset config
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+  });
+
+  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient({ cycles: defaultMockCycles });
+    resetMockCalls(mockClient);
+
+    const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
+
+    // TOON output should contain schema headers
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('cycles[');
+
+    // Structured content should indicate TOON format
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured._format).toBe('toon');
+    expect(structured._version).toBe('1');
+    expect(typeof structured.count).toBe('number');
+  });
+
+  it('returns TOON with cycle schema fields', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient({ cycles: defaultMockCycles });
+    resetMockCalls(mockClient);
+
+    const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have cycle schema header with fields (num, name, start, end, active, progress)
+    expect(textContent).toContain('cycles[');
+    expect(textContent).toContain('{num,name,start,end,active,progress}');
+  });
+
+  it('includes team key in meta', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient({ cycles: defaultMockCycles });
+    resetMockCalls(mockClient);
+
+    const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Meta should contain team field
+    expect(textContent).toContain('_meta{tool,team,count,generated}');
+  });
+
+  it('uses cycle number as natural key (no short keys)', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient({ cycles: defaultMockCycles });
+    resetMockCalls(mockClient);
+
+    const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Data rows should have cycle numbers (1, 2, etc.) not short keys
+    // The first cycle in mock has number=1
+    expect(textContent).toMatch(/cycles\[\d+\]/);
+  });
+
+  it('handles empty cycles in TOON format', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    // Create a team with cycles enabled but no cycles
+    mockClient = createMockLinearClient({
+      teams: [
+        {
+          id: 'team-new',
+          key: 'NEW',
+          name: 'New Team',
+          cyclesEnabled: true,
+          states: () => Promise.resolve({ nodes: [] }),
+          labels: () => Promise.resolve({ nodes: [] }),
+          projects: () => Promise.resolve({ nodes: [] }),
+          cycles: () =>
+            Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
+        },
+      ],
+      cycles: [],
+    });
+
+    const result = await listCyclesTool.handler({ teamId: 'team-new' }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have meta section with count 0
+    expect(textContent).toContain('_meta{');
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.count).toBe(0);
+  });
+
+  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = false;
+
+    mockClient = createMockLinearClient({ cycles: defaultMockCycles });
+    resetMockCalls(mockClient);
+
+    const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Legacy format should contain "Cycles:" summary
+    expect(textContent).toContain('Cycles:');
+
+    // Structured content should have items array (legacy format)
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.items).toBeDefined();
+    expect(Array.isArray(structured.items)).toBe(true);
+
+    // Should NOT have TOON format indicator
+    expect(structured._format).toBeUndefined();
+  });
+});

@@ -26,7 +26,9 @@ export function buildMcpRoutes(params: {
    * Connect transport to server only if not already connected.
    * McpServer.connect() should be called once per transport lifecycle.
    */
-  async function ensureConnected(transport: StreamableHTTPServerTransport): Promise<void> {
+  async function ensureConnected(
+    transport: StreamableHTTPServerTransport,
+  ): Promise<void> {
     if (!connectedTransports.has(transport)) {
       await server.connect(transport);
       connectedTransports.add(transport);
@@ -87,14 +89,23 @@ export function buildMcpRoutes(params: {
 
       // Create request context if body has an ID
       if (body && typeof body === 'object' && 'id' in body && body.id) {
-        const authContext = (c as unknown as { authContext?: {
-          strategy: 'oauth' | 'bearer' | 'api_key' | 'custom' | 'none';
-          authHeaders: Record<string, string>;
-          resolvedHeaders: Record<string, string>;
-          providerToken?: string;
-          provider?: { access_token: string; refresh_token?: string; expires_at?: number; scopes?: string[] };
-          rsToken?: string;
-        } }).authContext;
+        const authContext = (
+          c as unknown as {
+            authContext?: {
+              strategy: 'oauth' | 'bearer' | 'api_key' | 'custom' | 'none';
+              authHeaders: Record<string, string>;
+              resolvedHeaders: Record<string, string>;
+              providerToken?: string;
+              provider?: {
+                access_token: string;
+                refresh_token?: string;
+                expires_at?: number;
+                scopes?: string[];
+              };
+              rsToken?: string;
+            };
+          }
+        ).authContext;
 
         contextRegistry.create(body.id as string | number, plannedSid, {
           authStrategy: authContext?.strategy,

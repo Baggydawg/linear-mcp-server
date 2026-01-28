@@ -117,7 +117,7 @@ async function main() {
       startDate: project.startDate,
       targetDate: project.targetDate,
       lead: lead?.name || null,
-      teams: projectTeams.nodes.map(t => t.key),
+      teams: projectTeams.nodes.map((t) => t.key),
     });
   }
   console.log();
@@ -125,7 +125,7 @@ async function main() {
   // 7. Cycles (for first team with cycles enabled)
   console.log('## CYCLES');
   console.log('-'.repeat(40));
-  const teamWithCycles = teams.find(t => t.cyclesEnabled);
+  const teamWithCycles = teams.find((t) => t.cyclesEnabled);
   if (teamWithCycles) {
     console.log(`\nTeam: ${teamWithCycles.key} (${teamWithCycles.name})`);
     const cycles = await teamWithCycles.cycles({ first: 5 });
@@ -150,7 +150,7 @@ async function main() {
   console.log('-'.repeat(40));
   if (teamWithCycles) {
     const cycles = await teamWithCycles.cycles({ first: 5 });
-    const activeCycle = cycles.nodes.find(c => {
+    const activeCycle = cycles.nodes.find((c) => {
       const now = new Date();
       const start = new Date(c.startsAt);
       const end = new Date(c.endsAt);
@@ -158,7 +158,9 @@ async function main() {
     });
 
     if (activeCycle) {
-      console.log(`\nActive Cycle: #${activeCycle.number} (${activeCycle.startsAt} to ${activeCycle.endsAt})`);
+      console.log(
+        `\nActive Cycle: #${activeCycle.number} (${activeCycle.startsAt} to ${activeCycle.endsAt})`,
+      );
       const issues = await activeCycle.issues({ first: 10 });
       for (const issue of issues.nodes) {
         const state = await issue.state;
@@ -180,7 +182,7 @@ async function main() {
           priorityLabel: issue.priorityLabel,
           estimate: issue.estimate,
           project: project?.name || null,
-          labels: labels.nodes.map(l => l.name),
+          labels: labels.nodes.map((l) => l.name),
           parent: parent?.identifier || null,
           dueDate: issue.dueDate,
           url: issue.url,
@@ -188,7 +190,7 @@ async function main() {
           updatedAt: issue.updatedAt,
           startedAt: issue.startedAt,
           completedAt: issue.completedAt,
-          relations: relations.nodes.map(r => ({ type: r.type, to: r.relatedIssue })),
+          relations: relations.nodes.map((r) => ({ type: r.type, to: r.relatedIssue })),
           inverseRelations: inverseRelations.nodes.length,
         });
         console.log();

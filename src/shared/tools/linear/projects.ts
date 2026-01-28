@@ -1,21 +1,239 @@
 /**
  * Projects tools - list, create, and update projects.
+ *
+ * Supports TOON output format (Tier 2):
+ * - When TOON_OUTPUT_ENABLED=true, returns TOON format with project leads in _users lookup
+ * - When TOON_OUTPUT_ENABLED=false (default), returns legacy human-readable format
+ *
+ * Projects use short keys (pr0, pr1...).
  */
 
 import { z } from 'zod';
-import { toolsMetadata } from '../../../config/metadata.js';
 import { config } from '../../../config/env.js';
+import { toolsMetadata } from '../../../config/metadata.js';
 import {
   CreateProjectsOutputSchema,
   ListProjectsOutputSchema,
   UpdateProjectsOutputSchema,
 } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import { makeConcurrencyGate, withRetry, delay } from '../../../utils/limits.js';
+import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { mapProjectNodeToListItem } from '../../../utils/mappers.js';
-import { summarizeBatch, summarizeList, previewLinesFromItems } from '../../../utils/messages.js';
+import {
+  previewLinesFromItems,
+  summarizeBatch,
+  summarizeList,
+} from '../../../utils/messages.js';
+import {
+  CREATED_PROJECT_SCHEMA,
+  encodeResponse,
+  encodeToon,
+  getOrInitRegistry,
+  PROJECT_CHANGES_SCHEMA,
+  PROJECT_SCHEMA,
+  PROJECT_WRITE_RESULT_SCHEMA,
+  type ShortKeyRegistry,
+  type ToonResponse,
+  type ToonRow,
+  type ToonSection,
+  tryGetShortKey,
+  tryResolveShortKey,
+  USER_LOOKUP_SCHEMA,
+} from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Support (Tier 2 - Referenced Entities Only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Raw project data from Linear API for TOON processing.
+ */
+interface RawProjectData {
+  id: string;
+  name: string;
+  description?: string | null;
+  state?: string;
+  priority?: number;
+  progress?: number;
+  leadId?: string;
+  lead?: { id?: string } | null;
+  teams?: Array<{ key?: string }>;
+  startDate?: string | null;
+  targetDate?: string | null;
+  health?: string | null;
+  createdAt?: Date | string;
+}
+
+/**
+ * Fetch workspace data for registry initialization.
+ */
+async function fetchWorkspaceDataForRegistry(
+  client: Awaited<ReturnType<typeof getLinearClient>>,
+): Promise<{
+  users: Array<{ id: string; createdAt: Date | string }>;
+  states: Array<{ id: string; createdAt: Date | string }>;
+  projects: Array<{ id: string; createdAt: Date | string }>;
+  workspaceId: string;
+}> {
+  // Fetch users
+  const usersConn = await client.users({ first: 100 });
+  const users = (usersConn.nodes ?? []).map((u) => ({
+    id: u.id,
+    createdAt: (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+  }));
+
+  // Fetch workflow states via teams
+  const teamsConn = await client.teams({ first: 100 });
+  const teams = teamsConn.nodes ?? [];
+  const states: Array<{ id: string; createdAt: Date | string }> = [];
+
+  for (const team of teams) {
+    const statesConn = await (
+      team as unknown as {
+        states: () => Promise<{
+          nodes: Array<{ id: string; createdAt?: Date | string }>;
+        }>;
+      }
+    ).states();
+    for (const state of statesConn.nodes ?? []) {
+      states.push({
+        id: state.id,
+        createdAt: state.createdAt ?? new Date(),
+      });
+    }
+  }
+
+  // Fetch projects
+  const projectsConn = await client.projects({ first: 100 });
+  const projects = (projectsConn.nodes ?? []).map((p) => ({
+    id: p.id,
+    createdAt: (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+  }));
+
+  // Get workspace ID from viewer
+  const viewer = await client.viewer;
+  const viewerOrg = viewer as unknown as { organization?: { id?: string } };
+  const workspaceId = viewerOrg?.organization?.id ?? 'unknown';
+
+  return { users, states, projects, workspaceId };
+}
+
+/**
+ * Convert a project to TOON row format.
+ */
+function projectToToonRow(
+  project: RawProjectData,
+  registry: ShortKeyRegistry | null,
+): ToonRow {
+  // Get short keys from registry
+  const projectKey = registry
+    ? tryGetShortKey(registry, 'project', project.id)
+    : undefined;
+  const leadId = project.leadId ?? project.lead?.id;
+  const leadKey =
+    registry && leadId ? tryGetShortKey(registry, 'user', leadId) : undefined;
+
+  // Format teams as comma-separated keys
+  const teamsStr = (project.teams ?? [])
+    .map((t) => t.key)
+    .filter(Boolean)
+    .join(',');
+
+  return {
+    key: projectKey ?? '',
+    name: project.name ?? '',
+    description: project.description ?? null,
+    state: project.state ?? null,
+    priority: project.priority ?? null,
+    progress: project.progress ?? 0,
+    lead: leadKey ?? null,
+    teams: teamsStr || null,
+    startDate: project.startDate ?? null,
+    targetDate: project.targetDate ?? null,
+    health: project.health ?? null,
+  };
+}
+
+/**
+ * Build user lookup table with only project leads (Tier 2).
+ */
+function buildProjectLeadLookup(
+  registry: ShortKeyRegistry,
+  projects: RawProjectData[],
+): ToonSection {
+  // Collect unique lead IDs from projects
+  const userIds = new Set<string>();
+  for (const project of projects) {
+    const leadId = project.leadId ?? project.lead?.id;
+    if (leadId) {
+      userIds.add(leadId);
+    }
+  }
+
+  // Build lookup items
+  const items: ToonRow[] = [];
+  for (const [shortKey, uuid] of registry.users) {
+    if (userIds.has(uuid)) {
+      items.push({
+        key: shortKey,
+        name: '', // User details not available in registry
+        displayName: '',
+        email: '',
+        role: '',
+      });
+    }
+  }
+
+  // Sort by key number for consistent output
+  items.sort((a, b) => {
+    const numA = parseInt(String(a.key).replace('u', ''), 10);
+    const numB = parseInt(String(b.key).replace('u', ''), 10);
+    return numA - numB;
+  });
+
+  return { schema: USER_LOOKUP_SCHEMA, items };
+}
+
+/**
+ * Build TOON response for list_projects.
+ */
+function buildProjectsToonResponse(
+  projects: RawProjectData[],
+  registry: ShortKeyRegistry | null,
+): ToonResponse {
+  // Build lookup sections (Tier 2 - only project leads)
+  const lookups: ToonSection[] = [];
+
+  // Add user lookup if we have a registry and projects with leads
+  if (registry) {
+    const userLookup = buildProjectLeadLookup(registry, projects);
+    if (userLookup.items.length > 0) {
+      lookups.push(userLookup);
+    }
+  }
+
+  // Convert projects to TOON rows
+  const projectRows = projects.map((project) => projectToToonRow(project, registry));
+
+  // Build data sections
+  const data: ToonSection[] = [{ schema: PROJECT_SCHEMA, items: projectRows }];
+
+  // Build meta section
+  const metaFields = ['tool', 'count', 'generated'];
+  const metaValues: Record<string, string | number | boolean | null> = {
+    tool: 'list_projects',
+    count: projects.length,
+    generated: new Date().toISOString(),
+  };
+
+  return {
+    meta: { fields: metaFields, values: metaValues },
+    lookups: lookups.length > 0 ? lookups : undefined,
+    data,
+  };
+}
 
 // List Projects
 const ListProjectsInputSchema = z.object({
@@ -38,7 +256,10 @@ const ListProjectsInputSchema = z.object({
         "{ lead: { id: { eq: 'USER_UUID' } } }, " +
         "{ targetDate: { lt: '2025-01-01', gt: '2024-01-01' } }.",
     ),
-  includeArchived: z.boolean().optional().describe('Include archived projects. Default: false.'),
+  includeArchived: z
+    .boolean()
+    .optional()
+    .describe('Include archived projects. Default: false.'),
 });
 
 export const listProjectsTool = defineTool({
@@ -56,19 +277,78 @@ export const listProjectsTool = defineTool({
     const first = args.limit ?? 20;
     const after = args.cursor;
     const filter = args.filter as Record<string, unknown> | undefined;
-    
+
     const conn = await client.projects({
       first,
       after,
       filter: filter as Record<string, unknown> | undefined,
       includeArchived: args.includeArchived,
     });
-    
+
     const items = conn.nodes.map((p) => mapProjectNodeToListItem(p));
-    
+
     const pageInfo = conn.pageInfo;
     const hasMore = pageInfo?.hasNextPage ?? false;
-    const nextCursor = hasMore ? pageInfo?.endCursor ?? undefined : undefined;
+    const nextCursor = hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (config.TOON_OUTPUT_ENABLED) {
+      // Convert items to RawProjectData for TOON processing
+      const rawProjects: RawProjectData[] = conn.nodes.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: (p as unknown as { description?: string }).description,
+        state: p.state,
+        priority: (p as unknown as { priority?: number }).priority,
+        progress: (p as unknown as { progress?: number }).progress,
+        leadId: (p as unknown as { leadId?: string }).leadId,
+        lead: (p as unknown as { lead?: { id?: string } }).lead,
+        teams: (p as unknown as { teams?: { nodes?: Array<{ key?: string }> } }).teams
+          ?.nodes,
+        startDate: (p as unknown as { startDate?: string }).startDate,
+        targetDate: (p as unknown as { targetDate?: string }).targetDate,
+        health: (p as unknown as { health?: string }).health,
+        createdAt: (p as unknown as { createdAt?: Date | string }).createdAt,
+      }));
+
+      // Initialize registry if needed (lazy init)
+      let registry: ShortKeyRegistry | null = null;
+      try {
+        registry = await getOrInitRegistry(
+          {
+            sessionId: context.sessionId,
+            transport: 'stdio',
+          },
+          () => fetchWorkspaceDataForRegistry(client),
+        );
+      } catch (error) {
+        // Registry init failed, continue without it
+        console.error('Registry initialization failed:', error);
+      }
+
+      // Build TOON response
+      const toonResponse = buildProjectsToonResponse(rawProjects, registry);
+
+      // Encode TOON output
+      const toonOutput = encodeResponse(rawProjects, toonResponse);
+
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+        structuredContent: {
+          _format: 'toon',
+          _version: '1',
+          count: rawProjects.length,
+          hasMore,
+          nextCursor,
+        },
+      };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
+    // ─────────────────────────────────────────────────────────────────────────
 
     // Build query echo
     const query = {
@@ -105,13 +385,13 @@ export const listProjectsTool = defineTool({
       nextCursor,
       limit: first,
     });
-    
+
     const preview = previewLinesFromItems(
       items as unknown as Record<string, unknown>[],
       (p) =>
         `${String((p.name as string) ?? '')} (${p.id}) — state ${String((p.state as string) ?? '')}`,
     );
-    
+
     const message = summarizeList({
       subject: 'Projects',
       count: items.length,
@@ -120,13 +400,15 @@ export const listProjectsTool = defineTool({
       previewLines: preview,
       nextSteps: meta.nextSteps,
     });
-    
-    const parts: Array<{ type: 'text'; text: string }> = [{ type: 'text', text: message }];
-    
+
+    const parts: Array<{ type: 'text'; text: string }> = [
+      { type: 'text', text: message },
+    ];
+
     if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
       parts.push({ type: 'text', text: JSON.stringify(structured) });
     }
-    
+
     return { content: parts, structuredContent: structured };
   },
 });
@@ -139,13 +421,19 @@ const CreateProjectsInputSchema = z.object({
         name: z.string().describe('Project name. Required.'),
         description: z.string().optional().describe('Markdown description.'),
         teamId: z.string().optional().describe('Team UUID to associate.'),
-        leadId: z.string().optional().describe('Lead user UUID.'),
+        leadId: z
+          .string()
+          .optional()
+          .describe('Lead user UUID or short key (u0, u1...).'),
+        lead: z.string().optional().describe('Lead user short key (u0, u1...).'),
         targetDate: z.string().optional().describe('Target date (YYYY-MM-DD).'),
       }),
     )
     .min(1)
     .max(50)
-    .describe('Projects to create. Use update_projects to change state after creation.'),
+    .describe(
+      'Projects to create. Use update_projects to change state after creation.',
+    ),
 });
 
 export const createProjectsTool = defineTool({
@@ -161,15 +449,36 @@ export const createProjectsTool = defineTool({
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
     const client = await getLinearClient(context);
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
-    
+
+    // Initialize registry if TOON is enabled for short key resolution
+    let registry: ShortKeyRegistry | null = null;
+    if (config.TOON_OUTPUT_ENABLED) {
+      try {
+        registry = await getOrInitRegistry(
+          {
+            sessionId: context.sessionId,
+            transport: 'stdio',
+          },
+          () => fetchWorkspaceDataForRegistry(client),
+        );
+      } catch (error) {
+        console.error('Registry initialization failed:', error);
+      }
+    }
+
     const results: {
       index: number;
       ok: boolean;
       id?: string;
-      error?: string;
+      projectKey?: string;
+      name?: string;
+      state?: string;
+      error?: string | { code: string; message: string; suggestions: string[] };
       code?: string;
+      input?: { name: string; teamId?: string };
+      success?: boolean;
     }[] = [];
-    
+
     for (let i = 0; i < args.items.length; i++) {
       const it = args.items[i];
       try {
@@ -181,25 +490,49 @@ export const createProjectsTool = defineTool({
         if (i > 0) {
           await delay(100);
         }
-        
+
+        // Resolve lead short key (u0, u1...) to UUID if registry available
+        let resolvedLeadId = it.leadId;
+        const leadShortKey = it.lead ?? it.leadId;
+        if (registry && leadShortKey && /^u\d+$/.test(leadShortKey)) {
+          const uuid = tryResolveShortKey(registry, 'user', leadShortKey);
+          if (uuid) {
+            resolvedLeadId = uuid;
+          }
+        }
+
         const call = () =>
           client.createProject({
             name: it.name,
             description: it.description,
-            leadId: it.leadId,
+            leadId: resolvedLeadId,
             targetDate: it.targetDate,
             teamIds: it.teamId ? [it.teamId] : [],
           });
-        
+
         const payload = await withRetry(
           () => (args.items.length > 1 ? gate(call) : call()),
           { maxRetries: 3, baseDelayMs: 500 },
         );
-        
+
+        const project = payload.project as {
+          id?: string;
+          state?: string;
+        } | null;
+
+        // Get project short key for TOON output
+        const projectKey =
+          registry && project?.id
+            ? tryGetShortKey(registry, 'project', project.id)
+            : undefined;
+
         results.push({
           input: { name: it.name, teamId: it.teamId },
           success: payload.success ?? true,
-          id: (payload.project as { id?: string } | null | undefined)?.id,
+          id: project?.id,
+          projectKey,
+          name: it.name,
+          state: project?.state ?? 'planned',
           // Legacy
           index: i,
           ok: payload.success ?? true,
@@ -224,37 +557,119 @@ export const createProjectsTool = defineTool({
         });
       }
     }
-    
+
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success).length;
-    
+
     const summary = {
       total: args.items.length,
       succeeded,
       failed,
       ok: succeeded,
     };
-    
+
     const meta = {
       nextSteps: ['Use list_projects to verify.', 'Use update_projects to modify.'],
       relatedTools: ['list_projects', 'update_projects', 'list_issues'],
     };
-    
-    const structured = CreateProjectsOutputSchema.parse({ results, summary, meta });
-    
-    const okIds = results
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (config.TOON_OUTPUT_ENABLED) {
+      // Build TOON results section
+      const toonResults: ToonRow[] = results.map((r) => ({
+        index: r.index,
+        status: r.success ? 'ok' : 'error',
+        key: r.projectKey ?? '',
+        error:
+          r.success !== true
+            ? typeof r.error === 'object'
+              ? ((r.error as { message?: string }).message ?? '')
+              : String(r.error ?? '')
+            : '',
+      }));
+
+      // Build created projects section (only for successful results)
+      const createdProjects: ToonRow[] = results
+        .filter((r) => r.success)
+        .map((r) => ({
+          key: r.projectKey ?? '',
+          name: r.name ?? '',
+          state: r.state ?? 'planned',
+        }));
+
+      // Build TOON response
+      const toonResponse: ToonResponse = {
+        meta: {
+          fields: ['action', 'succeeded', 'failed', 'total'],
+          values: {
+            action: 'create_projects',
+            succeeded,
+            failed,
+            total: args.items.length,
+          },
+        },
+        data: [
+          { schema: PROJECT_WRITE_RESULT_SCHEMA, items: toonResults },
+          ...(createdProjects.length > 0
+            ? [{ schema: CREATED_PROJECT_SCHEMA, items: createdProjects }]
+            : []),
+        ],
+      };
+
+      const toonOutput = encodeToon(toonResponse);
+
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+        structuredContent: {
+          _format: 'toon',
+          _version: '1',
+          action: 'create_projects',
+          succeeded,
+          failed,
+          total: args.items.length,
+        },
+      };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Strip TOON-specific fields for legacy schema compatibility
+    // BatchResultSchema only allows: input, success, id, identifier, url, error, index, ok
+    const legacyResults = results.map((r) => ({
+      index: r.index,
+      ok: r.ok,
+      id: r.id,
+      error: r.error,
+      input: r.input,
+      success: r.success,
+    }));
+
+    const structured = CreateProjectsOutputSchema.parse({
+      results: legacyResults,
+      summary,
+      meta,
+    });
+
+    const okIds = legacyResults
       .filter((r) => r.ok)
       .map((r) => r.id ?? `item[${String(r.index)}]`) as string[];
-    
-    const failures = results
+
+    const failures = legacyResults
       .filter((r) => !r.ok)
       .map((r) => ({
         index: r.index,
         id: undefined,
-        error: r.error ?? '',
+        error:
+          typeof r.error === 'object'
+            ? ((r.error as { message?: string }).message ?? '')
+            : (r.error ?? ''),
         code: undefined,
       }));
-    
+
     const text = summarizeBatch({
       action: 'Created projects',
       ok: summary.ok,
@@ -263,13 +678,13 @@ export const createProjectsTool = defineTool({
       failures,
       nextSteps: ['Use list_projects to verify; update_projects to modify.'],
     });
-    
+
     const parts: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-    
+
     if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
       parts.push({ type: 'text', text: JSON.stringify(structured) });
     }
-    
+
     return { content: parts, structuredContent: structured };
   },
 });
@@ -279,19 +694,66 @@ const UpdateProjectsInputSchema = z.object({
   items: z
     .array(
       z.object({
-        id: z.string().describe('Project UUID. Required.'),
+        id: z.string().describe('Project UUID or short key (pr0, pr1...). Required.'),
         name: z.string().optional().describe('New project name.'),
         description: z.string().optional().describe('New markdown description.'),
-        leadId: z.string().optional().describe('New lead user UUID.'),
+        leadId: z
+          .string()
+          .optional()
+          .describe('New lead user UUID or short key (u0, u1...).'),
+        lead: z.string().optional().describe('New lead user short key (u0, u1...).'),
         targetDate: z.string().optional().describe('New target date (YYYY-MM-DD).'),
-        state: z.string().optional().describe("New state: 'planned', 'started', 'paused', 'completed', 'canceled'."),
-        archived: z.boolean().optional().describe('Set true to archive, false to unarchive.'),
+        state: z
+          .string()
+          .optional()
+          .describe(
+            "New state: 'planned', 'started', 'paused', 'completed', 'canceled'.",
+          ),
+        archived: z
+          .boolean()
+          .optional()
+          .describe('Set true to archive, false to unarchive.'),
       }),
     )
     .min(1)
     .max(50)
     .describe('Projects to update.'),
 });
+
+/**
+ * Capture project snapshot for before/after diff.
+ */
+interface ProjectSnapshot {
+  id: string;
+  name?: string;
+  state?: string;
+  targetDate?: string | null;
+  leadId?: string | null;
+}
+
+async function captureProjectSnapshot(
+  client: Awaited<ReturnType<typeof getLinearClient>>,
+  projectId: string,
+): Promise<ProjectSnapshot | null> {
+  try {
+    const projectsConn = await client.projects({
+      first: 1,
+      filter: { id: { eq: projectId } },
+    });
+    const project = projectsConn.nodes[0];
+    if (!project) return null;
+
+    return {
+      id: project.id,
+      name: project.name,
+      state: project.state,
+      targetDate: (project as unknown as { targetDate?: string }).targetDate ?? null,
+      leadId: (project as unknown as { leadId?: string }).leadId ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export const updateProjectsTool = defineTool({
   name: toolsMetadata.update_projects.name,
@@ -306,15 +768,40 @@ export const updateProjectsTool = defineTool({
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
     const client = await getLinearClient(context);
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
-    
+
+    // Initialize registry if TOON is enabled for short key resolution
+    let registry: ShortKeyRegistry | null = null;
+    if (config.TOON_OUTPUT_ENABLED) {
+      try {
+        registry = await getOrInitRegistry(
+          {
+            sessionId: context.sessionId,
+            transport: 'stdio',
+          },
+          () => fetchWorkspaceDataForRegistry(client),
+        );
+      } catch (error) {
+        console.error('Registry initialization failed:', error);
+      }
+    }
+
+    // Track results with changes for TOON output
     const results: {
       index: number;
       ok: boolean;
       id?: string;
-      error?: string;
+      projectKey?: string;
+      changes?: Array<{
+        field: string;
+        before: string | null;
+        after: string | null;
+      }>;
+      error?: string | { code: string; message: string; suggestions: string[] };
       code?: string;
+      input?: { id: string; name?: string; state?: string };
+      success?: boolean;
     }[] = [];
-    
+
     for (let i = 0; i < args.items.length; i++) {
       const it = args.items[i];
       try {
@@ -326,16 +813,40 @@ export const updateProjectsTool = defineTool({
         if (i > 0) {
           await delay(100);
         }
-        
+
+        // Resolve project short key (pr0, pr1...) to UUID if registry available
+        let resolvedProjectId = it.id;
+        if (registry && /^pr\d+$/.test(it.id)) {
+          const uuid = tryResolveShortKey(registry, 'project', it.id);
+          if (uuid) {
+            resolvedProjectId = uuid;
+          }
+        }
+
+        // Resolve lead short key (u0, u1...) to UUID if registry available
+        let resolvedLeadId = it.leadId;
+        const leadShortKey = it.lead ?? it.leadId;
+        if (registry && leadShortKey && /^u\d+$/.test(leadShortKey)) {
+          const uuid = tryResolveShortKey(registry, 'user', leadShortKey);
+          if (uuid) {
+            resolvedLeadId = uuid;
+          }
+        }
+
+        // Capture BEFORE snapshot for diff (only if TOON enabled)
+        const beforeSnapshot = config.TOON_OUTPUT_ENABLED
+          ? await gate(() => captureProjectSnapshot(client, resolvedProjectId))
+          : null;
+
         const updatePayload: Record<string, unknown> = {};
         if (it.name) updatePayload.name = it.name;
         if (it.description) updatePayload.description = it.description;
-        if (it.leadId) updatePayload.leadId = it.leadId;
+        if (resolvedLeadId) updatePayload.leadId = resolvedLeadId;
         if (it.targetDate) updatePayload.targetDate = it.targetDate;
         if (it.state) updatePayload.state = it.state;
 
-        const call = () => client.updateProject(it.id, updatePayload);
-        
+        const call = () => client.updateProject(resolvedProjectId, updatePayload);
+
         const result = await withRetry(
           () => (args.items.length > 1 ? gate(call) : call()),
           { maxRetries: 3, baseDelayMs: 500 },
@@ -345,19 +856,79 @@ export const updateProjectsTool = defineTool({
         if (typeof it.archived === 'boolean') {
           try {
             if (it.archived) {
-              await client.archiveProject(it.id);
+              await client.archiveProject(resolvedProjectId);
             } else {
-              await client.unarchiveProject(it.id);
+              await client.unarchiveProject(resolvedProjectId);
             }
           } catch {
             // Ignore archive errors to preserve other updates
           }
         }
-        
+
+        // Capture AFTER snapshot for diff (only if TOON enabled)
+        const afterSnapshot = config.TOON_OUTPUT_ENABLED
+          ? await gate(() => captureProjectSnapshot(client, resolvedProjectId))
+          : null;
+
+        // Compute changes
+        const changes: Array<{
+          field: string;
+          before: string | null;
+          after: string | null;
+        }> = [];
+
+        if (beforeSnapshot && afterSnapshot) {
+          if (beforeSnapshot.state !== afterSnapshot.state) {
+            changes.push({
+              field: 'state',
+              before: beforeSnapshot.state ?? null,
+              after: afterSnapshot.state ?? null,
+            });
+          }
+          if (beforeSnapshot.name !== afterSnapshot.name) {
+            changes.push({
+              field: 'name',
+              before: beforeSnapshot.name ?? null,
+              after: afterSnapshot.name ?? null,
+            });
+          }
+          if (beforeSnapshot.targetDate !== afterSnapshot.targetDate) {
+            changes.push({
+              field: 'targetDate',
+              before: beforeSnapshot.targetDate ?? null,
+              after: afterSnapshot.targetDate ?? null,
+            });
+          }
+          if (beforeSnapshot.leadId !== afterSnapshot.leadId) {
+            // Convert lead UUID to short key for TOON output
+            const beforeLeadKey =
+              registry && beforeSnapshot.leadId
+                ? tryGetShortKey(registry, 'user', beforeSnapshot.leadId)
+                : beforeSnapshot.leadId;
+            const afterLeadKey =
+              registry && afterSnapshot.leadId
+                ? tryGetShortKey(registry, 'user', afterSnapshot.leadId)
+                : afterSnapshot.leadId;
+            changes.push({
+              field: 'lead',
+              before: beforeLeadKey ?? null,
+              after: afterLeadKey ?? null,
+            });
+          }
+        }
+
+        // Get project short key for TOON output
+        const projectKey =
+          registry && resolvedProjectId
+            ? tryGetShortKey(registry, 'project', resolvedProjectId)
+            : undefined;
+
         results.push({
           input: { id: it.id, name: it.name, state: it.state },
           success: result.success ?? true,
-          id: it.id,
+          id: resolvedProjectId,
+          projectKey,
+          changes,
           // Legacy
           index: i,
           ok: result.success ?? true,
@@ -383,37 +954,123 @@ export const updateProjectsTool = defineTool({
         });
       }
     }
-    
+
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success).length;
-    
+
     const summary = {
       total: args.items.length,
       succeeded,
       failed,
       ok: succeeded,
     };
-    
+
     const meta = {
       nextSteps: ['Use list_projects to verify changes.'],
       relatedTools: ['list_projects', 'list_issues'],
     };
-    
-    const structured = UpdateProjectsOutputSchema.parse({ results, summary, meta });
-    
-    const okIds = results
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (config.TOON_OUTPUT_ENABLED) {
+      // Build TOON results section
+      const toonResults: ToonRow[] = results.map((r) => ({
+        index: r.index,
+        status: r.success ? 'ok' : 'error',
+        key: r.projectKey ?? '',
+        error:
+          r.success !== true
+            ? typeof r.error === 'object'
+              ? ((r.error as { message?: string }).message ?? '')
+              : String(r.error ?? '')
+            : '',
+      }));
+
+      // Build changes section (flatten all changes from all results)
+      const allChanges: ToonRow[] = [];
+      for (const r of results.filter((r) => r.success && r.changes)) {
+        for (const change of r.changes ?? []) {
+          allChanges.push({
+            key: r.projectKey ?? '',
+            field: change.field,
+            before: change.before ?? '',
+            after: change.after ?? '',
+          });
+        }
+      }
+
+      // Build TOON response
+      const toonResponse: ToonResponse = {
+        meta: {
+          fields: ['action', 'succeeded', 'failed', 'total'],
+          values: {
+            action: 'update_projects',
+            succeeded,
+            failed,
+            total: args.items.length,
+          },
+        },
+        data: [
+          { schema: PROJECT_WRITE_RESULT_SCHEMA, items: toonResults },
+          ...(allChanges.length > 0
+            ? [{ schema: PROJECT_CHANGES_SCHEMA, items: allChanges }]
+            : []),
+        ],
+      };
+
+      const toonOutput = encodeToon(toonResponse);
+
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+        structuredContent: {
+          _format: 'toon',
+          _version: '1',
+          action: 'update_projects',
+          succeeded,
+          failed,
+          total: args.items.length,
+        },
+      };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Strip TOON-specific fields for legacy schema compatibility
+    // BatchResultSchema only allows: input, success, id, identifier, url, error, index, ok
+    const legacyResults = results.map((r) => ({
+      index: r.index,
+      ok: r.ok,
+      id: r.id,
+      error: r.error,
+      input: r.input,
+      success: r.success,
+    }));
+
+    const structured = UpdateProjectsOutputSchema.parse({
+      results: legacyResults,
+      summary,
+      meta,
+    });
+
+    const okIds = legacyResults
       .filter((r) => r.ok)
       .map((r) => r.id ?? `item[${String(r.index)}]`) as string[];
-    
-    const failures = results
+
+    const failures = legacyResults
       .filter((r) => !r.ok)
       .map((r) => ({
         index: r.index,
         id: r.id,
-        error: r.error ?? '',
+        error:
+          typeof r.error === 'object'
+            ? ((r.error as { message?: string }).message ?? '')
+            : (r.error ?? ''),
         code: undefined,
       }));
-    
+
     const text = summarizeBatch({
       action: 'Updated projects',
       ok: summary.ok,
@@ -422,20 +1079,13 @@ export const updateProjectsTool = defineTool({
       failures,
       nextSteps: ['Call list_projects to verify changes.'],
     });
-    
+
     const parts: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-    
+
     if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
       parts.push({ type: 'text', text: JSON.stringify(structured) });
     }
-    
+
     return { content: parts, structuredContent: structured };
   },
 });
-
-
-
-
-
-
-

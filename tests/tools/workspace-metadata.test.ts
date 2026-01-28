@@ -3,12 +3,15 @@
  * Verifies: input validation, output shape, viewer/teams/states/labels/projects fetching.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { z } from 'zod';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { workspaceMetadataTool } from '../../src/shared/tools/linear/workspace-metadata.js';
-import { createMockLinearClient, resetMockCalls, type MockLinearClient } from '../mocks/linear-client.js';
 import type { ToolContext } from '../../src/shared/tools/types.js';
 import workspaceMetadataFixtures from '../fixtures/tool-inputs/workspace-metadata.json';
+import {
+  createMockLinearClient,
+  type MockLinearClient,
+  resetMockCalls,
+} from '../mocks/linear-client.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Setup
@@ -88,7 +91,10 @@ describe('workspace_metadata input validation', () => {
 
 describe('workspace_metadata handler', () => {
   it('returns viewer profile when include contains "profile"', async () => {
-    const result = await workspaceMetadataTool.handler({ include: ['profile'] }, baseContext);
+    const result = await workspaceMetadataTool.handler(
+      { include: ['profile'] },
+      baseContext,
+    );
 
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toBeDefined();
@@ -104,7 +110,10 @@ describe('workspace_metadata handler', () => {
   });
 
   it('returns teams when include contains "teams"', async () => {
-    const result = await workspaceMetadataTool.handler({ include: ['teams'] }, baseContext);
+    const result = await workspaceMetadataTool.handler(
+      { include: ['teams'] },
+      baseContext,
+    );
 
     expect(result.isError).toBeFalsy();
     const structured = result.structuredContent as Record<string, unknown>;
@@ -245,7 +254,10 @@ describe('workspace_metadata handler', () => {
   });
 
   it('returns text content with viewer info', async () => {
-    const result = await workspaceMetadataTool.handler({ include: ['profile'] }, baseContext);
+    const result = await workspaceMetadataTool.handler(
+      { include: ['profile'] },
+      baseContext,
+    );
 
     expect(result.content).toBeDefined();
     expect(result.content.length).toBeGreaterThan(0);
@@ -296,3 +308,191 @@ describe('workspace_metadata output schema compliance', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('workspace_metadata TOON output', () => {
+  // Save original config value
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    // Import config module dynamically to access the mutable config
+    const configModule = await import('../../src/config/env.js');
+    originalToonEnabled = configModule.config.TOON_OUTPUT_ENABLED;
+  });
+
+  afterEach(async () => {
+    // Restore original config value
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      originalToonEnabled;
+  });
+
+  it('returns legacy format when TOON_OUTPUT_ENABLED is false', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      false;
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as Record<string, unknown>;
+
+    // Legacy format has these fields
+    expect(structured.viewer).toBeDefined();
+    expect(structured.teams).toBeDefined();
+    expect(structured.summary).toBeDefined();
+    expect(structured.quickLookup).toBeDefined();
+
+    // Should NOT have TOON marker
+    expect(structured._toon).toBeUndefined();
+  });
+
+  it('returns TOON format when TOON_OUTPUT_ENABLED is true', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as Record<string, unknown>;
+
+    // TOON format has these marker fields
+    expect(structured._toon).toBe(true);
+    expect(structured._format).toBe('workspace_metadata_tier1');
+
+    // Should have counts
+    expect(typeof structured.teams).toBe('number');
+    expect(typeof structured.users).toBe('number');
+    expect(typeof structured.states).toBe('number');
+    expect(typeof structured.labels).toBe('number');
+    expect(typeof structured.projects).toBe('number');
+    expect(typeof structured.cycles).toBe('number');
+  });
+
+  it('returns TOON text content with proper format', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
+
+    const textContent = result.content[0];
+    expect(textContent.type).toBe('text');
+
+    // TOON output should contain section headers
+    const text = textContent.text;
+    expect(text).toContain('_meta{');
+    expect(text).toContain('_teams[');
+    expect(text).toContain('_users[');
+    expect(text).toContain('_states[');
+    expect(text).toContain('_labels[');
+  });
+
+  it('includes all teams in TOON output', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+    const text = result.content[0].text;
+
+    // Should include both teams from mock
+    expect(text).toContain('ENG');
+    expect(text).toContain('Engineering');
+    expect(text).toContain('DES');
+    expect(text).toContain('Design');
+  });
+
+  it('includes all users in TOON output (Tier 1)', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+    const text = result.content[0].text;
+    const structured = result.structuredContent as Record<string, unknown>;
+
+    // Tier 1 should include ALL users
+    expect(structured.users as number).toBeGreaterThan(0);
+
+    // User short keys should be in output
+    expect(text).toContain('u0');
+  });
+
+  it('includes all states in TOON output (Tier 1)', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+    const text = result.content[0].text;
+    const structured = result.structuredContent as Record<string, unknown>;
+
+    // Tier 1 should include ALL states
+    expect(structured.states as number).toBeGreaterThan(0);
+
+    // State short keys should be in output
+    expect(text).toContain('s0');
+
+    // State names should be present
+    expect(text).toContain('Backlog');
+    expect(text).toContain('Todo');
+    expect(text).toContain('In Progress');
+    expect(text).toContain('Done');
+  });
+
+  it('includes all labels in TOON output (Tier 1)', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+    const text = result.content[0].text;
+    const structured = result.structuredContent as Record<string, unknown>;
+
+    // Tier 1 should include ALL labels
+    expect(structured.labels as number).toBeGreaterThan(0);
+
+    // Label names should be present (labels use name as key, not short key)
+    expect(text).toContain('Bug');
+    expect(text).toContain('Feature');
+  });
+
+  it('stores registry when TOON is enabled', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    // Import registry functions
+    const { getStoredRegistry, clearRegistry } = await import(
+      '../../src/shared/toon/registry.js'
+    );
+
+    // Clear any existing registry
+    clearRegistry(baseContext.sessionId);
+
+    await workspaceMetadataTool.handler({}, baseContext);
+
+    // Registry should be stored
+    const registry = getStoredRegistry(baseContext.sessionId);
+    expect(registry).toBeDefined();
+    expect(registry?.users.size).toBeGreaterThan(0);
+    expect(registry?.states.size).toBeGreaterThan(0);
+    expect(registry?.projects.size).toBeGreaterThan(0);
+
+    // Clean up
+    clearRegistry(baseContext.sessionId);
+  });
+
+  it('accepts forceRefresh parameter', async () => {
+    // Test that forceRefresh is accepted in input schema
+    const result = workspaceMetadataTool.inputSchema.safeParse({ forceRefresh: true });
+    expect(result.success).toBe(true);
+  });
+});

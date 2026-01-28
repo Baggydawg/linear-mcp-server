@@ -1,55 +1,106 @@
 /**
  * Update Issues tool - batch update issues in Linear.
+ *
+ * Supports TOON output format when TOON_OUTPUT_ENABLED=true.
+ * Accepts short keys (u0, s1, pr0) for assignee, state, and project inputs.
  */
 
 import { z } from 'zod';
-import { toolsMetadata } from '../../../config/metadata.js';
 import { config } from '../../../config/env.js';
+import { toolsMetadata } from '../../../config/metadata.js';
 import { UpdateIssuesOutputSchema } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import { makeConcurrencyGate, withRetry, delay } from '../../../utils/limits.js';
+import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { summarizeBatch } from '../../../utils/messages.js';
+import {
+  getIssueTeamId,
+  resolveLabels,
+  resolvePriority,
+  resolveProject,
+  resolveState,
+} from '../../../utils/resolvers.js';
 import { resolveAssignee } from '../../../utils/user-resolver.js';
-import { resolvePriority, resolveState, resolveLabels, resolveProject, getIssueTeamId } from '../../../utils/resolvers.js';
+import {
+  CHANGES_SCHEMA,
+  encodeToon,
+  getStoredRegistry,
+  type ShortKeyRegistry,
+  type ToonResponse,
+  tryGetShortKey,
+  tryResolveShortKey,
+  WRITE_RESULT_META_SCHEMA,
+  WRITE_RESULT_SCHEMA,
+} from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 import {
-  createTeamSettingsCache,
-  validateEstimate,
-  validatePriority,
   captureIssueSnapshot,
   computeFieldChanges,
+  createTeamSettingsCache,
   formatDiffLine,
+  validateEstimate,
+  validatePriority,
 } from './shared/index.js';
 
 const IssueUpdateItem = z.object({
   id: z.string().describe('Issue UUID or identifier (e.g. ENG-123). Required.'),
   title: z.string().optional().describe('New title.'),
   description: z.string().optional().describe('New markdown description.'),
-  // State - UUID or human-readable
+  // State - short key, UUID, or human-readable
+  state: z
+    .string()
+    .optional()
+    .describe(
+      'State short key (s0, s1) from workspace_metadata. Preferred input method.',
+    ),
   stateId: z
     .string()
     .optional()
-    .describe('Workflow state UUID. Or use stateName/stateType for name-based lookup.'),
+    .describe(
+      'Workflow state UUID. Or use state/stateName/stateType for name-based lookup.',
+    ),
   stateName: z
     .string()
     .optional()
-    .describe('State name from issue\'s team. Use workspace_metadata to see available names.'),
+    .describe(
+      "State name from issue's team. Use workspace_metadata to see available names.",
+    ),
   stateType: z
     .enum(['backlog', 'unstarted', 'started', 'completed', 'canceled'])
     .optional()
     .describe('State type. Finds first matching state.'),
   // Labels - UUIDs or names (use workspace_metadata to see available labels)
-  labelIds: z.array(z.string()).optional().describe('Replace all labels with these UUIDs.'),
+  labelIds: z
+    .array(z.string())
+    .optional()
+    .describe('Replace all labels with these UUIDs.'),
   labelNames: z
     .array(z.string())
     .optional()
     .describe('Replace all labels with these names from your workspace.'),
-  addLabelIds: z.array(z.string()).optional().describe('Add these label UUIDs (incremental).'),
-  addLabelNames: z.array(z.string()).optional().describe('Add these label names (incremental).'),
-  removeLabelIds: z.array(z.string()).optional().describe('Remove these label UUIDs (incremental).'),
-  removeLabelNames: z.array(z.string()).optional().describe('Remove these label names (incremental).'),
-  // Assignee - UUID, name, or email (use workspace_metadata to list users)
+  addLabelIds: z
+    .array(z.string())
+    .optional()
+    .describe('Add these label UUIDs (incremental).'),
+  addLabelNames: z
+    .array(z.string())
+    .optional()
+    .describe('Add these label names (incremental).'),
+  removeLabelIds: z
+    .array(z.string())
+    .optional()
+    .describe('Remove these label UUIDs (incremental).'),
+  removeLabelNames: z
+    .array(z.string())
+    .optional()
+    .describe('Remove these label names (incremental).'),
+  // Assignee - short key, UUID, name, or email (use workspace_metadata to list users)
+  assignee: z
+    .string()
+    .optional()
+    .describe(
+      'User short key (u0, u1) from workspace_metadata. Preferred input method.',
+    ),
   assigneeId: z.string().optional().describe('New assignee user UUID.'),
   assigneeName: z
     .string()
@@ -59,14 +110,33 @@ const IssueUpdateItem = z.object({
     .string()
     .optional()
     .describe('User email to assign (exact match, case-insensitive).'),
-  // Project - UUID or name
+  // Project - short key, UUID, or name
+  project: z
+    .string()
+    .optional()
+    .describe(
+      'Project short key (pr0, pr1) from workspace_metadata. Preferred input method.',
+    ),
   projectId: z.string().optional().describe('New project UUID.'),
   projectName: z.string().optional().describe('Project name. Resolved to projectId.'),
   // Priority - number or string
   priority: z
     .union([
       z.number().int().min(0).max(4),
-      z.enum(['None', 'Urgent', 'High', 'Medium', 'Normal', 'Low', 'none', 'urgent', 'high', 'medium', 'normal', 'low']),
+      z.enum([
+        'None',
+        'Urgent',
+        'High',
+        'Medium',
+        'Normal',
+        'Low',
+        'none',
+        'urgent',
+        'high',
+        'medium',
+        'normal',
+        'low',
+      ]),
     ])
     .optional()
     .describe('Priority: 0-4 or "None"/"Urgent"/"High"/"Medium"/"Low".'),
@@ -75,13 +145,20 @@ const IssueUpdateItem = z.object({
     .boolean()
     .optional()
     .describe('If true and estimate=0, sends 0. Otherwise zero is omitted.'),
-  dueDate: z.string().optional().describe('New due date (YYYY-MM-DD) or empty string to clear.'),
+  dueDate: z
+    .string()
+    .optional()
+    .describe('New due date (YYYY-MM-DD) or empty string to clear.'),
   parentId: z.string().optional().describe('New parent issue UUID.'),
   archived: z.boolean().optional().describe('Set true to archive, false to unarchive.'),
 });
 
 const InputSchema = z.object({
-  items: z.array(IssueUpdateItem).min(1).max(50).describe('Issues to update. Batch up to 50.'),
+  items: z
+    .array(IssueUpdateItem)
+    .min(1)
+    .max(50)
+    .describe('Issues to update. Batch up to 50.'),
   parallel: z.boolean().optional().describe('Run in parallel. Default: sequential.'),
   dry_run: z.boolean().optional().describe('If true, validate but do not update.'),
 });
@@ -124,22 +201,50 @@ export const updateIssuesTool = defineTool({
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
     const { items } = args;
 
-    const results: {
+    // Get registry for short key resolution (if TOON enabled or short keys used)
+    let registry: ShortKeyRegistry | undefined;
+    const usesShortKeys = items.some((it) => it.assignee || it.state || it.project);
+    if (config.TOON_OUTPUT_ENABLED || usesShortKeys) {
+      registry = getStoredRegistry(context.sessionId);
+      // Registry may not exist if workspace_metadata hasn't been called yet
+    }
+
+    const results: Array<{
       index: number;
       ok: boolean;
+      success?: boolean;
       id?: string;
-      error?: string;
+      identifier?: string;
+      error?:
+        | string
+        | {
+            code: string;
+            message: string;
+            suggestions?: string[];
+            retryable?: boolean;
+          };
       code?: string;
-    }[] = [];
+      input?: Record<string, unknown>;
+    }> = [];
 
     const teamAllowZeroCache = createTeamSettingsCache();
     const diffLines: string[] = [];
+
+    // Track changes for TOON output (use index signature for ToonRow compatibility)
+    const toonChanges: Array<{
+      identifier: string;
+      field: string;
+      before: string;
+      after: string;
+      [key: string]: unknown;
+    }> = [];
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i] as (typeof items)[number];
       try {
         // Capture BEFORE snapshot using shared utility
         const beforeSnapshot = await gate(() => captureIssueSnapshot(client, it.id));
+        const issueIdentifier = beforeSnapshot?.identifier ?? it.id;
 
         const payloadInput: Record<string, unknown> = {};
 
@@ -154,14 +259,53 @@ export const updateIssuesTool = defineTool({
         // Get team ID for resolution (needed for state/labels)
         const teamId = await getIssueTeamId(client, it.id);
 
-        // Resolve state from ID, name, or type
-        if (it.stateId) {
+        // Resolve state from short key, ID, name, or type
+        // Priority: state (short key) > stateId > stateName/stateType
+        if (it.state && registry) {
+          const resolvedStateId = tryResolveShortKey(registry, 'state', it.state);
+          if (resolvedStateId) {
+            payloadInput.stateId = resolvedStateId;
+          } else {
+            results.push({
+              index: i,
+              ok: false,
+              success: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: {
+                code: 'STATE_RESOLUTION_FAILED',
+                message: `Unknown state key '${it.state}'`,
+                suggestions: [
+                  'Call workspace_metadata to see available state keys (s0, s1, ...)',
+                ],
+              },
+            });
+            continue;
+          }
+        } else if (it.state && !registry) {
+          results.push({
+            index: i,
+            ok: false,
+            success: false,
+            id: it.id,
+            identifier: issueIdentifier,
+            error: {
+              code: 'REGISTRY_NOT_INITIALIZED',
+              message:
+                'Short key registry not initialized. Call workspace_metadata first.',
+              suggestions: ['Call workspace_metadata first to initialize the registry'],
+            },
+          });
+          continue;
+        } else if (it.stateId) {
           payloadInput.stateId = it.stateId;
         } else if (it.stateName || it.stateType) {
           if (!teamId) {
             results.push({
               index: i,
               ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
               error: 'Cannot resolve state: failed to get issue team',
               code: 'TEAM_RESOLUTION_FAILED',
             });
@@ -175,6 +319,8 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
               error: stateResult.error,
               code: 'STATE_RESOLUTION_FAILED',
             });
@@ -188,12 +334,26 @@ export const updateIssuesTool = defineTool({
           payloadInput.labelIds = it.labelIds;
         } else if (Array.isArray(it.labelNames) && it.labelNames.length > 0) {
           if (!teamId) {
-            results.push({ index: i, ok: false, error: 'Cannot resolve labels: failed to get issue team', code: 'TEAM_RESOLUTION_FAILED' });
+            results.push({
+              index: i,
+              ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: 'Cannot resolve labels: failed to get issue team',
+              code: 'TEAM_RESOLUTION_FAILED',
+            });
             continue;
           }
           const labelsResult = await resolveLabels(client, teamId, it.labelNames);
           if (!labelsResult.success) {
-            results.push({ index: i, ok: false, error: labelsResult.error, code: 'LABEL_RESOLUTION_FAILED' });
+            results.push({
+              index: i,
+              ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: labelsResult.error,
+              code: 'LABEL_RESOLUTION_FAILED',
+            });
             continue;
           }
           payloadInput.labelIds = labelsResult.value;
@@ -204,12 +364,26 @@ export const updateIssuesTool = defineTool({
           payloadInput.addedLabelIds = it.addLabelIds;
         } else if (Array.isArray(it.addLabelNames) && it.addLabelNames.length > 0) {
           if (!teamId) {
-            results.push({ index: i, ok: false, error: 'Cannot resolve labels: failed to get issue team', code: 'TEAM_RESOLUTION_FAILED' });
+            results.push({
+              index: i,
+              ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: 'Cannot resolve labels: failed to get issue team',
+              code: 'TEAM_RESOLUTION_FAILED',
+            });
             continue;
           }
           const addResult = await resolveLabels(client, teamId, it.addLabelNames);
           if (!addResult.success) {
-            results.push({ index: i, ok: false, error: addResult.error, code: 'LABEL_RESOLUTION_FAILED' });
+            results.push({
+              index: i,
+              ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: addResult.error,
+              code: 'LABEL_RESOLUTION_FAILED',
+            });
             continue;
           }
           payloadInput.addedLabelIds = addResult.value;
@@ -218,21 +392,75 @@ export const updateIssuesTool = defineTool({
         // Resolve removeLabelNames
         if (Array.isArray(it.removeLabelIds) && it.removeLabelIds.length > 0) {
           payloadInput.removedLabelIds = it.removeLabelIds;
-        } else if (Array.isArray(it.removeLabelNames) && it.removeLabelNames.length > 0) {
+        } else if (
+          Array.isArray(it.removeLabelNames) &&
+          it.removeLabelNames.length > 0
+        ) {
           if (!teamId) {
-            results.push({ index: i, ok: false, error: 'Cannot resolve labels: failed to get issue team', code: 'TEAM_RESOLUTION_FAILED' });
+            results.push({
+              index: i,
+              ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: 'Cannot resolve labels: failed to get issue team',
+              code: 'TEAM_RESOLUTION_FAILED',
+            });
             continue;
           }
           const removeResult = await resolveLabels(client, teamId, it.removeLabelNames);
           if (!removeResult.success) {
-            results.push({ index: i, ok: false, error: removeResult.error, code: 'LABEL_RESOLUTION_FAILED' });
+            results.push({
+              index: i,
+              ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: removeResult.error,
+              code: 'LABEL_RESOLUTION_FAILED',
+            });
             continue;
           }
           payloadInput.removedLabelIds = removeResult.value;
         }
 
-        // Resolve assignee from ID, name, or email
-        if (it.assigneeId || it.assigneeName || it.assigneeEmail) {
+        // Resolve assignee from short key, ID, name, or email
+        // Priority: assignee (short key) > assigneeId > assigneeName > assigneeEmail
+        if (it.assignee && registry) {
+          const resolvedAssigneeId = tryResolveShortKey(registry, 'user', it.assignee);
+          if (resolvedAssigneeId) {
+            payloadInput.assigneeId = resolvedAssigneeId;
+          } else {
+            results.push({
+              index: i,
+              ok: false,
+              success: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: {
+                code: 'USER_RESOLUTION_FAILED',
+                message: `Unknown user key '${it.assignee}'`,
+                suggestions: [
+                  'Call workspace_metadata to see available user keys (u0, u1, ...)',
+                ],
+              },
+            });
+            continue;
+          }
+        } else if (it.assignee && !registry) {
+          results.push({
+            index: i,
+            ok: false,
+            success: false,
+            id: it.id,
+            identifier: issueIdentifier,
+            error: {
+              code: 'REGISTRY_NOT_INITIALIZED',
+              message:
+                'Short key registry not initialized. Call workspace_metadata first.',
+              suggestions: ['Call workspace_metadata first to initialize the registry'],
+            },
+          });
+          continue;
+        } else if (it.assigneeId || it.assigneeName || it.assigneeEmail) {
           const assigneeResult = await resolveAssignee(client, {
             assigneeId: it.assigneeId,
             assigneeName: it.assigneeName,
@@ -243,6 +471,8 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
               error: assigneeResult.error.message,
               code: assigneeResult.error.code,
             });
@@ -254,13 +484,57 @@ export const updateIssuesTool = defineTool({
           }
         }
 
-        // Resolve project from ID or name
-        if (it.projectId) {
+        // Resolve project from short key, ID, or name
+        // Priority: project (short key) > projectId > projectName
+        if (it.project && registry) {
+          const resolvedProjectId = tryResolveShortKey(registry, 'project', it.project);
+          if (resolvedProjectId) {
+            payloadInput.projectId = resolvedProjectId;
+          } else {
+            results.push({
+              index: i,
+              ok: false,
+              success: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: {
+                code: 'PROJECT_RESOLUTION_FAILED',
+                message: `Unknown project key '${it.project}'`,
+                suggestions: [
+                  'Call workspace_metadata to see available project keys (pr0, pr1, ...)',
+                ],
+              },
+            });
+            continue;
+          }
+        } else if (it.project && !registry) {
+          results.push({
+            index: i,
+            ok: false,
+            success: false,
+            id: it.id,
+            identifier: issueIdentifier,
+            error: {
+              code: 'REGISTRY_NOT_INITIALIZED',
+              message:
+                'Short key registry not initialized. Call workspace_metadata first.',
+              suggestions: ['Call workspace_metadata first to initialize the registry'],
+            },
+          });
+          continue;
+        } else if (it.projectId) {
           payloadInput.projectId = it.projectId;
         } else if (it.projectName) {
           const projectResult = await resolveProject(client, it.projectName);
           if (!projectResult.success) {
-            results.push({ index: i, ok: false, error: projectResult.error, code: 'PROJECT_RESOLUTION_FAILED' });
+            results.push({
+              index: i,
+              ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: projectResult.error,
+              code: 'PROJECT_RESOLUTION_FAILED',
+            });
             continue;
           }
           payloadInput.projectId = projectResult.value;
@@ -270,7 +544,14 @@ export const updateIssuesTool = defineTool({
         if (it.priority !== undefined) {
           const priorityResult = resolvePriority(it.priority);
           if (!priorityResult.success) {
-            results.push({ index: i, ok: false, error: priorityResult.error, code: 'PRIORITY_INVALID' });
+            results.push({
+              index: i,
+              ok: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: priorityResult.error,
+              code: 'PRIORITY_INVALID',
+            });
             continue;
           }
           const validatedPriority = validatePriority(priorityResult.value);
@@ -282,15 +563,15 @@ export const updateIssuesTool = defineTool({
         // Use shared validation for estimate
         if (typeof it.estimate === 'number') {
           // Try to get team ID from the issue
-          let teamId: string | undefined;
+          let estimateTeamId: string | undefined;
           try {
             const issue = await client.issue(it.id);
-            teamId = (issue as unknown as { teamId?: string })?.teamId;
+            estimateTeamId = (issue as unknown as { teamId?: string })?.teamId;
           } catch {}
 
           const estimate = await validateEstimate(
             it.estimate,
-            teamId,
+            estimateTeamId,
             teamAllowZeroCache,
             client,
             it.allowZeroEstimate,
@@ -367,10 +648,13 @@ export const updateIssuesTool = defineTool({
         // Build input echo (only include provided fields)
         const inputEcho: Record<string, unknown> = { id: it.id };
         if (it.title) inputEcho.title = it.title;
+        if (it.state) inputEcho.state = it.state;
         if (it.stateId) inputEcho.stateId = it.stateId;
+        if (it.assignee) inputEcho.assignee = it.assignee;
         if (it.assigneeId) inputEcho.assigneeId = it.assigneeId;
         if (it.assigneeName) inputEcho.assigneeName = it.assigneeName;
         if (it.assigneeEmail) inputEcho.assigneeEmail = it.assigneeEmail;
+        if (it.project) inputEcho.project = it.project;
         if (it.projectId) inputEcho.projectId = it.projectId;
         if (it.addLabelIds) inputEcho.addLabelIds = it.addLabelIds;
         if (it.removeLabelIds) inputEcho.removeLabelIds = it.removeLabelIds;
@@ -379,7 +663,7 @@ export const updateIssuesTool = defineTool({
           input: inputEcho,
           success: payload.success ?? true,
           id: it.id,
-          // Legacy
+          identifier: issueIdentifier,
           index: i,
           ok: payload.success ?? true,
         });
@@ -390,9 +674,109 @@ export const updateIssuesTool = defineTool({
         // Compute changes using shared utility
         if (afterSnapshot) {
           const requestedFields = new Set(Object.keys(it));
-          const changes = computeFieldChanges(beforeSnapshot, afterSnapshot, requestedFields);
+          // Map short key field names to legacy field names for computeFieldChanges
+          if (requestedFields.has('state')) requestedFields.add('stateId');
+          if (requestedFields.has('assignee')) requestedFields.add('assigneeId');
+          if (requestedFields.has('project')) requestedFields.add('projectId');
 
-          // Format diff using shared utility
+          const changes = computeFieldChanges(
+            beforeSnapshot,
+            afterSnapshot,
+            requestedFields,
+          );
+
+          // Track changes for TOON output
+          if (registry && config.TOON_OUTPUT_ENABLED) {
+            const finalIdentifier = afterSnapshot.identifier ?? it.id;
+
+            // State change
+            if (changes.state) {
+              const beforeKey = beforeSnapshot?.stateId
+                ? (tryGetShortKey(registry, 'state', beforeSnapshot.stateId) ?? '')
+                : '';
+              const afterKey = afterSnapshot.stateId
+                ? (tryGetShortKey(registry, 'state', afterSnapshot.stateId) ?? '')
+                : '';
+              toonChanges.push({
+                identifier: finalIdentifier,
+                field: 'state',
+                before: beforeKey,
+                after: afterKey,
+              });
+            }
+
+            // Assignee change
+            if (changes.assignee) {
+              const beforeKey = beforeSnapshot?.assigneeId
+                ? (tryGetShortKey(registry, 'user', beforeSnapshot.assigneeId) ?? '')
+                : '';
+              const afterKey = afterSnapshot.assigneeId
+                ? (tryGetShortKey(registry, 'user', afterSnapshot.assigneeId) ?? '')
+                : '';
+              toonChanges.push({
+                identifier: finalIdentifier,
+                field: 'assignee',
+                before: beforeKey,
+                after: afterKey,
+              });
+            }
+
+            // Project change
+            if (changes.project) {
+              const beforeKey = beforeSnapshot?.projectId
+                ? (tryGetShortKey(registry, 'project', beforeSnapshot.projectId) ?? '')
+                : '';
+              const afterKey = afterSnapshot.projectId
+                ? (tryGetShortKey(registry, 'project', afterSnapshot.projectId) ?? '')
+                : '';
+              toonChanges.push({
+                identifier: finalIdentifier,
+                field: 'project',
+                before: beforeKey,
+                after: afterKey,
+              });
+            }
+
+            // Priority change
+            if (changes.priority) {
+              toonChanges.push({
+                identifier: finalIdentifier,
+                field: 'priority',
+                before: String(
+                  changes.priority.before === '—' ? '' : changes.priority.before,
+                ),
+                after: String(
+                  changes.priority.after === '—' ? '' : changes.priority.after,
+                ),
+              });
+            }
+
+            // Estimate change
+            if (changes.estimate) {
+              toonChanges.push({
+                identifier: finalIdentifier,
+                field: 'estimate',
+                before: String(
+                  changes.estimate.before === '—' ? '' : changes.estimate.before,
+                ),
+                after: String(
+                  changes.estimate.after === '—' ? '' : changes.estimate.after,
+                ),
+              });
+            }
+
+            // Title change
+            if (changes.title) {
+              toonChanges.push({
+                identifier: finalIdentifier,
+                field: 'title',
+                before: changes.title.before,
+                after: changes.title.after,
+              });
+            }
+          }
+
+          // Format diff using shared utility (for legacy output)
           if (Object.keys(changes).length > 0) {
             const diffLine = formatDiffLine(afterSnapshot, changes);
             diffLines.push(diffLine);
@@ -415,17 +799,17 @@ export const updateIssuesTool = defineTool({
           input: { id: it.id },
           success: false,
           id: it.id,
+          identifier: it.id,
           error: {
             code: 'LINEAR_UPDATE_ERROR',
             message: (error as Error).message,
             suggestions: [
-              "Verify the issue ID exists with list_issues or get_issues.",
-              "Check that stateId exists in workflowStatesByTeam.",
-              "Use list_users to find valid assigneeId.",
+              'Verify the issue ID exists with list_issues or get_issues.',
+              'Check that stateId exists in workflowStatesByTeam.',
+              'Use list_users to find valid assigneeId.',
             ],
             retryable: false,
           },
-          // Legacy
           index: i,
           ok: false,
         });
@@ -439,7 +823,6 @@ export const updateIssuesTool = defineTool({
       total: items.length,
       succeeded,
       failed,
-      // Legacy
       ok: succeeded,
     };
 
@@ -448,7 +831,7 @@ export const updateIssuesTool = defineTool({
       'Use list_issues or get_issues to verify changes.',
     ];
     if (failed > 0) {
-      metaNextSteps.push("Check error.suggestions for recovery hints.");
+      metaNextSteps.push('Check error.suggestions for recovery hints.');
     }
 
     const meta = {
@@ -456,18 +839,84 @@ export const updateIssuesTool = defineTool({
       relatedTools: ['list_issues', 'get_issues', 'add_comments'],
     };
 
-    const structured = UpdateIssuesOutputSchema.parse({ results, summary, meta });
+    // Clean results for schema validation (remove internal fields)
+    const cleanedResults = results.map((r) => ({
+      index: r.index,
+      ok: r.ok,
+      success: r.success,
+      id: r.id,
+      identifier: r.identifier,
+      error: r.error,
+      input: r.input,
+    }));
 
+    const structured = UpdateIssuesOutputSchema.parse({
+      results: cleanedResults,
+      summary,
+      meta,
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOON Output Format (when enabled)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (config.TOON_OUTPUT_ENABLED && registry) {
+      const toonResponse: ToonResponse = {
+        meta: {
+          fields: ['action', 'succeeded', 'failed', 'total'],
+          values: {
+            action: 'update_issues',
+            succeeded,
+            failed,
+            total: items.length,
+          },
+        },
+        data: [
+          // Results section
+          {
+            schema: WRITE_RESULT_SCHEMA,
+            items: results.map((r) => ({
+              index: r.index,
+              status: r.ok ? 'ok' : 'error',
+              identifier: r.identifier ?? r.id ?? '',
+              error: r.ok
+                ? ''
+                : ((typeof r.error === 'object'
+                    ? (r.error as { message?: string }).message
+                    : r.error) ?? ''),
+            })),
+          },
+        ],
+      };
+
+      // Add changes section if any changes were tracked
+      if (toonChanges.length > 0) {
+        toonResponse.data?.push({
+          schema: CHANGES_SCHEMA,
+          items: toonChanges as Array<Record<string, string>>,
+        });
+      }
+
+      const toonOutput = encodeToon(toonResponse);
+
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+        structuredContent: structured,
+      };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Legacy Output Format
+    // ─────────────────────────────────────────────────────────────────────────
     const okIds = results
       .filter((r) => r.ok)
-      .map((r) => r.id ?? `item[${String(r.index)}]`) as string[];
+      .map((r) => r.identifier ?? r.id ?? `item[${String(r.index)}]`) as string[];
 
     const failures = results
       .filter((r) => !r.ok)
       .map((r) => ({
         index: r.index,
         id: r.id,
-        error: r.error ?? '',
+        error: typeof r.error === 'object' ? r.error.message : (r.error ?? ''),
         code: undefined,
       }));
 
@@ -486,13 +935,13 @@ export const updateIssuesTool = defineTool({
     const nextStep = archivedRequested
       ? 'Tip: Use list_issues with includeArchived: true to verify archived issues.'
       : 'Tip: Use list_issues to verify changes.';
-    
+
     const textParts = [summaryLine];
     if (diffLines.length > 0) {
       textParts.push(diffLines.join('\n'));
     }
     textParts.push(nextStep);
-    
+
     const text = textParts.join('\n\n');
 
     const parts: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
@@ -504,10 +953,3 @@ export const updateIssuesTool = defineTool({
     return { content: parts, structuredContent: structured };
   },
 });
-
-
-
-
-
-
-

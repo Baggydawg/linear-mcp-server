@@ -1,6 +1,10 @@
 /**
  * List Issues tool - search and filter issues with powerful GraphQL filtering.
  * Uses raw GraphQL to avoid N+1 query problem with SDK lazy loading.
+ *
+ * Supports TOON output format (Tier 2):
+ * - When TOON_OUTPUT_ENABLED=true, returns TOON format with only REFERENCED entities
+ * - When TOON_OUTPUT_ENABLED=false (default), returns legacy human-readable format
  */
 
 import { z } from 'zod';
@@ -16,9 +20,24 @@ import {
 } from '../../../utils/errors.js';
 import { normalizeIssueFilter } from '../../../utils/filters.js';
 import { previewLinesFromItems, summarizeList } from '../../../utils/messages.js';
+import {
+  encodeResponse,
+  getOrInitRegistry,
+  ISSUE_SCHEMA,
+  LABEL_LOOKUP_SCHEMA,
+  PAGINATION_SCHEMA,
+  PROJECT_LOOKUP_SCHEMA,
+  type ShortKeyRegistry,
+  STATE_LOOKUP_SCHEMA,
+  type ToonResponse,
+  type ToonRow,
+  type ToonSection,
+  tryGetShortKey,
+  USER_LOOKUP_SCHEMA,
+} from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 import type { DetailLevel, IssueListItem } from './shared/index.js';
-import { formatIssueDetails, formatIssuePreviewLine } from './shared/index.js';
+import { formatIssuePreviewLine } from './shared/index.js';
 
 const InputSchema = z.object({
   limit: z
@@ -87,6 +106,406 @@ const InputSchema = z.object({
       'If true, only show issues assigned to the current viewer. Shortcut for filter.assignee.id.eq with viewer ID.',
     ),
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Support (Tier 2 - Referenced Entities Only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extended raw issue data from GraphQL response for TOON processing.
+ */
+interface RawIssueData {
+  id: string;
+  identifier?: string;
+  title: string;
+  description?: string | null;
+  priority?: number;
+  estimate?: number | null;
+  state?: { id: string; name: string; type?: string };
+  project?: { id: string; name?: string } | null;
+  assignee?: { id: string; name?: string } | null;
+  team?: { id: string; key?: string };
+  cycle?: { number?: number } | null;
+  parent?: { identifier?: string } | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+  archivedAt?: string | null;
+  dueDate?: string | null;
+  url?: string;
+  labels?: { nodes?: Array<{ id: string; name: string }> };
+}
+
+/**
+ * Collected referenced entity IDs from issues.
+ * Used for Tier 2 filtering - only include entities actually referenced.
+ */
+interface ReferencedEntities {
+  userIds: Set<string>;
+  stateIds: Set<string>;
+  projectIds: Set<string>;
+  labelNames: Set<string>;
+}
+
+/**
+ * Collect all entity IDs referenced by issues.
+ * This is the core of Tier 2 strategy - we only include entities that are actually used.
+ */
+function collectReferencedEntities(issues: RawIssueData[]): ReferencedEntities {
+  const refs: ReferencedEntities = {
+    userIds: new Set(),
+    stateIds: new Set(),
+    projectIds: new Set(),
+    labelNames: new Set(),
+  };
+
+  for (const issue of issues) {
+    // Collect assignee IDs
+    if (issue.assignee?.id) {
+      refs.userIds.add(issue.assignee.id);
+    }
+
+    // Collect state IDs
+    if (issue.state?.id) {
+      refs.stateIds.add(issue.state.id);
+    }
+
+    // Collect project IDs
+    if (issue.project?.id) {
+      refs.projectIds.add(issue.project.id);
+    }
+
+    // Collect label names
+    const labels = issue.labels?.nodes ?? [];
+    for (const label of labels) {
+      refs.labelNames.add(label.name);
+    }
+  }
+
+  return refs;
+}
+
+/**
+ * Convert an issue to TOON row format.
+ * Uses short keys from registry for users, states, projects.
+ */
+function issueToToonRow(
+  issue: RawIssueData,
+  registry: ShortKeyRegistry | null,
+): ToonRow {
+  // Get short keys from registry, fallback to undefined if not available
+  const assigneeKey =
+    registry && issue.assignee?.id
+      ? tryGetShortKey(registry, 'user', issue.assignee.id)
+      : undefined;
+  const stateKey =
+    registry && issue.state?.id
+      ? tryGetShortKey(registry, 'state', issue.state.id)
+      : undefined;
+  const projectKey =
+    registry && issue.project?.id
+      ? tryGetShortKey(registry, 'project', issue.project.id)
+      : undefined;
+
+  // Collect label names as comma-separated string
+  const labelNames = (issue.labels?.nodes ?? []).map((l) => l.name).join(',');
+
+  return {
+    identifier: issue.identifier ?? '',
+    title: issue.title,
+    state: stateKey ?? issue.state?.name ?? '',
+    assignee: assigneeKey ?? '',
+    priority: issue.priority ?? null,
+    estimate: issue.estimate ?? null,
+    project: projectKey ?? '',
+    cycle: issue.cycle?.number ?? null,
+    dueDate: issue.dueDate ?? null,
+    labels: labelNames || null,
+    parent: issue.parent?.identifier ?? null,
+    team: issue.team?.key ?? '',
+    url: issue.url ?? null,
+    desc: issue.description ?? null,
+  };
+}
+
+/**
+ * Build a filtered user lookup section with only referenced users.
+ */
+function buildUserLookup(
+  registry: ShortKeyRegistry,
+  referencedIds: Set<string>,
+): ToonSection {
+  const items: ToonRow[] = [];
+
+  for (const [shortKey, uuid] of registry.users) {
+    if (referencedIds.has(uuid)) {
+      items.push({
+        key: shortKey,
+        name: '', // We don't have full user data in the registry
+        displayName: '',
+        email: '',
+        role: '',
+      });
+    }
+  }
+
+  // Sort by key number for consistent output
+  items.sort((a, b) => {
+    const numA = parseInt(String(a.key).replace('u', ''), 10);
+    const numB = parseInt(String(b.key).replace('u', ''), 10);
+    return numA - numB;
+  });
+
+  return { schema: USER_LOOKUP_SCHEMA, items };
+}
+
+/**
+ * Build a filtered state lookup section with only referenced states.
+ */
+function buildStateLookup(
+  registry: ShortKeyRegistry,
+  referencedIds: Set<string>,
+  issues: RawIssueData[],
+): ToonSection {
+  const items: ToonRow[] = [];
+
+  // Build a map of state info from issues (since registry doesn't have names)
+  const stateInfo = new Map<string, { name: string; type: string }>();
+  for (const issue of issues) {
+    if (issue.state?.id) {
+      stateInfo.set(issue.state.id, {
+        name: issue.state.name,
+        type: issue.state.type ?? '',
+      });
+    }
+  }
+
+  for (const [shortKey, uuid] of registry.states) {
+    if (referencedIds.has(uuid)) {
+      const info = stateInfo.get(uuid);
+      items.push({
+        key: shortKey,
+        name: info?.name ?? '',
+        type: info?.type ?? '',
+      });
+    }
+  }
+
+  // Sort by key number for consistent output
+  items.sort((a, b) => {
+    const numA = parseInt(String(a.key).replace('s', ''), 10);
+    const numB = parseInt(String(b.key).replace('s', ''), 10);
+    return numA - numB;
+  });
+
+  return { schema: STATE_LOOKUP_SCHEMA, items };
+}
+
+/**
+ * Build a filtered project lookup section with only referenced projects.
+ */
+function buildProjectLookup(
+  registry: ShortKeyRegistry,
+  referencedIds: Set<string>,
+  issues: RawIssueData[],
+): ToonSection {
+  const items: ToonRow[] = [];
+
+  // Build a map of project info from issues
+  const projectInfo = new Map<string, { name: string }>();
+  for (const issue of issues) {
+    if (issue.project?.id) {
+      projectInfo.set(issue.project.id, {
+        name: issue.project.name ?? '',
+      });
+    }
+  }
+
+  for (const [shortKey, uuid] of registry.projects) {
+    if (referencedIds.has(uuid)) {
+      const info = projectInfo.get(uuid);
+      items.push({
+        key: shortKey,
+        name: info?.name ?? '',
+        state: '', // Project state not available from issue data
+      });
+    }
+  }
+
+  // Sort by key number for consistent output
+  items.sort((a, b) => {
+    const numA = parseInt(String(a.key).replace('pr', ''), 10);
+    const numB = parseInt(String(b.key).replace('pr', ''), 10);
+    return numA - numB;
+  });
+
+  return { schema: PROJECT_LOOKUP_SCHEMA, items };
+}
+
+/**
+ * Build label lookup (all labels - exception for Tier 2).
+ * Labels are small and useful for suggestions, so we include all.
+ */
+function buildLabelLookup(issues: RawIssueData[]): ToonSection {
+  // Collect unique labels from issues
+  const labelMap = new Map<string, { name: string; color?: string }>();
+
+  for (const issue of issues) {
+    const labels = issue.labels?.nodes ?? [];
+    for (const label of labels) {
+      if (!labelMap.has(label.name)) {
+        labelMap.set(label.name, { name: label.name });
+      }
+    }
+  }
+
+  const items: ToonRow[] = Array.from(labelMap.values()).map((l) => ({
+    name: l.name,
+    color: l.color ?? '',
+  }));
+
+  // Sort alphabetically
+  items.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+  return { schema: LABEL_LOOKUP_SCHEMA, items };
+}
+
+/**
+ * Fetch workspace data for registry initialization.
+ * This function is passed to getOrInitRegistry.
+ */
+async function fetchWorkspaceDataForRegistry(
+  client: ReturnType<typeof getLinearClient> extends Promise<infer T> ? T : never,
+): Promise<{
+  users: Array<{ id: string; createdAt: Date | string }>;
+  states: Array<{ id: string; createdAt: Date | string }>;
+  projects: Array<{ id: string; createdAt: Date | string }>;
+  workspaceId: string;
+}> {
+  // Fetch users
+  const usersConn = await client.users({ first: 100 });
+  const users = (usersConn.nodes ?? []).map((u) => ({
+    id: u.id,
+    createdAt: (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+  }));
+
+  // Fetch workflow states via teams
+  const teamsConn = await client.teams({ first: 100 });
+  const teams = teamsConn.nodes ?? [];
+  const states: Array<{ id: string; createdAt: Date | string }> = [];
+
+  for (const team of teams) {
+    const statesConn = await (
+      team as unknown as {
+        states: () => Promise<{
+          nodes: Array<{ id: string; createdAt?: Date | string }>;
+        }>;
+      }
+    ).states();
+    for (const state of statesConn.nodes ?? []) {
+      states.push({
+        id: state.id,
+        createdAt: state.createdAt ?? new Date(),
+      });
+    }
+  }
+
+  // Fetch projects
+  const projectsConn = await client.projects({ first: 100 });
+  const projects = (projectsConn.nodes ?? []).map((p) => ({
+    id: p.id,
+    createdAt: (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+  }));
+
+  // Get workspace ID from viewer
+  const viewer = await client.viewer;
+  const viewerOrg = viewer as unknown as { organization?: { id?: string } };
+  const workspaceId = viewerOrg?.organization?.id ?? 'unknown';
+
+  return { users, states, projects, workspaceId };
+}
+
+/**
+ * Build TOON response for list_issues.
+ */
+function buildToonResponse(
+  rawIssues: RawIssueData[],
+  registry: ShortKeyRegistry | null,
+  pagination: { hasMore: boolean; cursor?: string; fetched: number; total?: number },
+  _queryInfo: Record<string, unknown>,
+): ToonResponse {
+  // Collect referenced entities for Tier 2 filtering
+  const refs = collectReferencedEntities(rawIssues);
+
+  // Build lookup sections (only referenced entities)
+  const lookups: ToonSection[] = [];
+
+  // Add user lookup if we have a registry and referenced users
+  if (registry && refs.userIds.size > 0) {
+    const userLookup = buildUserLookup(registry, refs.userIds);
+    if (userLookup.items.length > 0) {
+      lookups.push(userLookup);
+    }
+  }
+
+  // Add state lookup if we have a registry and referenced states
+  if (registry && refs.stateIds.size > 0) {
+    const stateLookup = buildStateLookup(registry, refs.stateIds, rawIssues);
+    if (stateLookup.items.length > 0) {
+      lookups.push(stateLookup);
+    }
+  }
+
+  // Add project lookup if we have a registry and referenced projects
+  if (registry && refs.projectIds.size > 0) {
+    const projectLookup = buildProjectLookup(registry, refs.projectIds, rawIssues);
+    if (projectLookup.items.length > 0) {
+      lookups.push(projectLookup);
+    }
+  }
+
+  // Add label lookup (all labels from issues - exception for Tier 2)
+  if (refs.labelNames.size > 0) {
+    const labelLookup = buildLabelLookup(rawIssues);
+    if (labelLookup.items.length > 0) {
+      lookups.push(labelLookup);
+    }
+  }
+
+  // Convert issues to TOON rows
+  const issueRows = rawIssues.map((issue) => issueToToonRow(issue, registry));
+
+  // Build data sections
+  const data: ToonSection[] = [{ schema: ISSUE_SCHEMA, items: issueRows }];
+
+  // Add pagination if needed
+  if (pagination.hasMore || pagination.total !== undefined) {
+    data.push({
+      schema: PAGINATION_SCHEMA,
+      items: [
+        {
+          hasMore: pagination.hasMore,
+          cursor: pagination.cursor ?? '',
+          fetched: pagination.fetched,
+          total: pagination.total ?? null,
+        },
+      ],
+    });
+  }
+
+  // Build meta section
+  const metaFields = ['tool', 'count', 'generated'];
+  const metaValues: Record<string, string | number | boolean | null> = {
+    tool: 'list_issues',
+    count: rawIssues.length,
+    generated: new Date().toISOString(),
+  };
+
+  return {
+    meta: { fields: metaFields, values: metaValues },
+    lookups: lookups.length > 0 ? lookups : undefined,
+    data,
+  };
+}
 
 export const listIssuesTool = defineTool({
   name: toolsMetadata.list_issues.name,
@@ -213,6 +632,81 @@ export const listIssuesTool = defineTool({
       }
     ).data?.issues ?? { nodes: [], pageInfo: {} };
 
+    const pageInfo = conn.pageInfo ?? {};
+    const hasMore = pageInfo.hasNextPage ?? false;
+    const nextCursor = hasMore ? (pageInfo.endCursor ?? undefined) : undefined;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (config.TOON_OUTPUT_ENABLED) {
+      // Convert raw GraphQL response to RawIssueData for TOON processing
+      const rawIssues: RawIssueData[] = (conn.nodes ?? []).map((i) => ({
+        id: String(i.id ?? ''),
+        identifier: (i.identifier as string) ?? undefined,
+        title: String(i.title ?? ''),
+        description: (i.description as string | null) ?? undefined,
+        priority: (i.priority as number) ?? undefined,
+        estimate: (i.estimate as number | null) ?? undefined,
+        state: i.state as { id: string; name: string; type?: string } | undefined,
+        project: i.project as { id: string; name?: string } | null | undefined,
+        assignee: i.assignee as { id: string; name?: string } | null | undefined,
+        team: i.team as { id: string; key?: string } | undefined,
+        cycle: i.cycle as { number?: number } | null | undefined,
+        parent: i.parent as { identifier?: string } | null | undefined,
+        createdAt: (i.createdAt as string | Date) ?? '',
+        updatedAt: (i.updatedAt as string | Date) ?? '',
+        archivedAt: (i.archivedAt as string | null) ?? undefined,
+        dueDate: (i.dueDate as string | null) ?? undefined,
+        url: (i.url as string) ?? undefined,
+        labels: i.labels as { nodes?: Array<{ id: string; name: string }> } | undefined,
+      }));
+
+      // Initialize registry if needed (lazy init)
+      let registry: ShortKeyRegistry | null = null;
+      try {
+        registry = await getOrInitRegistry(
+          {
+            sessionId: context.sessionId,
+            transport: 'stdio', // Default to stdio for now
+          },
+          () => fetchWorkspaceDataForRegistry(client),
+        );
+      } catch (error) {
+        // Registry init failed, continue without it (will use names instead of short keys)
+        console.error('Registry initialization failed:', error);
+      }
+
+      // Build TOON response
+      const toonResponse = buildToonResponse(
+        rawIssues,
+        registry,
+        {
+          hasMore,
+          cursor: nextCursor,
+          fetched: rawIssues.length,
+        },
+        { filter, teamId: args.teamId, projectId: args.projectId },
+      );
+
+      // Encode TOON output
+      const toonOutput = encodeResponse(rawIssues, toonResponse);
+
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+        structuredContent: {
+          _format: 'toon',
+          _version: '1',
+          count: rawIssues.length,
+          hasMore,
+          nextCursor,
+        },
+      };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
+    // ─────────────────────────────────────────────────────────────────────────
     const items: IssueListItem[] = (conn.nodes ?? []).map((i) => {
       const state =
         (i.state as { id?: string; name?: string } | undefined) ?? undefined;
@@ -247,10 +741,6 @@ export const listIssuesTool = defineTool({
         labels,
       };
     });
-
-    const pageInfo = conn.pageInfo ?? {};
-    const hasMore = pageInfo.hasNextPage ?? false;
-    const nextCursor = hasMore ? (pageInfo.endCursor ?? undefined) : undefined;
 
     // Build query echo for LLM context
     const query = {

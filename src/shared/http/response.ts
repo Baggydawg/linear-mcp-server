@@ -1,13 +1,17 @@
 // Shared HTTP response builders for both Node.js and Cloudflare Workers
 
-import { withCors, type CorsOptions } from './cors.js';
+import { type CorsOptions, withCors } from './cors.js';
 
 /**
  * Create a JSON response with proper headers.
  */
 export function jsonResponse(
   data: unknown,
-  options: { status?: number; headers?: Record<string, string>; cors?: boolean | CorsOptions } = {},
+  options: {
+    status?: number;
+    headers?: Record<string, string>;
+    cors?: boolean | CorsOptions;
+  } = {},
 ): Response {
   const { status = 200, headers = {}, cors = true } = options;
 
@@ -100,7 +104,10 @@ export function oauthError(
 /**
  * Create a redirect response.
  */
-export function redirectResponse(url: string, status: 301 | 302 | 303 | 307 | 308 = 302): Response {
+export function redirectResponse(
+  url: string,
+  status: 301 | 302 | 303 | 307 | 308 = 302,
+): Response {
   return Response.redirect(url, status);
 }
 
@@ -115,5 +122,3 @@ export const JsonRpcErrorCode = {
   InternalError: -32603,
   ServerError: -32000, // Base for server errors
 } as const;
-
-

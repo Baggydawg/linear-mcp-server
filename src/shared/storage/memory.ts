@@ -67,9 +67,7 @@ function evictOldest<K, V extends { created_at?: number; createdAt?: number }>(
 /**
  * Remove expired entries from a timed map.
  */
-function cleanupExpired<K, V extends { expiresAt: number }>(
-  map: Map<K, V>,
-): number {
+function cleanupExpired<K, V extends { expiresAt: number }>(map: Map<K, V>): number {
   const now = Date.now();
   let removed = 0;
 
@@ -106,7 +104,10 @@ export class MemoryTokenStore implements TokenStore {
     }, CLEANUP_INTERVAL_MS);
 
     // Don't prevent process exit
-    if (typeof this.cleanupIntervalId === 'object' && 'unref' in this.cleanupIntervalId) {
+    if (
+      typeof this.cleanupIntervalId === 'object' &&
+      'unref' in this.cleanupIntervalId
+    ) {
       this.cleanupIntervalId.unref();
     }
   }
@@ -277,11 +278,7 @@ export class MemoryTokenStore implements TokenStore {
     this.transactions.delete(txnId);
   }
 
-  async saveCode(
-    code: string,
-    txnId: string,
-    ttlSeconds?: number,
-  ): Promise<void> {
+  async saveCode(code: string, txnId: string, ttlSeconds?: number): Promise<void> {
     const ttlMs = ttlSeconds ? ttlSeconds * 1000 : DEFAULT_CODE_TTL_MS;
     const now = Date.now();
 
@@ -344,7 +341,10 @@ export class MemorySessionStore implements SessionStore {
     }, CLEANUP_INTERVAL_MS);
 
     // Don't prevent process exit
-    if (typeof this.cleanupIntervalId === 'object' && 'unref' in this.cleanupIntervalId) {
+    if (
+      typeof this.cleanupIntervalId === 'object' &&
+      'unref' in this.cleanupIntervalId
+    ) {
       this.cleanupIntervalId.unref();
     }
   }

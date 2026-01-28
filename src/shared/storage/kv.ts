@@ -136,8 +136,10 @@ export class KvTokenStore implements TokenStore {
       return this.fallback.updateByRsRefresh(rsRefresh, provider, maybeNewRsAccess);
     }
 
-    const rsAccessChanged = maybeNewRsAccess && maybeNewRsAccess !== existing.rs_access_token;
-    const providerChanged = provider.access_token !== existing.provider.access_token ||
+    const rsAccessChanged =
+      maybeNewRsAccess && maybeNewRsAccess !== existing.rs_access_token;
+    const providerChanged =
+      provider.access_token !== existing.provider.access_token ||
       provider.refresh_token !== existing.provider.refresh_token;
 
     // Skip KV writes if nothing changed
@@ -279,7 +281,3 @@ export class KvSessionStore implements SessionStore {
     await this.fallback.delete(sessionId);
   }
 }
-
-
-
-

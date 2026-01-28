@@ -1,6 +1,6 @@
 /**
  * Show Issues UI tool.
- * 
+ *
  * Opens an interactive Linear issues dashboard UI.
  * The UI allows users to browse, filter, and manage issues visually.
  */

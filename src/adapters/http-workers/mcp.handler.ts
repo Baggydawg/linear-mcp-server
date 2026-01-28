@@ -7,9 +7,9 @@ import type { UnifiedConfig } from '../../shared/config/env.js';
 import { withCors } from '../../shared/http/cors.js';
 import { jsonResponse } from '../../shared/http/response.js';
 import {
+  type CancellationRegistry,
   dispatchMcpMethod,
   handleMcpNotification,
-  type CancellationRegistry,
   type McpDispatchContext,
   type McpSessionState,
 } from '../../shared/mcp/dispatcher.js';
@@ -18,7 +18,7 @@ import {
   type ProviderRefreshConfig,
 } from '../../shared/oauth/refresh.js';
 import type { SessionStore, TokenStore } from '../../shared/storage/interface.js';
-import type { ToolContext, AuthStrategy } from '../../shared/tools/types.js';
+import type { AuthStrategy, ToolContext } from '../../shared/tools/types.js';
 import { sharedLogger as logger } from '../../shared/utils/logger.js';
 import { checkAuthAndChallenge } from './security.js';
 
@@ -99,8 +99,14 @@ function buildStaticAuthHeaders(config: UnifiedConfig): Record<string, string> {
 /**
  * Build provider config for token refresh from unified config.
  */
-function buildProviderRefreshConfig(config: UnifiedConfig): ProviderRefreshConfig | undefined {
-  if (!config.PROVIDER_CLIENT_ID || !config.PROVIDER_CLIENT_SECRET || !config.PROVIDER_ACCOUNTS_URL) {
+function buildProviderRefreshConfig(
+  config: UnifiedConfig,
+): ProviderRefreshConfig | undefined {
+  if (
+    !config.PROVIDER_CLIENT_ID ||
+    !config.PROVIDER_CLIENT_SECRET ||
+    !config.PROVIDER_ACCOUNTS_URL
+  ) {
     return undefined;
   }
   return {
@@ -292,4 +298,3 @@ export async function handleMcpRequest(
 export function handleMcpGet(): Response {
   return withCors(new Response('Method Not Allowed', { status: 405 }));
 }
-

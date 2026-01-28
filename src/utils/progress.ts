@@ -12,7 +12,7 @@ export interface ProgressNotification {
 
 /**
  * Reports progress for long-running operations.
- * 
+ *
  * Per review finding #12: Progress notifications sent after request completion
  * are silently ignored by the client (no handler exists for completed requests).
  * Always send progress BEFORE returning from the handler.
@@ -27,7 +27,7 @@ export class ProgressReporter {
 
   /**
    * Send a progress notification.
-   * 
+   *
    * @param progress - Current progress value (should increase with each call)
    * @param total - Optional total value (for percentage calculation)
    * @param message - Optional human-readable progress message
@@ -35,7 +35,8 @@ export class ProgressReporter {
   async report(progress: number, total?: number, message?: string): Promise<void> {
     if (this.completed) {
       logger.warning('progress', {
-        message: 'Attempted to send progress after completion - notification will be ignored',
+        message:
+          'Attempted to send progress after completion - notification will be ignored',
         progressToken: this.progressToken,
       });
       return;
@@ -74,11 +75,11 @@ export class ProgressReporter {
 
 /**
  * Create a progress reporter for a request.
- * 
+ *
  * @param server - The MCP server instance
  * @param progressToken - Token from request._meta.progressToken
  * @returns ProgressReporter instance, or null if no token provided
- * 
+ *
  * @example
  * ```typescript
  * const reporter = createProgressReporter(server, extra._meta?.progressToken);

@@ -5,13 +5,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
  * These map to syslog severity levels.
  */
 export type LogLevel =
-  | 'debug'     // Detailed debug information
-  | 'info'      // General informational messages
-  | 'notice'    // Normal but significant events
-  | 'warning'   // Warning conditions
-  | 'error'     // Error conditions
-  | 'critical'  // Critical conditions
-  | 'alert'     // Action must be taken immediately
+  | 'debug' // Detailed debug information
+  | 'info' // General informational messages
+  | 'notice' // Normal but significant events
+  | 'warning' // Warning conditions
+  | 'error' // Error conditions
+  | 'critical' // Critical conditions
+  | 'alert' // Action must be taken immediately
   | 'emergency'; // System is unusable
 
 /**
@@ -111,13 +111,20 @@ function sanitizeLogData(data: unknown): unknown {
 
   const sanitized = { ...(data as Record<string, unknown>) };
   const sensitivePatterns = [
-    'password', 'token', 'secret', 'key', 'authorization',
-    'apikey', 'api_key', 'credential', 'private',
+    'password',
+    'token',
+    'secret',
+    'key',
+    'authorization',
+    'apikey',
+    'api_key',
+    'credential',
+    'private',
   ];
 
   for (const key of Object.keys(sanitized)) {
     const lowerKey = key.toLowerCase();
-    if (sensitivePatterns.some(p => lowerKey.includes(p))) {
+    if (sensitivePatterns.some((p) => lowerKey.includes(p))) {
       sanitized[key] = '[REDACTED]';
     }
   }
@@ -163,9 +170,10 @@ class Logger {
 
     // Always log to console
     const timestamp = new Date().toISOString();
-    const logData = typeof sanitized === 'object'
-      ? JSON.stringify(sanitized, null, 2)
-      : String(sanitized);
+    const logData =
+      typeof sanitized === 'object'
+        ? JSON.stringify(sanitized, null, 2)
+        : String(sanitized);
     console.log(`[${timestamp}] ${level.toUpperCase()} ${loggerName}: ${logData}`);
   }
 

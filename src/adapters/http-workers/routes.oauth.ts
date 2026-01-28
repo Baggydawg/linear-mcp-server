@@ -6,8 +6,14 @@ interface IttyRouter {
   get(path: string, handler: (request: Request) => Promise<Response>): void;
   post(path: string, handler: (request: Request) => Promise<Response>): void;
 }
+
 import type { UnifiedConfig } from '../../shared/config/env.js';
-import { jsonResponse, oauthError, textError, redirectResponse } from '../../shared/http/response.js';
+import {
+  jsonResponse,
+  oauthError,
+  redirectResponse,
+  textError,
+} from '../../shared/http/response.js';
 import { handleRegister, handleRevoke } from '../../shared/oauth/endpoints.js';
 import {
   handleAuthorize,
@@ -43,9 +49,18 @@ export function attachOAuthRoutes(
       const input = parseAuthorizeInput(url, sessionId);
       const options = buildFlowOptions(url, config);
 
-      const result = await handleAuthorize(input, store, providerConfig, oauthConfig, options);
+      const result = await handleAuthorize(
+        input,
+        store,
+        providerConfig,
+        oauthConfig,
+        options,
+      );
 
-      logger.info('oauth_workers', { message: 'Authorize redirect', url: result.redirectTo });
+      logger.info('oauth_workers', {
+        message: 'Authorize redirect',
+        url: result.redirectTo,
+      });
       return redirectResponse(result.redirectTo);
     } catch (error) {
       logger.error('oauth_workers', {
@@ -69,7 +84,9 @@ export function attachOAuthRoutes(
 
       if (!config.PROVIDER_CLIENT_ID || !config.PROVIDER_CLIENT_SECRET) {
         logger.error('oauth_workers', { message: 'Missing provider credentials' });
-        return textError('Server misconfigured: Missing provider credentials', { status: 500 });
+        return textError('Server misconfigured: Missing provider credentials', {
+          status: 500,
+        });
       }
 
       const options = buildFlowOptions(url, config);

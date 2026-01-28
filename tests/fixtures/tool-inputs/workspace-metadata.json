@@ -38,11 +38,28 @@
     {
       "name": "full_bootstrap",
       "input": {
-        "include": ["profile", "teams", "workflow_states", "labels", "projects", "favorites"],
+        "include": [
+          "profile",
+          "teams",
+          "workflow_states",
+          "labels",
+          "projects",
+          "favorites"
+        ],
         "project_limit": 10,
         "label_limit": 50
       },
       "description": "Full workspace bootstrap with all data"
+    },
+    {
+      "name": "with_force_refresh",
+      "input": { "forceRefresh": true },
+      "description": "Force registry rebuild"
+    },
+    {
+      "name": "force_refresh_false",
+      "input": { "forceRefresh": false },
+      "description": "Explicit no force refresh"
     }
   ],
   "invalid": [
@@ -68,4 +85,3 @@
     }
   ]
 }
-

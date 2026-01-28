@@ -67,5 +67,3 @@ export function buildCorsHeaders(options: CorsOptions = {}): Record<string, stri
 
   return headers;
 }
-
-

@@ -56,7 +56,12 @@ export function createMcpSecurityMiddleware(config: UnifiedConfig): MiddlewareHa
               // Inject auth context into Hono context for MCP routes to use
               // This will be passed to tool handlers via AsyncLocalStorage
               const authContext = {
-                strategy: config.AUTH_STRATEGY as 'oauth' | 'bearer' | 'api_key' | 'custom' | 'none',
+                strategy: config.AUTH_STRATEGY as
+                  | 'oauth'
+                  | 'bearer'
+                  | 'api_key'
+                  | 'custom'
+                  | 'none',
                 authHeaders: { authorization: auth },
                 resolvedHeaders: { authorization: `Bearer ${provider.access_token}` },
                 providerToken: provider.access_token,
@@ -68,10 +73,11 @@ export function createMcpSecurityMiddleware(config: UnifiedConfig): MiddlewareHa
                 },
                 rsToken: bearer,
               };
-              (c as unknown as { authContext: typeof authContext }).authContext = authContext;
+              (c as unknown as { authContext: typeof authContext }).authContext =
+                authContext;
             } else if (config.AUTH_REQUIRE_RS && !config.AUTH_ALLOW_DIRECT_BEARER) {
               // RS token not found and RS is required - challenge
-              let sid = c.req.header('Mcp-Session-Id') ?? randomUUID();
+              const sid = c.req.header('Mcp-Session-Id') ?? randomUUID();
 
               const origin = new URL(c.req.url).origin;
               const challenge = buildUnauthorizedChallenge({ origin, sid });
@@ -79,7 +85,9 @@ export function createMcpSecurityMiddleware(config: UnifiedConfig): MiddlewareHa
               c.header('Mcp-Session-Id', sid);
               c.header('WWW-Authenticate', challenge.headers['WWW-Authenticate']);
 
-              logger.debug('mcp_security', { message: 'RS token not found, challenging' });
+              logger.debug('mcp_security', {
+                message: 'RS token not found, challenging',
+              });
               return c.json(challenge.body, challenge.status);
             }
           } catch (error) {

@@ -5,7 +5,7 @@
  * Uses Zod for schema validation (works in both runtimes).
  */
 
-import type { z, ZodObject, ZodRawShape } from 'zod';
+import type { ZodObject, ZodRawShape, z } from 'zod';
 
 /**
  * Auth strategy types.
@@ -133,7 +133,10 @@ export interface SharedToolDefinition<TShape extends ZodRawShape = ZodRawShape> 
   /** Optional Zod schema for structured output */
   outputSchema?: ZodRawShape;
   /** Tool handler function */
-  handler: (args: z.infer<ZodObject<TShape>>, context: ToolContext) => Promise<ToolResult>;
+  handler: (
+    args: z.infer<ZodObject<TShape>>,
+    context: ToolContext,
+  ) => Promise<ToolResult>;
   /**
    * Tool annotations per MCP specification.
    * These are hints for clients about tool behavior (not enforced by SDK).
@@ -160,4 +163,3 @@ export function defineTool<TShape extends ZodRawShape>(
 ): SharedToolDefinition<TShape> {
   return def;
 }
-

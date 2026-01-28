@@ -149,5 +149,3 @@ export function createEncryptor(secret: string): {
     decrypt: (ciphertext: string) => decrypt(ciphertext, secret),
   };
 }
-
-

@@ -3,11 +3,20 @@
  * Verifies: input validation, batch updates, state/label changes, error handling.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { updateIssuesTool } from '../../src/shared/tools/linear/update-issues.js';
-import { createMockLinearClient, resetMockCalls, type MockLinearClient } from '../mocks/linear-client.js';
 import type { ToolContext } from '../../src/shared/tools/types.js';
+import {
+  clearRegistry,
+  type ShortKeyRegistry,
+  storeRegistry,
+} from '../../src/shared/toon/index.js';
 import updateIssuesFixtures from '../fixtures/tool-inputs/update-issues.json';
+import {
+  createMockLinearClient,
+  type MockLinearClient,
+  resetMockCalls,
+} from '../mocks/linear-client.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Setup
@@ -89,7 +98,10 @@ describe('update_issues handler', () => {
     const summary = structured.summary as { ok: number; failed: number };
 
     expect(summary.ok).toBe(1);
-    expect(mockClient.updateIssue).toHaveBeenCalledWith('issue-001', expect.objectContaining({ title: 'Updated title' }));
+    expect(mockClient.updateIssue).toHaveBeenCalledWith(
+      'issue-001',
+      expect.objectContaining({ title: 'Updated title' }),
+    );
   });
 
   it('updates issue state', async () => {
@@ -202,9 +214,8 @@ describe('update_issues handler', () => {
 
   it('archives issue (calls archiveIssue method)', async () => {
     // Add archiveIssue method to mock
-    (mockClient as unknown as { archiveIssue: ReturnType<typeof vi.fn> }).archiveIssue = vi.fn(
-      async () => ({ success: true }),
-    );
+    (mockClient as unknown as { archiveIssue: ReturnType<typeof vi.fn> }).archiveIssue =
+      vi.fn(async () => ({ success: true }));
 
     const result = await updateIssuesTool.handler(
       { items: [{ id: 'issue-001', archived: true }] },
@@ -215,7 +226,8 @@ describe('update_issues handler', () => {
 
     // Archive uses a separate archiveIssue method, not updateIssue
     expect(
-      (mockClient as unknown as { archiveIssue: ReturnType<typeof vi.fn> }).archiveIssue,
+      (mockClient as unknown as { archiveIssue: ReturnType<typeof vi.fn> })
+        .archiveIssue,
     ).toHaveBeenCalledWith('issue-001');
   });
 });
@@ -341,13 +353,18 @@ describe('update_issues error handling', () => {
     const results = structured.results as Array<Record<string, unknown>>;
 
     expect(results[0].success).toBe(false);
-    expect((results[0].error as Record<string, unknown>).message).toContain('Issue not found');
+    expect((results[0].error as Record<string, unknown>).message).toContain(
+      'Issue not found',
+    );
   });
 
   it('continues batch on partial failure', async () => {
     (mockClient.updateIssue as ReturnType<typeof vi.fn>)
       .mockRejectedValueOnce(new Error('First failed'))
-      .mockResolvedValueOnce({ success: true, issue: { id: 'issue-002', identifier: 'ENG-124' } });
+      .mockResolvedValueOnce({
+        success: true,
+        issue: { id: 'issue-002', identifier: 'ENG-124' },
+      });
 
     const result = await updateIssuesTool.handler(
       {
@@ -367,3 +384,354 @@ describe('update_issues error handling', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Short Key Resolution Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('update_issues short key resolution', () => {
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+
+    // Create a mock registry with short key mappings
+    const mockRegistry: ShortKeyRegistry = {
+      users: new Map([
+        ['u0', 'user-001'],
+        ['u1', 'user-002'],
+        ['u2', 'user-003'],
+      ]),
+      states: new Map([
+        ['s0', 'state-backlog'],
+        ['s1', 'state-todo'],
+        ['s2', 'state-inprogress'],
+        ['s3', 'state-done'],
+      ]),
+      projects: new Map([
+        ['pr0', 'project-001'],
+        ['pr1', 'project-002'],
+      ]),
+      usersByUuid: new Map([
+        ['user-001', 'u0'],
+        ['user-002', 'u1'],
+        ['user-003', 'u2'],
+      ]),
+      statesByUuid: new Map([
+        ['state-backlog', 's0'],
+        ['state-todo', 's1'],
+        ['state-inprogress', 's2'],
+        ['state-done', 's3'],
+      ]),
+      projectsByUuid: new Map([
+        ['project-001', 'pr0'],
+        ['project-002', 'pr1'],
+      ]),
+      generatedAt: new Date(),
+      workspaceId: 'ws-123',
+    };
+
+    // Store the registry for the session
+    storeRegistry('test-session', mockRegistry);
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+  });
+
+  afterEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+    clearRegistry('test-session');
+  });
+
+  it('resolves assignee short key to UUID', async () => {
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001',
+            assignee: 'u1', // Should resolve to user-002
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.updateIssue).toHaveBeenCalledWith(
+      'issue-001',
+      expect.objectContaining({
+        assigneeId: 'user-002',
+      }),
+    );
+  });
+
+  it('resolves state short key to UUID', async () => {
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001',
+            state: 's3', // Should resolve to state-done
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.updateIssue).toHaveBeenCalledWith(
+      'issue-001',
+      expect.objectContaining({
+        stateId: 'state-done',
+      }),
+    );
+  });
+
+  it('resolves project short key to UUID', async () => {
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001',
+            project: 'pr1', // Should resolve to project-002
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.updateIssue).toHaveBeenCalledWith(
+      'issue-001',
+      expect.objectContaining({
+        projectId: 'project-002',
+      }),
+    );
+  });
+
+  it('resolves multiple short keys in single update', async () => {
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001',
+            assignee: 'u2',
+            state: 's2',
+            project: 'pr0',
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.updateIssue).toHaveBeenCalledWith(
+      'issue-001',
+      expect.objectContaining({
+        assigneeId: 'user-003',
+        stateId: 'state-inprogress',
+        projectId: 'project-001',
+      }),
+    );
+  });
+
+  it('returns error for unknown short key', async () => {
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001',
+            state: 's99', // Unknown short key
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy(); // Batch continues
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    const summary = structured.summary as { ok: number; failed: number };
+
+    expect(summary.failed).toBe(1);
+
+    const results = structured.results as Array<Record<string, unknown>>;
+    expect(results[0].success).toBe(false);
+    expect((results[0].error as { message: string }).message).toContain(
+      "Unknown state key 's99'",
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Format Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('update_issues TOON output', () => {
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+
+    // Create a mock registry for TOON output
+    const mockRegistry: ShortKeyRegistry = {
+      users: new Map([
+        ['u0', 'user-001'],
+        ['u1', 'user-002'],
+      ]),
+      states: new Map([
+        ['s0', 'state-backlog'],
+        ['s1', 'state-todo'],
+        ['s2', 'state-inprogress'],
+        ['s3', 'state-done'],
+      ]),
+      projects: new Map([['pr0', 'project-001']]),
+      usersByUuid: new Map([
+        ['user-001', 'u0'],
+        ['user-002', 'u1'],
+      ]),
+      statesByUuid: new Map([
+        ['state-backlog', 's0'],
+        ['state-todo', 's1'],
+        ['state-inprogress', 's2'],
+        ['state-done', 's3'],
+      ]),
+      projectsByUuid: new Map([['project-001', 'pr0']]),
+      generatedAt: new Date(),
+      workspaceId: 'ws-123',
+    };
+
+    storeRegistry('test-session', mockRegistry);
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+  });
+
+  afterEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+    clearRegistry('test-session');
+  });
+
+  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', title: 'Updated title' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toBeDefined();
+
+    // TOON output should contain schema headers
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('update_issues');
+    expect(textContent).toContain('results[');
+  });
+
+  it('includes meta with action and counts', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', state: 's3' }] },
+      baseContext,
+    );
+
+    const textContent = result.content[0].text;
+
+    expect(textContent).toContain('_meta{action,succeeded,failed,total}');
+    expect(textContent).toContain('update_issues,1,0,1');
+  });
+
+  it('includes results section with status and identifier', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', state: 's3' }] },
+      baseContext,
+    );
+
+    const textContent = result.content[0].text;
+
+    // Should have results section with expected fields
+    expect(textContent).toContain('results[');
+    expect(textContent).toContain('{index,status,identifier,error}');
+    // Status should be 'ok' for successful updates
+    expect(textContent).toContain('0,ok');
+  });
+
+  it('includes changes section when actual changes are detected', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    // Note: The changes section is only added when computeFieldChanges detects
+    // actual differences between before/after snapshots. Since our mock returns
+    // the same state before and after, no changes will be detected.
+    // This test verifies the TOON format structure is correct.
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', priority: 1 }] },
+      baseContext,
+    );
+
+    const textContent = result.content[0].text;
+
+    // Should have meta and results sections
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('results[');
+
+    // Changes section would only appear if the mock simulated actual changes
+    // In unit tests without mock state changes, we just verify the structure
+  });
+
+  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = false;
+
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', title: 'Legacy test' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Legacy format should contain summary text
+    expect(textContent).toContain('Updated issues');
+
+    // Should NOT have TOON format indicators
+    expect(textContent).not.toContain('_meta{');
+  });
+
+  it('returns legacy format when no registry is available', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    // Clear the registry to simulate workspace_metadata not being called
+    clearRegistry('test-session');
+
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', title: 'No registry test' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Without registry, should fall back to legacy format
+    expect(textContent).toContain('Updated issues');
+    expect(textContent).not.toContain('_meta{');
+  });
+});

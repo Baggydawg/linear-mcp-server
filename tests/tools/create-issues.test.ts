@@ -3,11 +3,20 @@
  * Verifies: input validation, batch creation, dry run, error handling.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createIssuesTool } from '../../src/shared/tools/linear/create-issues.js';
-import { createMockLinearClient, resetMockCalls, type MockLinearClient } from '../mocks/linear-client.js';
 import type { ToolContext } from '../../src/shared/tools/types.js';
+import {
+  clearRegistry,
+  type ShortKeyRegistry,
+  storeRegistry,
+} from '../../src/shared/toon/index.js';
 import createIssuesFixtures from '../fixtures/tool-inputs/create-issues.json';
+import {
+  createMockLinearClient,
+  type MockLinearClient,
+  resetMockCalls,
+} from '../mocks/linear-client.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Setup
@@ -232,7 +241,9 @@ describe('create_issues handler', () => {
 
     expect(summary.failed).toBe(1);
     expect(results[0].success).toBe(false);
-    expect((results[0].error as Record<string, unknown>).message).toContain('No user found');
+    expect((results[0].error as Record<string, unknown>).message).toContain(
+      'No user found',
+    );
     expect((results[0].error as Record<string, unknown>).code).toBe('USER_NOT_FOUND');
   });
 
@@ -368,15 +379,22 @@ describe('create_issues error handling', () => {
     const results = structured.results as Array<Record<string, unknown>>;
 
     expect(results[0].success).toBe(false);
-    expect((results[0].error as Record<string, unknown>).message).toContain('API rate limit');
-    expect((results[0].error as Record<string, unknown>).code).toBe('LINEAR_CREATE_ERROR');
+    expect((results[0].error as Record<string, unknown>).message).toContain(
+      'API rate limit',
+    );
+    expect((results[0].error as Record<string, unknown>).code).toBe(
+      'LINEAR_CREATE_ERROR',
+    );
   });
 
   it('continues batch on partial failure', async () => {
     // First call fails, second succeeds
     (mockClient.createIssue as ReturnType<typeof vi.fn>)
       .mockRejectedValueOnce(new Error('First failed'))
-      .mockResolvedValueOnce({ success: true, issue: { id: 'new-id', identifier: 'ENG-100' } });
+      .mockResolvedValueOnce({
+        success: true,
+        issue: { id: 'new-id', identifier: 'ENG-100' },
+      });
 
     const result = await createIssuesTool.handler(
       {
@@ -400,3 +418,352 @@ describe('create_issues error handling', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Short Key Resolution Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('create_issues short key resolution', () => {
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+
+    // Create a mock registry with short key mappings
+    const mockRegistry: ShortKeyRegistry = {
+      users: new Map([
+        ['u0', 'user-001'],
+        ['u1', 'user-002'],
+        ['u2', 'user-003'],
+      ]),
+      states: new Map([
+        ['s0', 'state-backlog'],
+        ['s1', 'state-todo'],
+        ['s2', 'state-inprogress'],
+        ['s3', 'state-done'],
+      ]),
+      projects: new Map([
+        ['pr0', 'project-001'],
+        ['pr1', 'project-002'],
+      ]),
+      usersByUuid: new Map([
+        ['user-001', 'u0'],
+        ['user-002', 'u1'],
+        ['user-003', 'u2'],
+      ]),
+      statesByUuid: new Map([
+        ['state-backlog', 's0'],
+        ['state-todo', 's1'],
+        ['state-inprogress', 's2'],
+        ['state-done', 's3'],
+      ]),
+      projectsByUuid: new Map([
+        ['project-001', 'pr0'],
+        ['project-002', 'pr1'],
+      ]),
+      generatedAt: new Date(),
+      workspaceId: 'ws-123',
+    };
+
+    // Store the registry for the session
+    storeRegistry('test-session', mockRegistry);
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+  });
+
+  afterEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+    clearRegistry('test-session');
+  });
+
+  it('resolves assignee short key to UUID', async () => {
+    const result = await createIssuesTool.handler(
+      {
+        items: [
+          {
+            teamId: 'team-eng',
+            title: 'Test with short key assignee',
+            assignee: 'u1', // Should resolve to user-002
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.createIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assigneeId: 'user-002',
+      }),
+    );
+  });
+
+  it('resolves state short key to UUID', async () => {
+    const result = await createIssuesTool.handler(
+      {
+        items: [
+          {
+            teamId: 'team-eng',
+            title: 'Test with short key state',
+            state: 's2', // Should resolve to state-inprogress
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.createIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stateId: 'state-inprogress',
+      }),
+    );
+  });
+
+  it('resolves project short key to UUID', async () => {
+    const result = await createIssuesTool.handler(
+      {
+        items: [
+          {
+            teamId: 'team-eng',
+            title: 'Test with short key project',
+            project: 'pr0', // Should resolve to project-001
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.createIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: 'project-001',
+      }),
+    );
+  });
+
+  it('resolves multiple short keys in batch', async () => {
+    const result = await createIssuesTool.handler(
+      {
+        items: [
+          {
+            teamId: 'team-eng',
+            title: 'Full short key test',
+            assignee: 'u2',
+            state: 's3',
+            project: 'pr1',
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.createIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assigneeId: 'user-003',
+        stateId: 'state-done',
+        projectId: 'project-002',
+      }),
+    );
+  });
+
+  it('returns error for unknown short key', async () => {
+    const result = await createIssuesTool.handler(
+      {
+        items: [
+          {
+            teamId: 'team-eng',
+            title: 'Test with invalid short key',
+            assignee: 'u99', // Unknown short key
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy(); // Batch continues
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    const summary = structured.summary as { ok: number; failed: number };
+
+    expect(summary.failed).toBe(1);
+
+    const results = structured.results as Array<Record<string, unknown>>;
+    expect(results[0].success).toBe(false);
+    expect((results[0].error as Record<string, unknown>).code).toBe(
+      'USER_RESOLUTION_FAILED',
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Format Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('create_issues TOON output', () => {
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+
+    // Create a mock registry for TOON output
+    const mockRegistry: ShortKeyRegistry = {
+      users: new Map([
+        ['u0', 'user-001'],
+        ['u1', 'user-002'],
+      ]),
+      states: new Map([
+        ['s0', 'state-backlog'],
+        ['s1', 'state-todo'],
+        ['s2', 'state-done'],
+      ]),
+      projects: new Map([['pr0', 'project-001']]),
+      usersByUuid: new Map([
+        ['user-001', 'u0'],
+        ['user-002', 'u1'],
+      ]),
+      statesByUuid: new Map([
+        ['state-backlog', 's0'],
+        ['state-todo', 's1'],
+        ['state-done', 's2'],
+      ]),
+      projectsByUuid: new Map([['project-001', 'pr0']]),
+      generatedAt: new Date(),
+      workspaceId: 'ws-123',
+    };
+
+    storeRegistry('test-session', mockRegistry);
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+  });
+
+  afterEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+    clearRegistry('test-session');
+  });
+
+  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    const result = await createIssuesTool.handler(
+      { items: [{ teamId: 'team-eng', title: 'TOON test' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toBeDefined();
+
+    // TOON output should contain schema headers
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('create_issues');
+    expect(textContent).toContain('results[');
+  });
+
+  it('includes meta with action and counts', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    const result = await createIssuesTool.handler(
+      { items: [{ teamId: 'team-eng', title: 'TOON test' }] },
+      baseContext,
+    );
+
+    const textContent = result.content[0].text;
+
+    expect(textContent).toContain('_meta{action,succeeded,failed,total}');
+    expect(textContent).toContain('create_issues,1,0,1');
+  });
+
+  it('includes created section with short keys', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    // Make createIssue return specific values we can track
+    (mockClient.createIssue as ReturnType<typeof vi.fn>).mockResolvedValue({
+      success: true,
+      issue: {
+        id: 'new-issue-id',
+        identifier: 'ENG-123',
+        title: 'TOON test',
+        state: { id: 'state-todo', name: 'Todo' },
+        assignee: { id: 'user-001', name: 'John' },
+        project: { id: 'project-001', name: 'Project A' },
+      },
+    });
+
+    const result = await createIssuesTool.handler(
+      {
+        items: [
+          {
+            teamId: 'team-eng',
+            title: 'TOON test',
+            state: 's1',
+            assignee: 'u0',
+            project: 'pr0',
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    const textContent = result.content[0].text;
+
+    // Should have created section with short keys
+    expect(textContent).toContain('created[');
+    expect(textContent).toContain('{identifier,title,state,assignee,project}');
+    // The created row should use short keys for state, assignee, project
+    expect(textContent).toContain('ENG-123');
+  });
+
+  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = false;
+
+    const result = await createIssuesTool.handler(
+      { items: [{ teamId: 'team-eng', title: 'Legacy test' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Legacy format should contain summary text
+    expect(textContent).toContain('Created issues');
+
+    // Should NOT have TOON format indicators
+    expect(textContent).not.toContain('_meta{');
+  });
+
+  it('returns legacy format when no registry is available', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    // Clear the registry to simulate workspace_metadata not being called
+    clearRegistry('test-session');
+
+    const result = await createIssuesTool.handler(
+      { items: [{ teamId: 'team-eng', title: 'No registry test' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Without registry, should fall back to legacy format
+    expect(textContent).toContain('Created issues');
+    expect(textContent).not.toContain('_meta{');
+  });
+});

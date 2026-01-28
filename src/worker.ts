@@ -10,8 +10,8 @@
 
 import {
   createWorkerRouter,
-  shimProcessEnv,
   initializeWorkerStorage,
+  shimProcessEnv,
   type WorkerEnv,
 } from './adapters/http-workers/index.js';
 import { parseConfig } from './shared/config/env.js';

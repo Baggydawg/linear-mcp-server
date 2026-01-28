@@ -1,17 +1,19 @@
 /**
  * Tests for teams and users tools.
  * Verifies: listing teams, listing users, pagination, output shapes.
+ * Includes TOON output format tests.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listTeamsTool } from '../../src/shared/tools/linear/list-teams.js';
 import { listUsersTool } from '../../src/shared/tools/linear/list-users.js';
+import type { ToolContext } from '../../src/shared/tools/types.js';
+import { clearAllRegistries } from '../../src/shared/toon/registry.js';
 import {
   createMockLinearClient,
-  resetMockCalls,
   type MockLinearClient,
+  resetMockCalls,
 } from '../mocks/linear-client.js';
-import type { ToolContext } from '../../src/shared/tools/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Setup
@@ -72,7 +74,10 @@ describe('list_teams tool', () => {
     });
 
     it('supports pagination with cursor', async () => {
-      const result = await listTeamsTool.handler({ cursor: 'test-cursor' }, baseContext);
+      const result = await listTeamsTool.handler(
+        { cursor: 'test-cursor' },
+        baseContext,
+      );
 
       expect(result.isError).toBeFalsy();
 
@@ -123,7 +128,7 @@ describe('list_teams tool', () => {
       const items = structured.items as Array<Record<string, unknown>>;
 
       expect(items.length).toBeGreaterThan(0);
-      
+
       // Teams should have identifiers LLM can use in list_issues
       for (const team of items) {
         expect(team.id).toBeDefined();
@@ -180,7 +185,10 @@ describe('list_users tool', () => {
     });
 
     it('supports pagination with cursor', async () => {
-      const result = await listUsersTool.handler({ cursor: 'test-cursor' }, baseContext);
+      const result = await listUsersTool.handler(
+        { cursor: 'test-cursor' },
+        baseContext,
+      );
 
       expect(result.isError).toBeFalsy();
 
@@ -313,3 +321,192 @@ describe('teams and users workflow integration', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Format Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_teams TOON output', () => {
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    // Import config dynamically to access the mutable config
+    const configModule = await import('../../src/config/env.js');
+    originalToonEnabled = configModule.config.TOON_OUTPUT_ENABLED;
+    clearAllRegistries();
+  });
+
+  afterEach(async () => {
+    // Restore original config value
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      originalToonEnabled;
+  });
+
+  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await listTeamsTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+
+    // Check text content has TOON format
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('list_teams');
+    expect(textContent).toContain('teams[');
+  });
+
+  it('includes team schema fields in TOON output', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await listTeamsTool.handler({}, baseContext);
+
+    const textContent = result.content[0].text;
+
+    // TOON schema header should include these fields
+    expect(textContent).toContain('key');
+    expect(textContent).toContain('name');
+    expect(textContent).toContain('cyclesEnabled');
+    expect(textContent).toContain('cycleDuration');
+    expect(textContent).toContain('estimationType');
+    expect(textContent).toContain('activeCycle');
+  });
+
+  it('uses natural keys (team keys like ENG) not short keys', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await listTeamsTool.handler({}, baseContext);
+
+    const textContent = result.content[0].text;
+
+    // Teams use natural key (ENG, DES) not short keys (t0, t1)
+    expect(textContent).toContain('ENG');
+    expect(textContent).toContain('Engineering');
+    // Should not have team short keys
+    expect(textContent).not.toMatch(/\bt0\b/);
+    expect(textContent).not.toMatch(/\bt1\b/);
+  });
+
+  it('structuredContent indicates TOON format', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await listTeamsTool.handler({}, baseContext);
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured._format).toBe('toon');
+    expect(structured._version).toBe('1');
+    expect(structured.count).toBeDefined();
+  });
+
+  it('includes pagination info when hasMore', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    // Need to simulate more results than returned
+    const result = await listTeamsTool.handler({ limit: 1 }, baseContext);
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(typeof structured.hasMore).toBe('boolean');
+  });
+});
+
+describe('list_users TOON output', () => {
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    // Import config dynamically to access the mutable config
+    const configModule = await import('../../src/config/env.js');
+    originalToonEnabled = configModule.config.TOON_OUTPUT_ENABLED;
+    clearAllRegistries();
+  });
+
+  afterEach(async () => {
+    // Restore original config value
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      originalToonEnabled;
+  });
+
+  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await listUsersTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+
+    // Check text content has TOON format
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('list_users');
+    expect(textContent).toContain('users[');
+  });
+
+  it('includes user schema fields in TOON output', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await listUsersTool.handler({}, baseContext);
+
+    const textContent = result.content[0].text;
+
+    // TOON schema header should include these fields
+    expect(textContent).toContain('key');
+    expect(textContent).toContain('name');
+    expect(textContent).toContain('displayName');
+    expect(textContent).toContain('email');
+    expect(textContent).toContain('active');
+  });
+
+  it('uses short keys (u0, u1...) for users', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await listUsersTool.handler({}, baseContext);
+
+    const textContent = result.content[0].text;
+
+    // Users use short keys (u0, u1...)
+    // The output should contain user short keys in the data rows
+    expect(textContent).toMatch(/u\d+/);
+  });
+
+  it('structuredContent indicates TOON format', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await listUsersTool.handler({}, baseContext);
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured._format).toBe('toon');
+    expect(structured._version).toBe('1');
+    expect(structured.count).toBeDefined();
+  });
+
+  it('includes user data in TOON rows', async () => {
+    const configModule = await import('../../src/config/env.js');
+    (configModule.config as { TOON_OUTPUT_ENABLED: boolean }).TOON_OUTPUT_ENABLED =
+      true;
+
+    const result = await listUsersTool.handler({}, baseContext);
+
+    const textContent = result.content[0].text;
+
+    // Should contain user names and emails from mock data
+    expect(textContent).toContain('Test User');
+    expect(textContent).toContain('test@example.com');
+  });
+});

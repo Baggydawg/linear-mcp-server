@@ -89,3 +89,100 @@ Integration tests require a "Tests" team in Linear and `PROVIDER_API_KEY` in `.e
 
 - Biome formatter: 2-space indent, 88-char line width
 - TypeScript strict mode, ES2022
+
+## TOON Output Format
+
+When `TOON_OUTPUT_ENABLED=true`, tools output TOON (Token-Oriented Object Notation) - a token-efficient CSV-like format that replaces human-readable prose summaries. TOON provides unambiguous parsing and consistent round-trip data handling between Claude and the Linear API.
+
+### Two-Tier Strategy
+
+- **Tier 1** (`workspace_metadata`): Returns ALL entities (users, states, projects, labels, cycles). Call once per session to give Claude full workspace context.
+- **Tier 2** (other tools): Returns only REFERENCED entities for token efficiency. Claude cross-references with Tier 1 data for complete context.
+
+### Short Keys
+
+Static entities use short keys instead of UUIDs. The MCP server maintains an internal registry that maps short keys to UUIDs, resolving them when making API calls.
+
+| Entity | Short Key | Example |
+|--------|-----------|---------|
+| Users | `u0, u1, u2...` | `u0` for first user |
+| States | `s0, s1, s2...` | `s3` for "In Progress" |
+| Projects | `pr0, pr1, pr2...` | `pr0` for first project |
+
+Natural keys are used where available (no translation needed):
+- Issues: `SQT-123` (identifier)
+- Teams: `SQT` (team key)
+- Cycles: `5` (cycle number)
+- Labels: `Bug` (label name)
+
+### TOON Format Example
+
+```
+_meta{team,cycle,start,end,generated}:
+  SQT,5,2026-01-26,2026-02-08,2026-01-27T12:00:00Z
+
+_users[2]{key,name,displayName,email}:
+  u0,Tobias Nilsson,tobias,t@example.com
+  u1,Ian Bastos,ian,i@example.com
+
+_states[3]{key,name,type}:
+  s2,Todo,unstarted
+  s3,In Progress,started
+  s5,Done,completed
+
+issues[3]{identifier,title,state,assignee,priority,estimate}:
+  SQT-160,Set up schema,s2,u1,2,3
+  SQT-161,Upload algorithm,s3,u0,1,5
+```
+
+### Short Key Resolution
+
+Claude uses short keys in both input and output:
+- To assign: `update_issues({ items: [{ id: "SQT-174", assignee: "u1" }] })`
+- To move state: `update_issues({ items: [{ id: "SQT-163", state: "s5" }] })`
+
+The MCP server resolves `u1` and `s5` to UUIDs internally before calling Linear API.
+
+### Gap Analysis (`get_sprint_context`)
+
+The `get_sprint_context` tool includes a `_gaps` section identifying sprint health issues:
+
+| Gap Type | Condition | Why It Matters |
+|----------|-----------|----------------|
+| `no_estimate` | Issues without estimate | Affects sprint velocity calculation |
+| `no_assignee` | Unassigned issues (excluding completed/canceled) | Unassigned work may be forgotten |
+| `stale` | No updates for 7+ days (excluding completed/canceled) | May be blocked or deprioritized |
+| `blocked` | Has blocking relations (excluding completed/canceled) | Cannot proceed until dependency resolved |
+| `priority_mismatch` | Urgent (priority 1) issues not started | High priority items stuck in backlog |
+
+Example `_gaps` output:
+```
+_gaps[4]{type,count,issues}:
+  no_estimate,3,"SQT-174,SQT-168,SQT-171"
+  no_assignee,1,"SQT-165"
+  stale,2,"SQT-163,SQT-168"
+  priority_mismatch,1,"SQT-174"
+```
+
+### Enabling TOON
+
+Set environment variable:
+```bash
+TOON_OUTPUT_ENABLED=true
+```
+
+When `false` (default), tools use legacy human-readable format.
+
+### Registry and Session
+
+- Registry is populated on first tool call (lazy initialization)
+- For stdio (Claude Desktop): Registry persists for session duration, no auto-expiry
+- For HTTP/Workers: 30-minute TTL
+- Manual refresh: `workspace_metadata({ forceRefresh: true })`
+
+### Key Files
+
+- `src/shared/toon/encoder.ts` - Core TOON encoding functions
+- `src/shared/toon/registry.ts` - Short key registry implementation
+- `src/shared/toon/schemas.ts` - TOON schema definitions for all entity types
+- `src/shared/toon/types.ts` - TypeScript types for TOON structures

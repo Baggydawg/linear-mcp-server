@@ -1,13 +1,17 @@
 /**
  * Tests for get_issues tool.
- * Verifies: input validation, batch fetching, output shape.
+ * Verifies: input validation, batch fetching, output shape, TOON format.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getIssuesTool } from '../../src/shared/tools/linear/get-issues.js';
-import { createMockLinearClient, resetMockCalls, type MockLinearClient } from '../mocks/linear-client.js';
 import type { ToolContext } from '../../src/shared/tools/types.js';
 import getIssuesFixtures from '../fixtures/tool-inputs/get-issues.json';
+import {
+  createMockLinearClient,
+  type MockLinearClient,
+  resetMockCalls,
+} from '../mocks/linear-client.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Setup
@@ -259,7 +263,155 @@ describe('get_issues error handling', () => {
     const results = structured.results as Array<Record<string, unknown>>;
 
     expect(results[0].success).toBe(false);
-    expect((results[0].error as Record<string, unknown>).message).toContain('Network error');
+    expect((results[0].error as Record<string, unknown>).message).toContain(
+      'Network error',
+    );
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Format Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('get_issues TOON output', () => {
+  // Store original config value
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+  });
+
+  afterEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+  });
+
+  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
+
+    // TOON output should contain schema headers
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('issues[');
+
+    // Structured content should indicate TOON format
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured._format).toBe('toon');
+    expect(structured._version).toBe('1');
+    expect(typeof structured.succeeded).toBe('number');
+    expect(typeof structured.failed).toBe('number');
+  });
+
+  it('returns TOON with lookup tables (Tier 2 - referenced only)', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have some lookup tables (users, labels, etc.)
+    // Note: _states may not be present if registry state IDs don't match mock issue state IDs
+    expect(textContent).toMatch(
+      /_users\[\d+\]|_states\[\d+\]|_projects\[\d+\]|_labels\[\d+\]/,
+    );
+  });
+
+  it('returns TOON with issue data rows including full description', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have issue schema header with all fields
+    expect(textContent).toContain('issues[');
+    expect(textContent).toContain('identifier');
+    expect(textContent).toContain('title');
+    expect(textContent).toContain('state');
+
+    // Data rows should be indented with 2 spaces
+    const lines = textContent.split('\n');
+    const dataLines = lines.filter(
+      (line: string) => line.startsWith('  ') && !line.startsWith('  _'),
+    );
+    expect(dataLines.length).toBeGreaterThan(0);
+  });
+
+  it('includes succeeded and failed counts in TOON meta', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await getIssuesTool.handler(
+      { ids: ['issue-001', 'issue-002'] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Meta should include succeeded, failed, total counts
+    expect(textContent).toContain('succeeded');
+    expect(textContent).toContain('failed');
+    expect(textContent).toContain('total');
+
+    // Structured content should have counts
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.succeeded).toBe(2);
+    expect(structured.failed).toBe(0);
+    expect(structured.total).toBe(2);
+  });
+
+  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = false;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Legacy format should contain "Fetched" summary
+    expect(textContent).toContain('Fetched');
+
+    // Structured content should have results array (legacy format)
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.results).toBeDefined();
+    expect(Array.isArray(structured.results)).toBe(true);
+
+    // Should NOT have TOON format indicator
+    expect(structured._format).toBeUndefined();
+  });
+});

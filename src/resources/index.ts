@@ -1,10 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { logger } from '../utils/logger.js';
-import { issuesUIResource, issuesUIMetadata } from './issues-ui.resource.js';
+import { issuesUIMetadata, issuesUIResource } from './issues-ui.resource.js';
 
 /**
  * Register resources with the MCP server.
- * 
+ *
  * Resources:
  * - ui://linear/issues - Interactive issues dashboard UI
  */
@@ -20,7 +20,10 @@ export function registerResources(server: McpServer): void {
     async () => issuesUIResource.handler(),
   );
 
-  logger.debug('resources', { message: 'Registered Linear Issues UI resource', uri: issuesUIMetadata.uri });
+  logger.debug('resources', {
+    message: 'Registered Linear Issues UI resource',
+    uri: issuesUIMetadata.uri,
+  });
 }
 
 /**

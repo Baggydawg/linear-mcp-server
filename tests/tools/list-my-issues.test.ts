@@ -1,16 +1,16 @@
 /**
  * Tests for list_my_issues tool.
- * Verifies: filtering current user's issues, state filters, output shape.
+ * Verifies: filtering current user's issues, state filters, output shape, TOON format.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { listMyIssuesTool } from '../../src/shared/tools/linear/list-my-issues.js';
+import type { ToolContext } from '../../src/shared/tools/types.js';
 import {
   createMockLinearClient,
-  resetMockCalls,
   type MockLinearClient,
+  resetMockCalls,
 } from '../mocks/linear-client.js';
-import type { ToolContext } from '../../src/shared/tools/types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test Setup
@@ -114,7 +114,8 @@ describe('list_my_issues handler', () => {
 
     const call = mockClient._calls.rawRequest[0];
     const filter = call.variables?.filter as Record<string, unknown>;
-    expect(filter.or).toBeDefined();
+    // Default matchMode is 'all', which uses 'and' filter
+    expect(filter.and).toBeDefined();
   });
 
   it('respects limit parameter', async () => {
@@ -127,7 +128,10 @@ describe('list_my_issues handler', () => {
   });
 
   it('supports pagination with cursor', async () => {
-    const result = await listMyIssuesTool.handler({ cursor: 'test-cursor' }, baseContext);
+    const result = await listMyIssuesTool.handler(
+      { cursor: 'test-cursor' },
+      baseContext,
+    );
 
     expect(result.isError).toBeFalsy();
 
@@ -136,7 +140,10 @@ describe('list_my_issues handler', () => {
   });
 
   it('supports ordering by updatedAt', async () => {
-    const result = await listMyIssuesTool.handler({ orderBy: 'updatedAt' }, baseContext);
+    const result = await listMyIssuesTool.handler(
+      { orderBy: 'updatedAt' },
+      baseContext,
+    );
 
     expect(result.isError).toBeFalsy();
 
@@ -195,7 +202,7 @@ describe('list_my_issues common workflows', () => {
     );
 
     expect(result.isError).toBeFalsy();
-    
+
     // Uses assignedIssues query
     const call = mockClient._calls.rawRequest[0];
     expect(call.query).toContain('assignedIssues');
@@ -230,3 +237,157 @@ describe('list_my_issues common workflows', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TOON Output Format Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_my_issues TOON output', () => {
+  // Store original config value
+  let originalToonEnabled: boolean;
+
+  beforeEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+  });
+
+  afterEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+  });
+
+  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listMyIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
+
+    // TOON output should contain schema headers
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('issues[');
+
+    // Structured content should indicate TOON format
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured._format).toBe('toon');
+    expect(structured._version).toBe('1');
+    expect(typeof structured.count).toBe('number');
+  });
+
+  it('returns TOON with state lookup table (Tier 2 - referenced only)', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listMyIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have states section (only referenced states)
+    expect(textContent).toContain('_states[');
+    expect(textContent).toContain('{key,name,type}');
+  });
+
+  it('returns TOON with issue data rows', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listMyIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have issue schema header with all fields
+    expect(textContent).toContain('issues[');
+    expect(textContent).toContain('identifier');
+    expect(textContent).toContain('title');
+    expect(textContent).toContain('state');
+
+    // Data rows should be indented with 2 spaces
+    const lines = textContent.split('\n');
+    const dataLines = lines.filter(
+      (line: string) => line.startsWith('  ') && !line.startsWith('  _'),
+    );
+    expect(dataLines.length).toBeGreaterThan(0);
+  });
+
+  it('handles empty results in TOON format', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient({ issues: [] });
+    resetMockCalls(mockClient);
+
+    const result = await listMyIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have meta section
+    expect(textContent).toContain('_meta{');
+
+    // Structured content should indicate count 0
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.count).toBe(0);
+  });
+
+  it('includes pagination info when hasMore is true', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    // Request only 2 items to trigger pagination
+    const result = await listMyIssuesTool.handler({ limit: 2 }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as Record<string, unknown>;
+
+    // Check if hasMore is set correctly
+    expect(typeof structured.hasMore).toBe('boolean');
+  });
+
+  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = false;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listMyIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Legacy format should contain "My issues:" summary
+    expect(textContent).toContain('My issues:');
+
+    // Structured content should have items array (legacy format)
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.items).toBeDefined();
+    expect(Array.isArray(structured.items)).toBe(true);
+
+    // Should NOT have TOON format indicator
+    expect(structured._format).toBeUndefined();
+  });
+});

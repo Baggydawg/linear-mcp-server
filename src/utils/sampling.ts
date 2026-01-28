@@ -160,7 +160,7 @@ export async function requestSampling(
       if (!clientCapabilities.sampling?.tools) {
         throw new Error(
           'Client does not support sampling tools capability. ' +
-          'Client must declare "sampling.tools" to use tools or toolChoice.',
+            'Client must declare "sampling.tools" to use tools or toolChoice.',
         );
       }
     }

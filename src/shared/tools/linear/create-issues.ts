@@ -1,44 +1,88 @@
 /**
  * Create Issues tool - batch create issues in Linear.
+ *
+ * Supports TOON output format when TOON_OUTPUT_ENABLED=true.
+ * Accepts short keys (u0, s1, pr0) for assignee, state, and project inputs.
  */
 
 import { z } from 'zod';
-import { toolsMetadata } from '../../../config/metadata.js';
 import { config } from '../../../config/env.js';
+import { toolsMetadata } from '../../../config/metadata.js';
 import { CreateIssuesOutputSchema } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import { makeConcurrencyGate, withRetry, delay } from '../../../utils/limits.js';
+import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { summarizeBatch } from '../../../utils/messages.js';
+import {
+  resolveLabels,
+  resolvePriority,
+  resolveProject,
+  resolveState,
+} from '../../../utils/resolvers.js';
 import { resolveAssignee } from '../../../utils/user-resolver.js';
-import { resolvePriority, resolveState, resolveLabels, resolveProject } from '../../../utils/resolvers.js';
+import {
+  encodeToon,
+  getOrInitRegistry,
+  getStoredRegistry,
+  ISSUE_SCHEMA,
+  type ShortKeyRegistry,
+  type ToonResponse,
+  tryGetShortKey,
+  tryResolveShortKey,
+  WRITE_RESULT_META_SCHEMA,
+  WRITE_RESULT_SCHEMA,
+} from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
-import { createTeamSettingsCache, validateEstimate, validatePriority } from './shared/index.js';
+import {
+  createTeamSettingsCache,
+  validateEstimate,
+  validatePriority,
+} from './shared/index.js';
 
 const IssueCreateItem = z.object({
-  teamId: z.string().describe('Team UUID. Required.'),
+  teamId: z.string().describe('Team UUID or key (e.g., "SQT"). Required.'),
   title: z.string().describe('Issue title. Required.'),
   description: z.string().optional().describe('Markdown description.'),
-  // State - UUID or human-readable
+  // State - short key, UUID, or human-readable
+  state: z
+    .string()
+    .optional()
+    .describe(
+      'State short key (s0, s1) from workspace_metadata. Preferred input method.',
+    ),
   stateId: z
     .string()
     .optional()
-    .describe('Workflow state UUID. Or use stateName/stateType for name-based lookup.'),
+    .describe(
+      'Workflow state UUID. Or use state/stateName/stateType for name-based lookup.',
+    ),
   stateName: z
     .string()
     .optional()
-    .describe('State name from your workspace. Use workspace_metadata to see available names.'),
+    .describe(
+      'State name from your workspace. Use workspace_metadata to see available names.',
+    ),
   stateType: z
     .enum(['backlog', 'unstarted', 'started', 'completed', 'canceled'])
     .optional()
-    .describe('State type. Finds first matching state. Use when you want "any completed state".'),
+    .describe(
+      'State type. Finds first matching state. Use when you want "any completed state".',
+    ),
   // Labels - UUIDs or names
   labelIds: z.array(z.string()).optional().describe('Label UUIDs to attach.'),
   labelNames: z
     .array(z.string())
     .optional()
-    .describe('Label names from your workspace. Use workspace_metadata to see available labels.'),
-  // Assignee - UUID, name, or email
+    .describe(
+      'Label names from your workspace. Use workspace_metadata to see available labels.',
+    ),
+  // Assignee - short key, UUID, name, or email
+  assignee: z
+    .string()
+    .optional()
+    .describe(
+      'User short key (u0, u1) from workspace_metadata. Preferred input method.',
+    ),
   assigneeId: z
     .string()
     .optional()
@@ -46,12 +90,20 @@ const IssueCreateItem = z.object({
   assigneeName: z
     .string()
     .optional()
-    .describe('User name (fuzzy match). Partial names work. Use workspace_metadata to list users.'),
+    .describe(
+      'User name (fuzzy match). Partial names work. Use workspace_metadata to list users.',
+    ),
   assigneeEmail: z
     .string()
     .optional()
     .describe('User email to assign (exact match, case-insensitive).'),
-  // Project - UUID or name
+  // Project - short key, UUID, or name
+  project: z
+    .string()
+    .optional()
+    .describe(
+      'Project short key (pr0, pr1) from workspace_metadata. Preferred input method.',
+    ),
   projectId: z.string().optional().describe('Project UUID.'),
   projectName: z
     .string()
@@ -61,7 +113,20 @@ const IssueCreateItem = z.object({
   priority: z
     .union([
       z.number().int().min(0).max(4),
-      z.enum(['None', 'Urgent', 'High', 'Medium', 'Normal', 'Low', 'none', 'urgent', 'high', 'medium', 'normal', 'low']),
+      z.enum([
+        'None',
+        'Urgent',
+        'High',
+        'Medium',
+        'Normal',
+        'Low',
+        'none',
+        'urgent',
+        'high',
+        'medium',
+        'normal',
+        'low',
+      ]),
     ])
     .optional()
     .describe('Priority: 0-4 or "None"/"Urgent"/"High"/"Medium"/"Low".'),
@@ -72,6 +137,7 @@ const IssueCreateItem = z.object({
     .describe('If true and estimate=0, sends 0. Otherwise zero is omitted.'),
   dueDate: z.string().optional().describe('Due date (YYYY-MM-DD).'),
   parentId: z.string().optional().describe('Parent issue UUID for sub-issues.'),
+  cycle: z.number().optional().describe('Cycle number to assign the issue to.'),
 });
 
 const InputSchema = z.object({
@@ -120,14 +186,49 @@ export const createIssuesTool = defineTool({
     const { items } = args;
     const teamAllowZeroCache = createTeamSettingsCache();
 
-    const results: {
+    // Get registry for short key resolution (if TOON enabled or short keys used)
+    let registry: ShortKeyRegistry | undefined;
+    const usesShortKeys = items.some((it) => it.assignee || it.state || it.project);
+    if (config.TOON_OUTPUT_ENABLED || usesShortKeys) {
+      registry = getStoredRegistry(context.sessionId);
+      // Registry may not exist if workspace_metadata hasn't been called yet
+      // Short key resolution will fail gracefully with helpful error
+    }
+
+    const results: Array<{
       index: number;
       ok: boolean;
+      success?: boolean;
       id?: string;
       identifier?: string;
-      error?: string;
+      url?: string;
+      error?:
+        | string
+        | {
+            code: string;
+            message: string;
+            suggestions?: string[];
+            retryable?: boolean;
+          };
       code?: string;
-    }[] = [];
+      // Store resolved UUIDs for TOON output
+      stateId?: string;
+      assigneeId?: string;
+      projectId?: string;
+      input?: Record<string, unknown>;
+    }> = [];
+
+    // Track created issues for TOON output
+    const createdIssues: Array<{
+      identifier: string;
+      title: string;
+      stateId?: string;
+      assigneeId?: string;
+      projectId?: string;
+      priority?: number;
+      estimate?: number;
+      labels?: string[];
+    }> = [];
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i] as (typeof items)[number];
@@ -141,8 +242,46 @@ export const createIssuesTool = defineTool({
           payloadInput.description = it.description;
         }
 
-        // Resolve state from ID, name, or type
-        if (it.stateId) {
+        // Resolve state from short key, ID, name, or type
+        // Priority: state (short key) > stateId > stateName/stateType
+        if (it.state && registry) {
+          const resolvedStateId = tryResolveShortKey(registry, 'state', it.state);
+          if (resolvedStateId) {
+            payloadInput.stateId = resolvedStateId;
+          } else {
+            results.push({
+              input: { title: it.title, teamId: it.teamId, state: it.state },
+              success: false,
+              error: {
+                code: 'STATE_RESOLUTION_FAILED',
+                message: `Unknown state key '${it.state}'`,
+                suggestions: [
+                  'Call workspace_metadata to see available state keys (s0, s1, ...)',
+                  `Available keys: ${Array.from(registry.states.keys()).join(', ')}`,
+                ],
+              },
+              index: i,
+              ok: false,
+            });
+            continue;
+          }
+        } else if (it.state && !registry) {
+          results.push({
+            input: { title: it.title, teamId: it.teamId, state: it.state },
+            success: false,
+            error: {
+              code: 'REGISTRY_NOT_INITIALIZED',
+              message: 'Short key registry not initialized',
+              suggestions: [
+                'Call workspace_metadata first to initialize the registry',
+                'Or use stateId with a UUID instead of state short key',
+              ],
+            },
+            index: i,
+            ok: false,
+          });
+          continue;
+        } else if (it.stateId) {
           payloadInput.stateId = it.stateId;
         } else if (it.stateName || it.stateType) {
           const stateResult = await resolveState(client, it.teamId, {
@@ -151,9 +290,18 @@ export const createIssuesTool = defineTool({
           });
           if (!stateResult.success) {
             results.push({
-              input: { title: it.title, teamId: it.teamId, stateName: it.stateName, stateType: it.stateType },
+              input: {
+                title: it.title,
+                teamId: it.teamId,
+                stateName: it.stateName,
+                stateType: it.stateType,
+              },
               success: false,
-              error: { code: 'STATE_RESOLUTION_FAILED', message: stateResult.error, suggestions: stateResult.suggestions },
+              error: {
+                code: 'STATE_RESOLUTION_FAILED',
+                message: stateResult.error,
+                suggestions: stateResult.suggestions,
+              },
               index: i,
               ok: false,
             });
@@ -171,7 +319,11 @@ export const createIssuesTool = defineTool({
             results.push({
               input: { title: it.title, teamId: it.teamId, labelNames: it.labelNames },
               success: false,
-              error: { code: 'LABEL_RESOLUTION_FAILED', message: labelsResult.error, suggestions: labelsResult.suggestions },
+              error: {
+                code: 'LABEL_RESOLUTION_FAILED',
+                message: labelsResult.error,
+                suggestions: labelsResult.suggestions,
+              },
               index: i,
               ok: false,
             });
@@ -180,16 +332,62 @@ export const createIssuesTool = defineTool({
           payloadInput.labelIds = labelsResult.value;
         }
 
-        // Resolve project from ID or name
-        if (it.projectId) {
+        // Resolve project from short key, ID, or name
+        // Priority: project (short key) > projectId > projectName
+        if (it.project && registry) {
+          const resolvedProjectId = tryResolveShortKey(registry, 'project', it.project);
+          if (resolvedProjectId) {
+            payloadInput.projectId = resolvedProjectId;
+          } else {
+            results.push({
+              input: { title: it.title, teamId: it.teamId, project: it.project },
+              success: false,
+              error: {
+                code: 'PROJECT_RESOLUTION_FAILED',
+                message: `Unknown project key '${it.project}'`,
+                suggestions: [
+                  'Call workspace_metadata to see available project keys (pr0, pr1, ...)',
+                  `Available keys: ${Array.from(registry.projects.keys()).join(', ')}`,
+                ],
+              },
+              index: i,
+              ok: false,
+            });
+            continue;
+          }
+        } else if (it.project && !registry) {
+          results.push({
+            input: { title: it.title, teamId: it.teamId, project: it.project },
+            success: false,
+            error: {
+              code: 'REGISTRY_NOT_INITIALIZED',
+              message: 'Short key registry not initialized',
+              suggestions: [
+                'Call workspace_metadata first to initialize the registry',
+                'Or use projectId with a UUID instead of project short key',
+              ],
+            },
+            index: i,
+            ok: false,
+          });
+          continue;
+        } else if (it.projectId) {
           payloadInput.projectId = it.projectId;
         } else if (it.projectName) {
           const projectResult = await resolveProject(client, it.projectName);
           if (!projectResult.success) {
             results.push({
-              input: { title: it.title, teamId: it.teamId, projectName: it.projectName },
+              input: {
+                title: it.title,
+                teamId: it.teamId,
+                projectName: it.projectName,
+              },
               success: false,
-              error: { code: 'PROJECT_RESOLUTION_FAILED', message: projectResult.error, suggestions: projectResult.suggestions },
+              error: {
+                code: 'PROJECT_RESOLUTION_FAILED',
+                message: projectResult.error,
+                suggestions: projectResult.suggestions,
+              },
               index: i,
               ok: false,
             });
@@ -198,41 +396,88 @@ export const createIssuesTool = defineTool({
           payloadInput.projectId = projectResult.value;
         }
 
-        // Resolve assignee from ID, name, or email
-        const assigneeResult = await resolveAssignee(client, {
-          assigneeId: it.assigneeId,
-          assigneeName: it.assigneeName,
-          assigneeEmail: it.assigneeEmail,
-        });
-
-        if (!assigneeResult.success && assigneeResult.error) {
-          // User resolution failed - report error but continue batch
+        // Resolve assignee from short key, ID, name, or email
+        // Priority: assignee (short key) > assigneeId > assigneeName > assigneeEmail
+        if (it.assignee && registry) {
+          const resolvedAssigneeId = tryResolveShortKey(registry, 'user', it.assignee);
+          if (resolvedAssigneeId) {
+            payloadInput.assigneeId = resolvedAssigneeId;
+          } else {
+            results.push({
+              input: { title: it.title, teamId: it.teamId, assignee: it.assignee },
+              success: false,
+              error: {
+                code: 'USER_RESOLUTION_FAILED',
+                message: `Unknown user key '${it.assignee}'`,
+                suggestions: [
+                  'Call workspace_metadata to see available user keys (u0, u1, ...)',
+                  `Available keys: ${Array.from(registry.users.keys()).join(', ')}`,
+                ],
+              },
+              index: i,
+              ok: false,
+            });
+            continue;
+          }
+        } else if (it.assignee && !registry) {
           results.push({
-            input: { title: it.title, teamId: it.teamId, assigneeName: it.assigneeName, assigneeEmail: it.assigneeEmail },
+            input: { title: it.title, teamId: it.teamId, assignee: it.assignee },
             success: false,
             error: {
-              code: assigneeResult.error.code,
-              message: assigneeResult.error.message,
-              suggestions: assigneeResult.error.suggestions,
+              code: 'REGISTRY_NOT_INITIALIZED',
+              message: 'Short key registry not initialized',
+              suggestions: [
+                'Call workspace_metadata first to initialize the registry',
+                'Or use assigneeId with a UUID instead of assignee short key',
+              ],
             },
-            // Legacy
             index: i,
             ok: false,
           });
           continue;
-        }
-
-        if (assigneeResult.user?.id) {
-          payloadInput.assigneeId = assigneeResult.user.id;
         } else {
-          // Default to current user when no assignee specified
-          try {
-            const me = await client.viewer;
-            const meId = (me as unknown as { id?: string })?.id;
-            if (meId) {
-              payloadInput.assigneeId = meId;
-            }
-          } catch {}
+          // Fall back to legacy resolution
+          const assigneeResult = await resolveAssignee(client, {
+            assigneeId: it.assigneeId,
+            assigneeName: it.assigneeName,
+            assigneeEmail: it.assigneeEmail,
+          });
+
+          if (!assigneeResult.success && assigneeResult.error) {
+            // User resolution failed - report error but continue batch
+            results.push({
+              input: {
+                title: it.title,
+                teamId: it.teamId,
+                assigneeName: it.assigneeName,
+                assigneeEmail: it.assigneeEmail,
+              },
+              success: false,
+              error: {
+                code: assigneeResult.error.code,
+                message: assigneeResult.error.message,
+                suggestions: assigneeResult.error.hint
+                  ? [assigneeResult.error.hint]
+                  : undefined,
+              },
+              index: i,
+              ok: false,
+            });
+            continue;
+          }
+
+          if (assigneeResult.user?.id) {
+            payloadInput.assigneeId = assigneeResult.user.id;
+          } else {
+            // Default to current user when no assignee specified
+            try {
+              const me = await client.viewer;
+              const meId = (me as unknown as { id?: string })?.id;
+              if (meId) {
+                payloadInput.assigneeId = meId;
+              }
+            } catch {}
+          }
         }
 
         // Resolve priority from number or string
@@ -242,7 +487,11 @@ export const createIssuesTool = defineTool({
             results.push({
               input: { title: it.title, teamId: it.teamId, priority: it.priority },
               success: false,
-              error: { code: 'PRIORITY_INVALID', message: priorityResult.error, suggestions: priorityResult.suggestions },
+              error: {
+                code: 'PRIORITY_INVALID',
+                message: priorityResult.error,
+                suggestions: priorityResult.suggestions,
+              },
               index: i,
               ok: false,
             });
@@ -272,6 +521,12 @@ export const createIssuesTool = defineTool({
 
         if (typeof it.parentId === 'string' && it.parentId) {
           payloadInput.parentId = it.parentId;
+        }
+
+        // Handle cycle assignment
+        if (typeof it.cycle === 'number') {
+          // TODO: Resolve cycle number to cycleId via Linear API
+          // For now, we'd need to query cycles and find the matching one
         }
 
         if (context.signal?.aborted) {
@@ -307,18 +562,41 @@ export const createIssuesTool = defineTool({
 
         const issue = await payload.issue;
         const issueUrl = (issue as unknown as { url?: string })?.url;
+        const issueId = (issue as unknown as { id?: string })?.id;
+        const issueIdentifier = (issue as unknown as { identifier?: string })
+          ?.identifier;
 
         results.push({
-          // Echo input for context
-          input: { title: it.title, teamId: it.teamId, assigneeName: it.assigneeName, assigneeEmail: it.assigneeEmail },
+          input: {
+            title: it.title,
+            teamId: it.teamId,
+            assigneeName: it.assigneeName,
+            assigneeEmail: it.assigneeEmail,
+          },
           success: payload.success ?? true,
-          id: (issue as unknown as { id?: string })?.id,
-          identifier: (issue as unknown as { identifier?: string })?.identifier,
+          id: issueId,
+          identifier: issueIdentifier,
           url: issueUrl,
-          // Legacy
+          stateId: payloadInput.stateId as string | undefined,
+          assigneeId: payloadInput.assigneeId as string | undefined,
+          projectId: payloadInput.projectId as string | undefined,
           index: i,
           ok: payload.success ?? true,
         });
+
+        // Track for TOON output
+        if (payload.success !== false && issueIdentifier) {
+          createdIssues.push({
+            identifier: issueIdentifier,
+            title: it.title,
+            stateId: payloadInput.stateId as string | undefined,
+            assigneeId: payloadInput.assigneeId as string | undefined,
+            projectId: payloadInput.projectId as string | undefined,
+            priority: payloadInput.priority as number | undefined,
+            estimate: payloadInput.estimate as number | undefined,
+            labels: it.labelNames,
+          });
+        }
       } catch (error) {
         await logger.error('create_issues', {
           message: 'Failed to create issue',
@@ -326,20 +604,23 @@ export const createIssuesTool = defineTool({
           error: (error as Error).message,
         });
         results.push({
-          // Echo input for context
-          input: { title: it.title, teamId: it.teamId, assigneeName: it.assigneeName, assigneeEmail: it.assigneeEmail },
+          input: {
+            title: it.title,
+            teamId: it.teamId,
+            assigneeName: it.assigneeName,
+            assigneeEmail: it.assigneeEmail,
+          },
           success: false,
           error: {
             code: 'LINEAR_CREATE_ERROR',
             message: (error as Error).message,
             suggestions: [
-              "Verify teamId with workspace_metadata.",
-              "Check that stateId exists in workflowStatesByTeam.",
-              "Use list_users to find valid assigneeId.",
+              'Verify teamId with workspace_metadata.',
+              'Check that stateId exists in workflowStatesByTeam.',
+              'Use list_users to find valid assigneeId.',
             ],
             retryable: false,
           },
-          // Legacy
           index: i,
           ok: false,
         });
@@ -353,7 +634,6 @@ export const createIssuesTool = defineTool({
       total: items.length,
       succeeded,
       failed,
-      // Legacy
       ok: succeeded,
     };
 
@@ -363,8 +643,8 @@ export const createIssuesTool = defineTool({
       'Use update_issues to modify state, assignee, or labels.',
     ];
     if (failed > 0) {
-      metaNextSteps.push("Check error.suggestions for recovery hints.");
-      metaNextSteps.push("Use workspace_metadata to verify IDs.");
+      metaNextSteps.push('Check error.suggestions for recovery hints.');
+      metaNextSteps.push('Use workspace_metadata to verify IDs.');
     }
 
     const meta = {
@@ -372,15 +652,103 @@ export const createIssuesTool = defineTool({
       relatedTools: ['list_issues', 'get_issues', 'update_issues', 'add_comments'],
     };
 
-    const structured = CreateIssuesOutputSchema.parse({ results, summary, meta });
+    // Clean results for schema validation (remove TOON-specific internal fields)
+    const cleanedResults = results.map((r) => ({
+      index: r.index,
+      ok: r.ok,
+      success: r.success,
+      id: r.id,
+      identifier: r.identifier,
+      url: r.url,
+      error: r.error,
+      input: r.input,
+    }));
 
+    const structured = CreateIssuesOutputSchema.parse({
+      results: cleanedResults,
+      summary,
+      meta,
+    });
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOON Output Format (when enabled)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (config.TOON_OUTPUT_ENABLED && registry) {
+      const toonResponse: ToonResponse = {
+        meta: {
+          fields: ['action', 'succeeded', 'failed', 'total'],
+          values: {
+            action: 'create_issues',
+            succeeded,
+            failed,
+            total: items.length,
+          },
+        },
+        data: [
+          // Results section
+          {
+            schema: WRITE_RESULT_SCHEMA,
+            items: results.map((r) => ({
+              index: r.index,
+              status: r.ok ? 'ok' : 'error',
+              identifier: r.identifier ?? '',
+              error: r.ok
+                ? ''
+                : ((typeof r.error === 'object'
+                    ? (r.error as { message?: string }).message
+                    : r.error) ?? ''),
+            })),
+          },
+        ],
+      };
+
+      // Add created issues section if any succeeded
+      if (createdIssues.length > 0) {
+        const createdSchema = {
+          name: 'created',
+          fields: ['identifier', 'title', 'state', 'assignee', 'project'],
+        };
+
+        toonResponse.data?.push({
+          schema: createdSchema,
+          items: createdIssues.map((issue) => ({
+            identifier: issue.identifier,
+            title: issue.title,
+            state: issue.stateId
+              ? (tryGetShortKey(registry, 'state', issue.stateId) ?? '')
+              : '',
+            assignee: issue.assigneeId
+              ? (tryGetShortKey(registry, 'user', issue.assigneeId) ?? '')
+              : '',
+            project: issue.projectId
+              ? (tryGetShortKey(registry, 'project', issue.projectId) ?? '')
+              : '',
+          })),
+        });
+      }
+
+      const toonOutput = encodeToon(toonResponse);
+
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+        structuredContent: structured,
+      };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Legacy Output Format
+    // ─────────────────────────────────────────────────────────────────────────
     const okIds = results
       .filter((r) => r.ok)
       .map((r) => r.identifier ?? r.id ?? `item[${String(r.index)}]`) as string[];
 
     const failures = results
       .filter((r) => !r.ok)
-      .map((r) => ({ index: r.index, error: r.error ?? '', code: undefined }));
+      .map((r) => ({
+        index: r.index,
+        error: typeof r.error === 'object' ? r.error.message : (r.error ?? ''),
+        code: undefined,
+      }));
 
     // Compose a richer message with links for created items
     const failureHints: string[] = [];
@@ -411,7 +779,8 @@ export const createIssuesTool = defineTool({
     for (const r of results.filter((r) => r.ok)) {
       try {
         const issue = await client.issue(r.id ?? (r.identifier as string));
-        const idf = (issue as unknown as { identifier?: string })?.identifier ?? issue.id;
+        const idf =
+          (issue as unknown as { identifier?: string })?.identifier ?? issue.id;
         const url = (issue as unknown as { url?: string })?.url as string | undefined;
         const title = issue.title;
 
@@ -419,15 +788,19 @@ export const createIssuesTool = defineTool({
         let projectName: string | undefined;
         let assigneeName: string | undefined;
         try {
-          const s = await (issue as unknown as { state?: Promise<{ name?: string }> }).state;
+          const s = await (issue as unknown as { state?: Promise<{ name?: string }> })
+            .state;
           stateName = s?.name ?? undefined;
         } catch {}
         try {
-          const p = await (issue as unknown as { project?: Promise<{ name?: string }> }).project;
+          const p = await (issue as unknown as { project?: Promise<{ name?: string }> })
+            .project;
           projectName = p?.name ?? undefined;
         } catch {}
         try {
-          const a = await (issue as unknown as { assignee?: Promise<{ name?: string }> }).assignee;
+          const a = await (
+            issue as unknown as { assignee?: Promise<{ name?: string }> }
+          ).assignee;
           assigneeName = a?.name ?? undefined;
         } catch {}
 
@@ -452,7 +825,8 @@ export const createIssuesTool = defineTool({
         if (dueDate) partsLine.push(`due ${dueDate}`);
         if (assigneeName) partsLine.push(`assignee ${assigneeName}`);
 
-        const line = partsLine.length > 0 ? `${header} — ${partsLine.join('; ')}` : header;
+        const line =
+          partsLine.length > 0 ? `${header} — ${partsLine.join('; ')}` : header;
         detailLines.push(`- ${line}`);
       } catch {}
     }
@@ -474,10 +848,3 @@ export const createIssuesTool = defineTool({
     return { content: parts, structuredContent: structured };
   },
 });
-
-
-
-
-
-
-

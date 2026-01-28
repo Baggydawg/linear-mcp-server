@@ -3,7 +3,7 @@ import { logger } from '../utils/logger.js';
 
 /**
  * Register prompts with the MCP server.
- * 
+ *
  * Add Linear-specific prompts here, e.g.:
  * - Sprint summary prompt
  * - Issue triage prompt

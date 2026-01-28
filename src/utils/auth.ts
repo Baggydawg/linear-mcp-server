@@ -19,10 +19,10 @@ export interface AuthError {
 
 /**
  * Extract and validate provider token from RS token.
- * 
+ *
  * @param authHeader - The Authorization header value (e.g., "Bearer xxx")
  * @returns AuthResult if valid, AuthError if invalid
- * 
+ *
  * @example
  * ```typescript
  * const result = await getProviderToken(context?.authHeaders?.authorization);
@@ -112,4 +112,3 @@ export async function getProviderToken(
 export function isAuthError(result: AuthResult | AuthError): result is AuthError {
   return 'error' in result;
 }
-

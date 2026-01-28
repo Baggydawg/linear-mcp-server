@@ -66,42 +66,49 @@ export const toolsMetadata = {
     name: 'workspace_metadata',
     title: 'Discover IDs (Use First)',
     description:
-      "Use this to discover workspace entities and canonical IDs (viewer, teams, workflow states, labels, projects, favorites). Use this FIRST whenever you don't know ids. Inputs: include? (profile|teams|workflow_states|labels|projects|favorites), teamIds?, project_limit?, label_limit?.\nReturns: viewer, teams[] (with estimation settings and cyclesEnabled), workflowStatesByTeam, labelsByTeam, projects[], favorites?. Next: Use teamId/projectId to filter 'list_issues'; use workflowStatesByTeam[teamId][].id as stateId for 'update_issues'; use labelsByTeam ids for label operations. If a team has cyclesEnabled=false, avoid cycle-related tools.",
+      "Use this to discover workspace entities and canonical IDs (viewer, teams, workflow states, labels, projects, favorites). Use this FIRST whenever you don't know ids. Inputs: include? (profile|teams|workflow_states|labels|projects|favorites), teamIds?, project_limit?, label_limit?, forceRefresh?.\nReturns: viewer, teams[] (with estimation settings and cyclesEnabled), workflowStatesByTeam, labelsByTeam, projects[], favorites?. Next: Use teamId/projectId to filter 'list_issues'; use workflowStatesByTeam[teamId][].id as stateId for 'update_issues'; use labelsByTeam ids for label operations. If a team has cyclesEnabled=false, avoid cycle-related tools.\n\nTOON Output (when enabled): This is a Tier 1 tool - returns ALL entities (users, states, projects, labels, cycles) to establish full context. Short keys (u0, s1, pr0) are assigned and can be used in subsequent tool calls. Call once per session; use forceRefresh: true to rebuild registry if team members or states change.",
   },
 
   list_issues: {
     name: 'list_issues',
     title: 'List Issues',
     description:
-      'List issues with filtering. Inputs: teamId?, projectId?, filter?, q?, keywords?, matchMode?, includeArchived?, orderBy?(updatedAt|createdAt), detail?(minimal|standard|full), limit?, cursor?, assignedToMe?.\n\n⚠️ orderBy only supports updatedAt or createdAt. DO NOT use orderBy:"priority" - use filter instead!\n\nKEYWORD SEARCH (q/keywords):\n- q: Extract 2-4 significant keywords from user intent. Avoid short/common words.\n- matchMode: \'all\' (default, precise) requires ALL tokens; \'any\' (broad) requires at least ONE.\n- Example: user says "find cursor workshop task" → q: "cursor workshop"\n\nFILTERING:\n- High priority: filter: { priority: { lte: 2 } } (1=Urgent, 2=High, 3=Medium, 4=Low)\n- Active issues: filter: { state: { type: { neq: \'completed\' } } }\n- In progress: filter: { state: { type: { eq: \'started\' } } }\n- My issues: assignedToMe: true\n\nDETAIL LEVELS: minimal (id,title,state), standard (default, +priority,assignee,project), full (+labels,description).\n\nReturns: { items[], pagination, meta }.',
+      "List issues with filtering. Inputs: teamId?, projectId?, filter?, q?, keywords?, matchMode?, includeArchived?, orderBy?(updatedAt|createdAt), detail?(minimal|standard|full), limit?, cursor?, assignedToMe?.\n\n⚠️ orderBy only supports updatedAt or createdAt. DO NOT use orderBy:\"priority\" - use filter instead!\n\nKEYWORD SEARCH (q/keywords):\n- q: Extract 2-4 significant keywords from user intent. Avoid short/common words.\n- matchMode: 'all' (default, precise) requires ALL tokens; 'any' (broad) requires at least ONE.\n- Example: user says \"find cursor workshop task\" → q: \"cursor workshop\"\n\nFILTERING:\n- High priority: filter: { priority: { lte: 2 } } (1=Urgent, 2=High, 3=Medium, 4=Low)\n- Active issues: filter: { state: { type: { neq: 'completed' } } }\n- In progress: filter: { state: { type: { eq: 'started' } } }\n- My issues: assignedToMe: true\n\nDETAIL LEVELS: minimal (id,title,state), standard (default, +priority,assignee,project), full (+labels,description).\n\nReturns: { items[], pagination, meta }.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities in lookups (_users, _states, _projects). Use short keys from output (u0, s1, pr0) in update_issues calls.",
   },
 
   get_issues: {
     name: 'get_issues',
     title: 'Get Issues (Batch)',
     description:
-      "Fetch detailed issues in batch by ids (UUIDs or short ids like ENG-123). Inputs: { ids: string[] }.\nReturns: { results: Array<{ index, ok, id?, identifier?, issue? }>, summary }. Each issue includes assignee, state, project, labels, attachments, and branchName when available. Next: Call 'update_issues' to modify fields or 'list_issues' to discover more.",
+      "Fetch detailed issues in batch by ids (UUIDs or short ids like ENG-123). Inputs: { ids: string[] }.\nReturns: { results: Array<{ index, ok, id?, identifier?, issue? }>, summary }. Each issue includes assignee, state, project, labels, attachments, and branchName when available. Next: Call 'update_issues' to modify fields or 'list_issues' to discover more.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities in lookups. Full description included (no truncation). Use short keys from output in update calls.",
+  },
+
+  list_my_issues: {
+    name: 'list_my_issues',
+    title: 'List My Issues',
+    description:
+      "List issues assigned to you (current viewer). Inputs: filter?, q?, keywords?, matchMode?, includeArchived?, orderBy?(updatedAt|createdAt), detail?(minimal|standard|full), limit?, cursor?.\n\nKEYWORD SEARCH (q/keywords):\n- q: Extract 2-4 significant keywords from user intent.\n- matchMode: 'all' (default, precise) or 'any' (broad).\n\nFILTERING:\n- Active issues: filter: { state: { type: { neq: 'completed' } } }\n- In progress: filter: { state: { type: { eq: 'started' } } }\n\nDETAIL LEVELS: minimal (id,title,state), standard (default), full (+labels,description).\n\nReturns: { items[], pagination, meta }. Shortcut for list_issues with assignedToMe: true.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities in lookups.",
   },
 
   create_issues: {
     name: 'create_issues',
     title: 'Create Issues (Batch)',
     description:
-      "Create multiple issues in one call. Inputs: { items: Array<{ teamId: string; title: string; description?; stateId?; stateName?; stateType?; labelIds?; labelNames?; assigneeId?; assigneeName?; assigneeEmail?; projectId?; projectName?; priority?; estimate?; dueDate?; parentId?; allowZeroEstimate? }>; parallel?; dry_run? }.\n\nHUMAN-READABLE INPUTS (use workspace_metadata to discover valid values):\n- priority: 0-4 or \"Urgent\"/\"High\"/\"Medium\"/\"Low\" (standardized)\n- stateType: \"completed\"/\"started\"/\"backlog\"/\"unstarted\"/\"canceled\" (standardized)\n- stateName/labelNames/assigneeName/projectName: workspace-specific\n\nBehavior: Only send fields you intend to set. If 'assigneeId' is omitted, defaults to current viewer. Invalid numbers are ignored (priority<0 dropped; estimate<=0 dropped unless allowZeroEstimate=true). Returns: per-item results with id/identifier. Next: verify with 'list_issues'.",
+      'Create multiple issues in one call. Inputs: { items: Array<{ teamId: string; title: string; description?; stateId?; stateName?; stateType?; labelIds?; labelNames?; assigneeId?; assigneeName?; assigneeEmail?; projectId?; projectName?; priority?; estimate?; dueDate?; parentId?; allowZeroEstimate? }>; parallel?; dry_run? }.\n\nHUMAN-READABLE INPUTS (use workspace_metadata to discover valid values):\n- priority: 0-4 or "Urgent"/"High"/"Medium"/"Low" (standardized)\n- stateType: "completed"/"started"/"backlog"/"unstarted"/"canceled" (standardized)\n- stateName/labelNames/assigneeName/projectName: workspace-specific\n\nBehavior: Only send fields you intend to set. If \'assigneeId\' is omitted, defaults to current viewer. Invalid numbers are ignored (priority<0 dropped; estimate<=0 dropped unless allowZeroEstimate=true). Returns: per-item results with id/identifier. Next: verify with \'list_issues\'.\n\nTOON Output (when enabled): Tier 2. Short key input supported - use assignee: "u1", state: "s2", project: "pr0" instead of UUIDs. Results show created issues with short keys.',
   },
 
   update_issues: {
     name: 'update_issues',
     title: 'Update Issues (Batch)',
     description:
-      "Update issues in batch (state, labels, assignee, metadata). Supports up to 50 items per call — always batch all updates together. Inputs: { items: Array<{ id: string; title?; description?; stateId?; stateName?; stateType?; labelIds?; labelNames?; addLabelIds?; addLabelNames?; removeLabelIds?; removeLabelNames?; assigneeId?; assigneeName?; assigneeEmail?; projectId?; projectName?; priority?; estimate?; dueDate?; parentId?; archived?; allowZeroEstimate? }>; parallel?; dry_run? }.\n\nHUMAN-READABLE INPUTS (use workspace_metadata to discover valid values):\n- priority: 0-4 or \"Urgent\"/\"High\"/\"Medium\"/\"Low\" (standardized)\n- stateType: \"completed\"/\"started\"/\"canceled\" (standardized)\n- stateName/labelNames/assigneeName/projectName: workspace-specific\n\nBehavior: Only send fields you intend to change. Empty strings ignored; estimate<=0 ignored unless allowZeroEstimate=true. add/removeLabelIds/Names adjust labels incrementally.\nExample: { items: [{ id: 'ABC-123', stateType: 'completed', priority: 'High' }] }. Returns: per-item results. Next: 'get_issues' for verification.",
+      'Update issues in batch (state, labels, assignee, metadata). Supports up to 50 items per call — always batch all updates together. Inputs: { items: Array<{ id: string; title?; description?; stateId?; stateName?; stateType?; labelIds?; labelNames?; addLabelIds?; addLabelNames?; removeLabelIds?; removeLabelNames?; assigneeId?; assigneeName?; assigneeEmail?; projectId?; projectName?; priority?; estimate?; dueDate?; parentId?; archived?; allowZeroEstimate? }>; parallel?; dry_run? }.\n\nHUMAN-READABLE INPUTS (use workspace_metadata to discover valid values):\n- priority: 0-4 or "Urgent"/"High"/"Medium"/"Low" (standardized)\n- stateType: "completed"/"started"/"canceled" (standardized)\n- stateName/labelNames/assigneeName/projectName: workspace-specific\n\nBehavior: Only send fields you intend to change. Empty strings ignored; estimate<=0 ignored unless allowZeroEstimate=true. add/removeLabelIds/Names adjust labels incrementally.\nExample: { items: [{ id: \'ABC-123\', stateType: \'completed\', priority: \'High\' }] }. Returns: per-item results. Next: \'get_issues\' for verification.\n\nTOON Output (when enabled): Tier 2. Short key input supported - use assignee: "u1", state: "s3", project: "pr0" instead of UUIDs. Results include changes section showing before/after diffs with short keys.',
   },
 
   list_projects: {
     name: 'list_projects',
     title: 'List Projects',
     description:
-      "List projects with filtering and pagination. Inputs: filter? (ProjectFilter: id/state/team/lead/targetDate), includeArchived?, limit?, cursor?. For a single project, set filter.id.eq and limit=1.\nReturns: { items[], cursor?, nextCursor?, limit? } where items include id, name, state, leadId?, teamId?, targetDate?, description?. Next: Use 'update_projects' to modify or 'list_issues' with projectId to find issues.",
+      "List projects with filtering and pagination. Inputs: filter? (ProjectFilter: id/state/team/lead/targetDate), includeArchived?, limit?, cursor?. For a single project, set filter.id.eq and limit=1.\nReturns: { items[], cursor?, nextCursor?, limit? } where items include id, name, state, leadId?, teamId?, targetDate?, description?. Next: Use 'update_projects' to modify or 'list_issues' with projectId to find issues.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities. Projects use short keys (pr0, pr1) in output.",
   },
 
   create_projects: {
@@ -122,21 +129,21 @@ export const toolsMetadata = {
     name: 'list_teams',
     title: 'List Teams',
     description:
-      "List teams in the workspace. Inputs: limit?, cursor?.\nReturns: { items: Array<{ id, key?, name }>, cursor?, nextCursor?, limit? }. Next: Use team ids with 'workspace_metadata' (workflowStatesByTeam) and 'list_issues'.",
+      "List teams in the workspace. Inputs: limit?, cursor?.\nReturns: { items: Array<{ id, key?, name }>, cursor?, nextCursor?, limit? }. Next: Use team ids with 'workspace_metadata' (workflowStatesByTeam) and 'list_issues'.\n\nTOON Output (when enabled): Tier 2. Teams use natural key (SQT) - no short key translation needed.",
   },
 
   list_users: {
     name: 'list_users',
     title: 'List Users',
     description:
-      "List users in the workspace. Inputs: limit?, cursor?.\nReturns: { items: Array<{ id, name?, email?, displayName?, avatarUrl? }>, cursor?, nextCursor?, limit? }. Next: Use user ids in 'update_issues' (assigneeId).",
+      "List users in the workspace. Inputs: limit?, cursor?.\nReturns: { items: Array<{ id, name?, email?, displayName?, avatarUrl? }>, cursor?, nextCursor?, limit? }. Next: Use user ids in 'update_issues' (assigneeId).\n\nTOON Output (when enabled): Tier 2. Users have short keys (u0, u1) - use these in assignee field for updates.",
   },
 
   list_comments: {
     name: 'list_comments',
     title: 'List Comments',
     description:
-      'List comments for an issue. Inputs: { issueId, limit?, cursor? }.\nReturns: { items[], cursor?, nextCursor?, limit? } where items include id, body, url?, createdAt, updatedAt?, user{id,name?}. Next: Use add_comments to add context or mention teammates.',
+      'List comments for an issue. Inputs: { issueId, limit?, cursor? }.\nReturns: { items[], cursor?, nextCursor?, limit? } where items include id, body, url?, createdAt, updatedAt?, user{id,name?}. Next: Use add_comments to add context or mention teammates.\n\nTOON Output (when enabled): Tier 2. Comment authors included in _users lookup. Comments are dynamic entities - UUID included only when edit/delete is needed.',
   },
 
   add_comments: {
@@ -157,7 +164,29 @@ export const toolsMetadata = {
     name: 'list_cycles',
     title: 'List Cycles',
     description:
-      "List cycles for a team (only if team.cyclesEnabled=true). Inputs: { teamId, includeArchived?, orderBy?(updatedAt|createdAt), limit?, cursor? }.\nReturns: { items[], cursor?, nextCursor?, limit? } where items include id, name?, number?, startsAt?, endsAt?, completedAt?, teamId, status?. Next: Use teamId from 'workspace_metadata' to target the right team; avoid this tool if cyclesEnabled=false.",
+      "List cycles for a team (only if team.cyclesEnabled=true). Inputs: { teamId, includeArchived?, orderBy?(updatedAt|createdAt), limit?, cursor? }.\nReturns: { items[], cursor?, nextCursor?, limit? } where items include id, name?, number?, startsAt?, endsAt?, completedAt?, teamId, status?. Next: Use teamId from 'workspace_metadata' to target the right team; avoid this tool if cyclesEnabled=false.\n\nTOON Output (when enabled): Tier 2. Cycles use natural number (5) - no short key translation needed.",
+  },
+
+  get_sprint_context: {
+    name: 'get_sprint_context',
+    title: 'Get Sprint Context',
+    description:
+      'Fetch comprehensive sprint data in one call: cycle metadata, all issues with comments and relations, plus gap analysis.\n\n' +
+      'Inputs: { team?: string, cycle?: "current"|"next"|"previous"|number, includeComments?: boolean, includeRelations?: boolean }\n\n' +
+      'TOON Output sections:\n' +
+      '- _meta: version, team, cycle number, start/end dates\n' +
+      '- _users, _states, _projects: Referenced entity lookups (Tier 2)\n' +
+      '- issues: All cycle issues with identifier, title, state, assignee, priority, estimate, project, labels, parent, desc\n' +
+      '- comments: Issue comments with user reference and timestamp\n' +
+      '- relations: Issue relations (blocks, duplicate, related)\n' +
+      '- _gaps: Sprint health issues (no_estimate, no_assignee, stale, blocked, priority_mismatch)\n\n' +
+      'Gap types:\n' +
+      '- no_estimate: Issues without estimate (affects velocity)\n' +
+      '- no_assignee: Unassigned issues (excluding completed/canceled)\n' +
+      '- stale: No updates for 7+ days (excluding completed/canceled)\n' +
+      '- blocked: Has blocking relations (excluding completed/canceled)\n' +
+      '- priority_mismatch: Urgent (priority 1) issues not started\n\n' +
+      "Next: Use update_issues with short keys (u0, s2, pr1) from lookups. Use 'list_cycles' to see all cycles.",
   },
 
   show_issues_ui: {

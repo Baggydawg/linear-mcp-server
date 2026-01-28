@@ -14,11 +14,11 @@ export interface ServerOptions {
   /**
    * Called when initialization is complete (after client sends notifications/initialized).
    * Per review finding #3: This fires AFTER transport.onsessioninitialized.
-   * 
+   *
    * Guaranteed ordering:
    * 1. transport.onsessioninitialized(sid) - session ID assigned
    * 2. server.oninitialized() - client confirmed ready
-   * 
+   *
    * At this point, you can safely:
    * - Access client capabilities via server.server.getClientCapabilities()
    * - Send server→client requests (sampling, elicitation, roots)
@@ -59,14 +59,11 @@ export function buildServer(options: ServerOptions): McpServer {
   registerResources(server);
 
   // Register logging/setLevel handler (required when logging capability is advertised)
-  server.server.setRequestHandler(
-    SetLevelRequestSchema,
-    async (request) => {
-      const level = request.params.level;
-      logger.info('mcp', { message: 'Log level changed', level });
-      return {};
-    },
-  );
+  server.server.setRequestHandler(SetLevelRequestSchema, async (request) => {
+    const level = request.params.level;
+    logger.info('mcp', { message: 'Log level changed', level });
+    return {};
+  });
 
   return server;
 }

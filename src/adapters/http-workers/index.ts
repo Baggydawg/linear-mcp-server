@@ -175,4 +175,3 @@ export function shimProcessEnv(env: WorkerEnv): void {
   g.process = g.process || {};
   g.process.env = { ...(g.process.env ?? {}), ...(env as Record<string, unknown>) };
 }
-

@@ -77,12 +77,14 @@ export interface MultiSelectFieldSchema {
   description?: string;
   minItems?: number;
   maxItems?: number;
-  items: {
-    type: 'string';
-    enum: string[];
-  } | {
-    anyOf: Array<{ const: string; title: string }>;
-  };
+  items:
+    | {
+        type: 'string';
+        enum: string[];
+      }
+    | {
+        anyOf: Array<{ const: string; title: string }>;
+      };
   default?: string[];
 }
 
@@ -139,12 +141,9 @@ export interface ElicitResult {
 
 export const ElicitResultSchema = z.object({
   action: z.enum(['accept', 'decline', 'cancel']),
-  content: z.record(z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.array(z.string()),
-  ])).optional(),
+  content: z
+    .record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+    .optional(),
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,7 +171,7 @@ export function validateElicitationSchema(schema: ElicitationSchema): void {
     if ('properties' in fieldSchema) {
       throw new Error(
         `Nested objects not allowed in elicitation schema (field: "${fieldName}"). ` +
-        'Only primitive types (string, number, integer, boolean) and enums are supported.',
+          'Only primitive types (string, number, integer, boolean) and enums are supported.',
       );
     }
 
@@ -182,7 +181,7 @@ export function validateElicitationSchema(schema: ElicitationSchema): void {
       if (items.type === 'object' || 'properties' in items) {
         throw new Error(
           `Array of objects not allowed in elicitation schema (field: "${fieldName}"). ` +
-          'Only arrays with string enum items are supported for multi-select.',
+            'Only arrays with string enum items are supported for multi-select.',
         );
       }
     }
@@ -192,7 +191,7 @@ export function validateElicitationSchema(schema: ElicitationSchema): void {
     if (!allowedTypes.includes(fieldSchema.type)) {
       throw new Error(
         `Invalid field type "${fieldSchema.type}" in elicitation schema (field: "${fieldName}"). ` +
-        `Allowed types: ${allowedTypes.join(', ')}`,
+          `Allowed types: ${allowedTypes.join(', ')}`,
       );
     }
   }
@@ -268,7 +267,9 @@ export async function elicitForm(
   request: FormElicitationRequest,
 ): Promise<ElicitResult> {
   if (!clientSupportsFormElicitation(server)) {
-    logger.warning('elicitation', { message: 'Client does not support form elicitation' });
+    logger.warning('elicitation', {
+      message: 'Client does not support form elicitation',
+    });
     throw new Error('Client does not support form elicitation');
   }
 
@@ -336,7 +337,9 @@ export async function elicitUrl(
   request: Omit<UrlElicitationRequest, 'mode'>,
 ): Promise<ElicitResult> {
   if (!clientSupportsUrlElicitation(server)) {
-    logger.warning('elicitation', { message: 'Client does not support URL elicitation' });
+    logger.warning('elicitation', {
+      message: 'Client does not support URL elicitation',
+    });
     throw new Error('Client does not support URL elicitation');
   }
 
@@ -554,4 +557,3 @@ export async function promptSelect(
 
   return undefined;
 }
-

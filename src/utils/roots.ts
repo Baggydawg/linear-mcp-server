@@ -67,7 +67,7 @@ export async function requestRoots(server: McpServer): Promise<Root[]> {
     if (!clientCapabilities.roots) {
       throw new Error(
         'Client does not support roots capability. ' +
-        'Client must declare "roots" capability to list filesystem roots.',
+          'Client must declare "roots" capability to list filesystem roots.',
       );
     }
 
@@ -131,5 +131,3 @@ export function clientSupportsRootsListChanged(server: McpServer): boolean {
     return false;
   }
 }
-
-

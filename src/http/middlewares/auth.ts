@@ -4,10 +4,10 @@
 import type { HttpBindings } from '@hono/node-server';
 import type { MiddlewareHandler } from 'hono';
 import { config } from '../../config/env.js';
+import type { AuthStrategyType } from '../../shared/auth/strategy.js';
 import type { ProviderTokens } from '../../shared/storage/interface.js';
 import { getTokenStore } from '../../shared/storage/singleton.js';
 import { logger } from '../../utils/logger.js';
-import type { AuthStrategyType } from '../../shared/auth/strategy.js';
 
 /**
  * Auth context attached to Hono context.

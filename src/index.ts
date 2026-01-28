@@ -15,10 +15,7 @@ let sessionStore: MemorySessionStore | null = null;
 async function main(): Promise<void> {
   try {
     // Initialize storage singleton with encryption
-    tokenStore = new FileTokenStore(
-      config.RS_TOKENS_FILE,
-      config.RS_TOKENS_ENC_KEY,
-    );
+    tokenStore = new FileTokenStore(config.RS_TOKENS_FILE, config.RS_TOKENS_ENC_KEY);
     sessionStore = new MemorySessionStore();
     initializeStorage(tokenStore, sessionStore);
 

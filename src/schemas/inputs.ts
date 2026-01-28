@@ -50,7 +50,9 @@ export const ListIssuesInputSchema = PaginationInput.extend({
   orderBy: z
     .enum(['updatedAt', 'createdAt'])
     .optional()
-    .describe("Sort order. Default: 'updatedAt'. Note: priority sorting not supported by Linear API - use filter.priority instead."),
+    .describe(
+      "Sort order. Default: 'updatedAt'. Note: priority sorting not supported by Linear API - use filter.priority instead.",
+    ),
   detail: DetailLevelSchema,
   // Keyword helpers
   q: z
@@ -255,28 +257,3 @@ export const AddCommentsInputSchema = z
   })
   .strict();
 export type AddCommentsInput = z.infer<typeof AddCommentsInputSchema>;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

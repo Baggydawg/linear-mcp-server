@@ -6,6 +6,7 @@ interface IttyRouter {
   get(path: string, handler: (request: Request) => Promise<Response>): void;
   post(path: string, handler: (request: Request) => Promise<Response>): void;
 }
+
 import type { UnifiedConfig } from '../../shared/config/env.js';
 import { withCors } from '../../shared/http/cors.js';
 import { jsonResponse } from '../../shared/http/response.js';

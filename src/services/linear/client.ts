@@ -25,7 +25,7 @@ function tokenToCacheKey(prefix: string, token: string): string {
  * Detects if token is an API key (starts with lin_) or OAuth token.
  */
 function createClient(token: string): LinearClient {
-  return token.startsWith('lin_') 
+  return token.startsWith('lin_')
     ? new LinearClient({ apiKey: token })
     : new LinearClient({ accessToken: token });
 }
@@ -37,22 +37,22 @@ function createClient(token: string): LinearClient {
 export async function getLinearClient(context?: ToolContext): Promise<LinearClient> {
   // 1. Try provider token from context (OAuth flow)
   const providerToken = context?.providerToken || context?.provider?.accessToken;
-  
+
   if (providerToken) {
     const cacheKey = tokenToCacheKey('provider', providerToken);
     const cached = clientCache.get(cacheKey);
     if (cached) {
       return cached;
     }
-    
+
     const client = createClient(providerToken);
     clientCache.set(cacheKey, client);
-    
+
     logger.debug('linear_client', {
       message: 'Created client from provider token',
       sessionId: context?.sessionId,
     });
-    
+
     return client;
   }
 
@@ -61,27 +61,27 @@ export async function getLinearClient(context?: ToolContext): Promise<LinearClie
   if (authHeader) {
     const bearerMatch = authHeader.match(/^\s*Bearer\s+(.+)$/i);
     const rsToken = bearerMatch?.[1];
-    
+
     if (rsToken) {
       try {
         const store = getTokenStore();
         const record = await store.getByRsAccess(rsToken);
-        
+
         if (record?.provider?.access_token) {
           const cacheKey = tokenToCacheKey('rs', rsToken);
           const cached = clientCache.get(cacheKey);
           if (cached) {
             return cached;
           }
-          
+
           const client = createClient(record.provider.access_token);
           clientCache.set(cacheKey, client);
-          
+
           logger.debug('linear_client', {
             message: 'Created client from RS token mapping',
             sessionId: context?.sessionId,
           });
-          
+
           return client;
         }
       } catch (error) {
@@ -90,30 +90,29 @@ export async function getLinearClient(context?: ToolContext): Promise<LinearClie
           error: (error as Error).message,
         });
       }
-      
+
       // Assume bearer is a Linear token directly (API key mode)
       const cacheKey = tokenToCacheKey('bearer', rsToken);
       const cached = clientCache.get(cacheKey);
       if (cached) {
         return cached;
       }
-      
+
       const client = createClient(rsToken);
       clientCache.set(cacheKey, client);
-      
+
       logger.debug('linear_client', {
         message: 'Created client from direct bearer token',
         sessionId: context?.sessionId,
       });
-      
+
       return client;
     }
-    
   }
 
   // 3. Fall back to environment variable (local dev only)
   const envAccessToken = config.LINEAR_ACCESS_TOKEN;
-  
+
   if (!envAccessToken) {
     throw new Error(
       'Linear OAuth required: complete the OAuth flow to get an access token',
@@ -143,14 +142,14 @@ export async function getLinearClient(context?: ToolContext): Promise<LinearClie
 export function getLinearClientSync(context?: ToolContext): LinearClient {
   // 1. Try provider token from context
   const providerToken = context?.providerToken || context?.provider?.accessToken;
-  
+
   if (providerToken) {
     const cacheKey = tokenToCacheKey('provider', providerToken);
     const cached = clientCache.get(cacheKey);
     if (cached) {
       return cached;
     }
-    
+
     const client = createClient(providerToken);
     clientCache.set(cacheKey, client);
     return client;
@@ -161,14 +160,14 @@ export function getLinearClientSync(context?: ToolContext): LinearClient {
   if (authHeader) {
     const bearerMatch = authHeader.match(/^\s*Bearer\s+(.+)$/i);
     const token = bearerMatch?.[1];
-    
+
     if (token) {
       const cacheKey = tokenToCacheKey('bearer', token);
       const cached = clientCache.get(cacheKey);
       if (cached) {
         return cached;
       }
-      
+
       const client = createClient(token);
       clientCache.set(cacheKey, client);
       return client;
@@ -177,7 +176,7 @@ export function getLinearClientSync(context?: ToolContext): LinearClient {
 
   // 3. Fall back to environment variable (local dev only)
   const envAccessToken = config.LINEAR_ACCESS_TOKEN;
-  
+
   if (!envAccessToken) {
     throw new Error(
       'Linear OAuth required: complete the OAuth flow to get an access token',
@@ -202,4 +201,3 @@ export function getLinearClientSync(context?: ToolContext): LinearClient {
 export function clearClientCache(): void {
   clientCache.clear();
 }
-

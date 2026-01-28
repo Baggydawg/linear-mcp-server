@@ -1,13 +1,30 @@
 /**
  * List Users tool.
+ *
+ * Supports TOON output format:
+ * - When TOON_OUTPUT_ENABLED=true, returns TOON format with short keys (u0, u1...)
+ * - When TOON_OUTPUT_ENABLED=false (default), returns legacy human-readable format
  */
 
 import { z } from 'zod';
+import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { ListUsersOutputSchema } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import { mapUserNodeToListItem } from '../../../utils/mappers.js';
-import { summarizeList, previewLinesFromItems } from '../../../utils/messages.js';
+import { previewLinesFromItems, summarizeList } from '../../../utils/messages.js';
+import {
+  buildRegistry,
+  encodeResponse,
+  getOrInitRegistry,
+  PAGINATION_SCHEMA,
+  type ShortKeyRegistry,
+  type ToonResponse,
+  type ToonRow,
+  type ToonSection,
+  tryGetShortKey,
+  USER_SCHEMA,
+} from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 
 const InputSchema = z.object({
@@ -29,12 +46,162 @@ export const listUsersTool = defineTool({
     const client = await getLinearClient(context);
     const limit = args.limit ?? 50;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (config.TOON_OUTPUT_ENABLED) {
+      // Use GraphQL to fetch all needed fields for TOON output
+      const QUERY = `
+        query ListUsers($first: Int!, $after: String) {
+          users(first: $first, after: $after) {
+            nodes {
+              id
+              name
+              displayName
+              email
+              active
+              createdAt
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      `;
+
+      const variables = { first: limit, after: args.cursor };
+      const resp = await client.client.rawRequest(QUERY, variables);
+      const conn = (
+        resp as {
+          data?: {
+            users?: {
+              nodes?: Array<RawUserData>;
+              pageInfo?: { hasNextPage?: boolean; endCursor?: string };
+            };
+          };
+        }
+      ).data?.users ?? { nodes: [], pageInfo: {} };
+
+      const rawUsers = conn.nodes ?? [];
+      const pageInfo = conn.pageInfo ?? {};
+      const hasMore = pageInfo.hasNextPage ?? false;
+      const nextCursor = hasMore ? pageInfo.endCursor : undefined;
+
+      // Initialize registry for short key assignment
+      // Users need short keys (u0, u1...) based on createdAt order
+      let registry: ShortKeyRegistry | null = null;
+      try {
+        registry = await getOrInitRegistry(
+          {
+            sessionId: context.sessionId,
+            transport: 'stdio', // Default to stdio
+          },
+          async () => {
+            // Build registry from the fetched users
+            // Note: For full registry we'd need all users, but for list_users
+            // we only show the current page with keys based on their position
+            // We need to fetch ALL users to get proper short keys
+            const allUsersResp = await client.client.rawRequest(
+              `query { users(first: 100) { nodes { id createdAt } } }`,
+            );
+            const allUsersData =
+              (
+                allUsersResp as {
+                  data?: {
+                    users?: { nodes?: Array<{ id: string; createdAt: string }> };
+                  };
+                }
+              ).data?.users?.nodes ?? [];
+
+            // Get viewer org for workspace ID
+            const viewer = await client.viewer;
+            const viewerOrg = viewer as unknown as { organization?: { id?: string } };
+            const workspaceId = viewerOrg?.organization?.id ?? 'unknown';
+
+            return {
+              users: allUsersData.map((u) => ({
+                id: u.id,
+                createdAt: new Date(u.createdAt),
+              })),
+              states: [],
+              projects: [],
+              workspaceId,
+            };
+          },
+        );
+      } catch (error) {
+        console.error('Registry initialization failed:', error);
+      }
+
+      // Convert to TOON rows with short keys
+      const userRows: ToonRow[] = rawUsers.map((user) => {
+        const shortKey =
+          registry && user.id ? tryGetShortKey(registry, 'user', user.id) : null;
+
+        return {
+          key: shortKey ?? `u?`, // Fallback if registry unavailable
+          name: user.name ?? '',
+          displayName: user.displayName ?? null,
+          email: user.email ?? null,
+          active: user.active ?? true,
+        };
+      });
+
+      // Build data sections
+      const data: ToonSection[] = [{ schema: USER_SCHEMA, items: userRows }];
+
+      // Add pagination if needed
+      if (hasMore) {
+        data.push({
+          schema: PAGINATION_SCHEMA,
+          items: [
+            {
+              hasMore,
+              cursor: nextCursor ?? '',
+              fetched: userRows.length,
+              total: null,
+            },
+          ],
+        });
+      }
+
+      // Build TOON response
+      const toonResponse: ToonResponse = {
+        meta: {
+          fields: ['tool', 'count', 'generated'],
+          values: {
+            tool: 'list_users',
+            count: userRows.length,
+            generated: new Date().toISOString(),
+          },
+        },
+        data,
+      };
+
+      // Encode TOON output
+      const toonOutput = encodeResponse(rawUsers, toonResponse);
+
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+        structuredContent: {
+          _format: 'toon',
+          _version: '1',
+          count: userRows.length,
+          hasMore,
+          nextCursor,
+        },
+      };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
+    // ─────────────────────────────────────────────────────────────────────────
     const queryArgs: Record<string, unknown> = { first: limit };
     if (args.cursor) {
       queryArgs.after = args.cursor;
     }
 
-    const connection = await client.users(queryArgs as Parameters<typeof client.users>[0]);
+    const connection = await client.users(
+      queryArgs as Parameters<typeof client.users>[0],
+    );
     const items = connection.nodes.map(mapUserNodeToListItem);
     const pageInfo = connection.pageInfo;
 
@@ -72,7 +239,8 @@ export const listUsersTool = defineTool({
     const preview = previewLinesFromItems(
       items as unknown as Record<string, unknown>[],
       (u) => {
-        const name = (u.displayName as string) ?? (u.name as string) ?? (u.id as string);
+        const name =
+          (u.displayName as string) ?? (u.name as string) ?? (u.id as string);
         const email = u.email as string | undefined;
         return `${name}${email ? ` <${email}>` : ''} → ${u.id as string}`;
       },
@@ -94,9 +262,18 @@ export const listUsersTool = defineTool({
   },
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Types for TOON processing
+// ─────────────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
+/**
+ * Raw user data from GraphQL response for TOON processing.
+ */
+interface RawUserData {
+  id: string;
+  name?: string | null;
+  displayName?: string | null;
+  email?: string | null;
+  active?: boolean;
+  createdAt?: string;
+}

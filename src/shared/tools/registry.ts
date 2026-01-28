@@ -5,21 +5,22 @@
 
 import type { ZodObject, ZodRawShape } from 'zod';
 import {
-  workspaceMetadataTool,
-  listIssuesTool,
-  getIssuesTool,
+  addCommentsTool,
   createIssuesTool,
-  updateIssuesTool,
+  createProjectsTool,
+  getIssuesTool,
+  getSprintContextTool,
+  listCommentsTool,
+  listCyclesTool,
+  listIssuesTool,
+  listProjectsTool,
   listTeamsTool,
   listUsersTool,
-  listCommentsTool,
-  addCommentsTool,
-  updateCommentsTool,
-  listCyclesTool,
-  listProjectsTool,
-  createProjectsTool,
-  updateProjectsTool,
   showIssuesUITool,
+  updateCommentsTool,
+  updateIssuesTool,
+  updateProjectsTool,
+  workspaceMetadataTool,
 } from './linear/index.js';
 import type { ToolContext, ToolResult } from './types.js';
 
@@ -51,6 +52,8 @@ export const sharedTools: RegisteredTool[] = [
   getIssuesTool as unknown as RegisteredTool,
   createIssuesTool as unknown as RegisteredTool,
   updateIssuesTool as unknown as RegisteredTool,
+  // Linear tools - Sprint Context
+  getSprintContextTool as unknown as RegisteredTool,
   // Linear tools - Teams & Users
   listTeamsTool as unknown as RegisteredTool,
   listUsersTool as unknown as RegisteredTool,
