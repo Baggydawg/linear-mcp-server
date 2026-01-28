@@ -90,6 +90,20 @@ describe('list_issues input validation', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('list_issues handler', () => {
+  // These tests assert legacy (non-TOON) output shape
+  let savedToon: boolean;
+  beforeEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    savedToon = config.TOON_OUTPUT_ENABLED;
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = false;
+  });
+  afterEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = savedToon;
+  });
+
   it('returns issues with default parameters', async () => {
     const result = await listIssuesTool.handler({}, baseContext);
 
@@ -258,6 +272,20 @@ describe('list_issues handler', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('list_issues output shape', () => {
+  // These tests assert legacy (non-TOON) output shape
+  let savedToon: boolean;
+  beforeEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    savedToon = config.TOON_OUTPUT_ENABLED;
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = false;
+  });
+  afterEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = savedToon;
+  });
+
   it('returns items array with issue objects', async () => {
     const result = await listIssuesTool.handler({}, baseContext);
 
@@ -319,6 +347,20 @@ describe('list_issues output shape', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('list_issues edge cases', () => {
+  // These tests assert legacy (non-TOON) output shape
+  let savedToon: boolean;
+  beforeEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    savedToon = config.TOON_OUTPUT_ENABLED;
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = false;
+  });
+  afterEach(async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = savedToon;
+  });
+
   it('handles empty results gracefully', async () => {
     // Create client with no issues
     mockClient = createMockLinearClient({ issues: [] });
@@ -504,6 +546,60 @@ describe('list_issues TOON output', () => {
     expect(typeof structured.hasMore).toBe('boolean');
   });
 
+  it('includes comments section in TOON output', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have comments section with schema header
+    expect(textContent).toContain('comments[');
+    expect(textContent).toContain('{issue,user,body,createdAt}');
+  });
+
+  it('includes relations section in TOON output', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have relations section with schema header
+    expect(textContent).toContain('relations[');
+    expect(textContent).toContain('{from,type,to}');
+  });
+
+  it('includes comment authors in _users lookup', async () => {
+    const { config } = await import('../../src/config/env.js');
+    // @ts-expect-error - modifying config for test
+    config.TOON_OUTPUT_ENABLED = true;
+
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have _users section that includes comment authors
+    expect(textContent).toContain('_users[');
+    expect(textContent).toContain('{key,name,displayName,email,role}');
+  });
+
   it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
     const { config } = await import('../../src/config/env.js');
     // @ts-expect-error - modifying config for test
@@ -527,5 +623,57 @@ describe('list_issues TOON output', () => {
 
     // Should NOT have TOON format indicator
     expect(structured._format).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enhancement Features Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_issues enhancement features', () => {
+  it('uses default limit of 100', async () => {
+    const result = await listIssuesTool.handler({}, baseContext);
+    expect(result.isError).toBeFalsy();
+    expect(mockClient._calls.rawRequest[0].variables?.first).toBe(100);
+  });
+
+  it('rejects team and teamId together', async () => {
+    const result = await listIssuesTool.handler(
+      { team: 'SQT', teamId: 'team-eng' },
+      baseContext,
+    );
+    expect(result.isError).toBe(true);
+    const text = result.content[0].text;
+    expect(text).toContain('Cannot specify both');
+  });
+
+  it('rejects cycle without team', async () => {
+    const result = await listIssuesTool.handler({ cycle: 'current' }, baseContext);
+    expect(result.isError).toBe(true);
+    const text = result.content[0].text;
+    expect(text).toContain('Cycle filtering requires');
+  });
+
+  it('passes includeComments and includeRelations to GraphQL variables', async () => {
+    const result = await listIssuesTool.handler({}, baseContext);
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    // When TOON is enabled, defaults are true
+    expect(call.variables?.includeComments).toBeDefined();
+    expect(call.variables?.includeRelations).toBeDefined();
+    expect(typeof call.variables?.includeComments).toBe('boolean');
+    expect(typeof call.variables?.includeRelations).toBe('boolean');
+  });
+
+  it('passes teamId filter when team key is provided', async () => {
+    // Note: resolveTeamId will be called with 'ENG' which is a mock team key
+    // The mock client's teams have key 'ENG' (team-eng)
+    const result = await listIssuesTool.handler({ teamId: 'team-eng' }, baseContext);
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.team).toEqual({ id: { eq: 'team-eng' } });
   });
 });

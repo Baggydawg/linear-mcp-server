@@ -87,6 +87,9 @@ export interface MockIssue {
     first?: number;
     after?: string;
   }) => Promise<{ nodes: MockComment[]; pageInfo: MockPageInfo }>;
+  relations?: () => Promise<{ nodes: MockRelation[] }>;
+  cycle?: { number?: number } | null;
+  parent?: { identifier?: string } | null;
   team?: { id: string } | (() => Promise<{ id: string }>);
 }
 
@@ -105,6 +108,12 @@ export interface MockComment {
   createdAt: Date;
   updatedAt?: Date;
   user?: { id: string; name?: string };
+}
+
+export interface MockRelation {
+  id: string;
+  type: string;
+  relatedIssue: { identifier: string };
 }
 
 export interface MockCycle {
@@ -255,6 +264,17 @@ export const defaultMockIssues: MockIssue[] = [
         nodes: defaultMockComments.slice(0, args?.first ?? defaultMockComments.length),
         pageInfo: { hasNextPage: false },
       }),
+    relations: () =>
+      Promise.resolve({
+        nodes: [
+          {
+            id: 'relation-001',
+            type: 'blocks',
+            relatedIssue: { identifier: 'ENG-124' },
+          },
+        ],
+      }),
+    cycle: { number: 5 },
     team: { id: 'team-eng' },
   },
   {
@@ -273,6 +293,7 @@ export const defaultMockIssues: MockIssue[] = [
       Promise.resolve({ nodes: [{ id: 'label-feature', name: 'Feature' }] }),
     attachments: () => Promise.resolve({ nodes: [] }),
     comments: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
+    parent: { identifier: 'ENG-100' },
     team: { id: 'team-eng' },
   },
   {
@@ -514,8 +535,11 @@ export function createMockLinearClient(
         filter?: Record<string, unknown>;
       }) => {
         const limit = args?.first ?? cycles.length;
-        const filtered = args?.filter?.team?.id?.eq
-          ? cycles.filter((c) => c.team.id === args.filter.team.id.eq)
+        const teamFilter = (
+          args?.filter as { team?: { id?: { eq?: string } } } | undefined
+        )?.team?.id?.eq;
+        const filtered = teamFilter
+          ? cycles.filter((c) => c.team.id === teamFilter)
           : cycles;
         return {
           nodes: filtered.slice(0, limit),
@@ -711,6 +735,16 @@ export function createMockLinearClient(
               const stateData = await issue.state;
               const projectData = await issue.project;
               const assigneeData = await issue.assignee;
+              const commentNodes =
+                (await issue
+                  .comments?.()
+                  ?.then((c) => c.nodes)
+                  .catch(() => [])) ?? [];
+              const relationNodes =
+                (await issue
+                  .relations?.()
+                  ?.then((r) => r.nodes)
+                  .catch(() => [])) ?? [];
 
               return {
                 id: issue.id,
@@ -728,6 +762,22 @@ export function createMockLinearClient(
                 dueDate: issue.dueDate ?? null,
                 url: issue.url ?? null,
                 labels: { nodes: [] },
+                comments: {
+                  nodes: commentNodes.map((c: MockComment) => ({
+                    id: c.id,
+                    body: c.body,
+                    createdAt:
+                      c.createdAt instanceof Date
+                        ? c.createdAt.toISOString()
+                        : c.createdAt,
+                    user: c.user ? { id: c.user.id, name: c.user.name } : null,
+                  })),
+                },
+                relations: {
+                  nodes: relationNodes,
+                },
+                cycle: issue.cycle ?? null,
+                parent: issue.parent ?? null,
               };
             }),
           );

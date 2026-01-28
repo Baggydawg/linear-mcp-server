@@ -289,7 +289,10 @@ export async function resolveTeamId(
       success: false,
       error: `Team "${teamIdOrKey}" not found`,
       suggestions: [
-        `Available team keys: ${teams.nodes.map((t) => t.key).filter(Boolean).join(', ')}`,
+        `Available team keys: ${teams.nodes
+          .map((t) => t.key)
+          .filter(Boolean)
+          .join(', ')}`,
       ],
     };
   } catch (e) {
@@ -335,6 +338,105 @@ export async function resolveProject(
     return {
       success: false,
       error: `Failed to fetch projects: ${(e as Error).message}`,
+    };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cycle Resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CycleSelector = 'current' | 'next' | 'previous' | number;
+
+/**
+ * Resolve a cycle selector to a concrete cycle number.
+ * Accepts: 'current', 'next', 'previous', or a specific cycle number.
+ * Requires a team ID since cycle numbers are team-specific.
+ */
+export async function resolveCycleSelector(
+  client: LinearClient,
+  teamId: string,
+  selector: CycleSelector,
+): Promise<ResolverResult<number>> {
+  // If number, return directly
+  if (typeof selector === 'number') {
+    return { success: true, value: selector };
+  }
+
+  try {
+    const team = await client.team(teamId);
+    const activeCycle = await team.activeCycle;
+    const cyclesConn = await team.cycles({ first: 100 });
+    const sortedCycles = [...(cyclesConn.nodes ?? [])].sort(
+      (a, b) => a.number - b.number,
+    );
+
+    const currentNumber = activeCycle?.number;
+
+    if (selector === 'current') {
+      if (currentNumber === undefined) {
+        return {
+          success: false,
+          error: 'No active cycle found for this team.',
+          suggestions: [
+            'Use a specific cycle number instead, or check Linear for active cycles.',
+          ],
+        };
+      }
+      return { success: true, value: currentNumber };
+    }
+
+    // 'next' and 'previous' require an active cycle as reference point
+    if (currentNumber === undefined) {
+      return {
+        success: false,
+        error: 'Cannot resolve next/previous without an active cycle.',
+        suggestions: ['Use a specific cycle number instead.'],
+      };
+    }
+
+    const currentIndex = sortedCycles.findIndex((c) => c.number === currentNumber);
+
+    // Guard: active cycle not found in fetched list (e.g., team has >100 cycles)
+    if (currentIndex === -1) {
+      return {
+        success: false,
+        error: `Active cycle ${currentNumber} not found in fetched cycles.`,
+        suggestions: [
+          'Try using a specific cycle number instead of a relative selector.',
+        ],
+      };
+    }
+
+    if (selector === 'next') {
+      const nextCycle = sortedCycles[currentIndex + 1];
+      if (!nextCycle) {
+        return {
+          success: false,
+          error: `No cycle after cycle ${currentNumber}.`,
+          suggestions: ['Current cycle is the latest. Create a new cycle in Linear.'],
+        };
+      }
+      return { success: true, value: nextCycle.number };
+    }
+
+    if (selector === 'previous') {
+      const prevCycle = sortedCycles[currentIndex - 1];
+      if (!prevCycle) {
+        return {
+          success: false,
+          error: `No cycle before cycle ${currentNumber}.`,
+          suggestions: ['Current cycle is the earliest.'],
+        };
+      }
+      return { success: true, value: prevCycle.number };
+    }
+
+    return { success: false, error: 'Invalid cycle selector.' };
+  } catch (e) {
+    return {
+      success: false,
+      error: `Failed to resolve cycle: ${(e as Error).message}`,
     };
   }
 }

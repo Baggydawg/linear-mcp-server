@@ -87,6 +87,30 @@
         "limit": 20
       },
       "description": "Complex filter combining multiple criteria"
+    },
+    {
+      "name": "with_cycle_current",
+      "input": { "cycle": "current", "team": "SQT" }
+    },
+    {
+      "name": "with_cycle_number",
+      "input": { "cycle": 5, "teamId": "team-eng" }
+    },
+    {
+      "name": "with_cycle_next",
+      "input": { "cycle": "next", "team": "SQT" }
+    },
+    {
+      "name": "with_include_comments_false",
+      "input": { "includeComments": false }
+    },
+    {
+      "name": "with_include_relations_false",
+      "input": { "includeRelations": false }
+    },
+    {
+      "name": "with_team_key",
+      "input": { "team": "SQT" }
     }
   ],
   "invalid": [

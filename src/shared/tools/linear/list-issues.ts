@@ -20,7 +20,9 @@ import {
 } from '../../../utils/errors.js';
 import { normalizeIssueFilter } from '../../../utils/filters.js';
 import { previewLinesFromItems, summarizeList } from '../../../utils/messages.js';
+import { resolveCycleSelector, resolveTeamId } from '../../../utils/resolvers.js';
 import {
+  COMMENT_SCHEMA,
   encodeResponse,
   getOrInitRegistry,
   getProjectMetadata,
@@ -29,6 +31,7 @@ import {
   LABEL_LOOKUP_SCHEMA,
   PAGINATION_SCHEMA,
   PROJECT_LOOKUP_SCHEMA,
+  RELATION_SCHEMA,
   type RegistryBuildData,
   type ShortKeyRegistry,
   STATE_LOOKUP_SCHEMA,
@@ -49,7 +52,7 @@ const InputSchema = z.object({
     .min(1)
     .max(100)
     .optional()
-    .describe('Max results. Default: 25.'),
+    .describe('Max results. Default: 100.'),
   cursor: z.string().optional().describe('Pagination cursor from previous response.'),
   filter: z
     .record(z.any())
@@ -65,6 +68,31 @@ const InputSchema = z.object({
     ),
   teamId: z.string().optional().describe('Filter by team UUID.'),
   projectId: z.string().optional().describe('Filter by project UUID.'),
+  cycle: z
+    .union([z.enum(['current', 'next', 'previous']), z.number().int().positive()])
+    .optional()
+    .describe(
+      'Filter by cycle: "current" (active cycle), "next", "previous", or a specific cycle number. ' +
+        'Requires teamId or team to be specified.',
+    ),
+  team: z
+    .string()
+    .optional()
+    .describe(
+      'Team key (e.g., "SQT") or UUID. Alternative to teamId. Required for cycle filtering.',
+    ),
+  includeComments: z
+    .boolean()
+    .optional()
+    .describe(
+      'Include comments on issues (last 20 per issue). Default: true when TOON enabled.',
+    ),
+  includeRelations: z
+    .boolean()
+    .optional()
+    .describe(
+      'Include issue relations (blocks, blocked-by). Default: true when TOON enabled.',
+    ),
   includeArchived: z
     .boolean()
     .optional()
@@ -138,6 +166,20 @@ interface RawIssueData {
   labels?: { nodes?: Array<{ id: string; name: string }> };
 }
 
+interface RawCommentData {
+  id: string;
+  body: string;
+  createdAt: string;
+  issueIdentifier: string;
+  user?: { id: string; name?: string } | null;
+}
+
+interface RawRelationData {
+  type: string;
+  issueIdentifier: string;
+  relatedIssueIdentifier: string;
+}
+
 /**
  * Collected referenced entity IDs from issues.
  * Used for Tier 2 filtering - only include entities actually referenced.
@@ -153,7 +195,10 @@ interface ReferencedEntities {
  * Collect all entity IDs referenced by issues.
  * This is the core of Tier 2 strategy - we only include entities that are actually used.
  */
-function collectReferencedEntities(issues: RawIssueData[]): ReferencedEntities {
+function collectReferencedEntities(
+  issues: RawIssueData[],
+  comments: RawCommentData[] = [],
+): ReferencedEntities {
   const refs: ReferencedEntities = {
     userIds: new Set(),
     stateIds: new Set(),
@@ -181,6 +226,13 @@ function collectReferencedEntities(issues: RawIssueData[]): ReferencedEntities {
     const labels = issue.labels?.nodes ?? [];
     for (const label of labels) {
       refs.labelNames.add(label.name);
+    }
+  }
+
+  // Comment authors MUST be included in _users lookup (per TOON spec)
+  for (const comment of comments) {
+    if (comment.user?.id) {
+      refs.userIds.add(comment.user.id);
     }
   }
 
@@ -447,9 +499,11 @@ function buildToonResponse(
   registry: ShortKeyRegistry | null,
   pagination: { hasMore: boolean; cursor?: string; fetched: number; total?: number },
   _queryInfo: Record<string, unknown>,
+  rawComments: RawCommentData[] = [],
+  rawRelations: RawRelationData[] = [],
 ): ToonResponse {
   // Collect referenced entities for Tier 2 filtering
-  const refs = collectReferencedEntities(rawIssues);
+  const refs = collectReferencedEntities(rawIssues, rawComments);
 
   // Build lookup sections (only referenced entities)
   const lookups: ToonSection[] = [];
@@ -507,6 +561,31 @@ function buildToonResponse(
     });
   }
 
+  // Add comments section if present
+  if (rawComments.length > 0) {
+    const commentRows: ToonRow[] = rawComments.map((c) => ({
+      issue: c.issueIdentifier,
+      user: c.user?.id
+        ? registry
+          ? (tryGetShortKey(registry, 'user', c.user.id) ?? '')
+          : ''
+        : '',
+      body: c.body.length > 500 ? `${c.body.slice(0, 497)}...` : c.body,
+      createdAt: c.createdAt,
+    }));
+    data.push({ schema: COMMENT_SCHEMA, items: commentRows });
+  }
+
+  // Add relations section if present
+  if (rawRelations.length > 0) {
+    const relationRows: ToonRow[] = rawRelations.map((r) => ({
+      from: r.issueIdentifier,
+      type: r.type,
+      to: r.relatedIssueIdentifier,
+    }));
+    data.push({ schema: RELATION_SCHEMA, items: relationRows });
+  }
+
   // Build meta section
   const metaFields = ['tool', 'count', 'generated'];
   const metaValues: Record<string, string | number | boolean | null> = {
@@ -534,14 +613,80 @@ export const listIssuesTool = defineTool({
 
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
     const client = await getLinearClient(context);
-    const limit = args.limit ?? 25;
+    const limit = args.limit ?? 100;
 
     // Build filter
     let filter = normalizeIssueFilter(args.filter) ?? {};
 
+    // Validate team/teamId conflict
+    if (args.team && args.teamId) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: 'Cannot specify both team and teamId. Use one or the other.',
+          },
+        ],
+        structuredContent: { error: 'CONFLICTING_PARAMS' },
+      };
+    }
+
+    let resolvedTeamId = args.teamId;
+
+    if (args.team && !resolvedTeamId) {
+      const teamResult = await resolveTeamId(client, args.team);
+      if (!teamResult.success) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: teamResult.error }],
+          structuredContent: {
+            error: 'TEAM_RESOLUTION_FAILED',
+            message: teamResult.error,
+          },
+        };
+      }
+      resolvedTeamId = teamResult.value;
+    }
+
+    // Validate cycle requires team
+    if (args.cycle !== undefined && !resolvedTeamId) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: 'Cycle filtering requires teamId or team to be specified (cycle numbers are team-specific).',
+          },
+        ],
+        structuredContent: { error: 'CYCLE_REQUIRES_TEAM' },
+      };
+    }
+
     // Apply teamId filter
-    if (args.teamId) {
-      filter = { ...filter, team: { id: { eq: args.teamId } } };
+    if (resolvedTeamId) {
+      filter = { ...filter, team: { id: { eq: resolvedTeamId } } };
+    }
+
+    // Apply cycle filter
+    if (args.cycle !== undefined && resolvedTeamId) {
+      const cycleResult = await resolveCycleSelector(
+        client,
+        resolvedTeamId,
+        args.cycle,
+      );
+      if (!cycleResult.success) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: cycleResult.error }],
+          structuredContent: {
+            error: 'CYCLE_RESOLUTION_FAILED',
+            message: cycleResult.error,
+            ...(cycleResult.suggestions ? { hint: cycleResult.suggestions[0] } : {}),
+          },
+        };
+      }
+      filter = { ...filter, cycle: { number: { eq: cycleResult.value } } };
     }
 
     // Apply projectId filter
@@ -590,13 +735,20 @@ export const listIssuesTool = defineTool({
     }
 
     // Use raw GraphQL to avoid N+1 query problem with SDK lazy loading
+    const includeComments =
+      config.TOON_OUTPUT_ENABLED && args.includeComments !== false;
+    const includeRelations =
+      config.TOON_OUTPUT_ENABLED && args.includeRelations !== false;
+
     const QUERY = `
       query ListIssues(
         $first: Int!,
         $after: String,
         $filter: IssueFilter,
         $includeArchived: Boolean,
-        $orderBy: PaginationOrderBy
+        $orderBy: PaginationOrderBy,
+        $includeComments: Boolean!,
+        $includeRelations: Boolean!
       ) {
         issues(
           first: $first,
@@ -615,12 +767,30 @@ export const listIssuesTool = defineTool({
             state { id name type }
             project { id name }
             assignee { id name }
+            team { id key }
+            cycle { number }
+            parent { identifier }
             createdAt
             updatedAt
             archivedAt
             dueDate
             url
             labels { nodes { id name } }
+            comments(first: 20) @include(if: $includeComments) {
+              nodes {
+                id
+                body
+                createdAt
+                user { id name }
+              }
+            }
+            relations @include(if: $includeRelations) {
+              nodes {
+                id
+                type
+                relatedIssue { identifier }
+              }
+            }
           }
           pageInfo { hasNextPage endCursor }
         }
@@ -633,6 +803,8 @@ export const listIssuesTool = defineTool({
       filter: filter as Record<string, unknown>,
       includeArchived: args.includeArchived ?? false,
       orderBy: args.orderBy,
+      includeComments,
+      includeRelations,
     } as Record<string, unknown>;
 
     const resp = await client.client.rawRequest(QUERY, variables);
@@ -677,6 +849,43 @@ export const listIssuesTool = defineTool({
         labels: i.labels as { nodes?: Array<{ id: string; name: string }> } | undefined,
       }));
 
+      // Parse comments from raw response
+      const rawComments: RawCommentData[] = [];
+      if (includeComments) {
+        for (const node of conn.nodes ?? []) {
+          const issueIdentifier = (node.identifier as string) ?? '';
+          const commentNodes =
+            (node.comments as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
+          for (const c of commentNodes) {
+            rawComments.push({
+              id: String(c.id ?? ''),
+              body: String(c.body ?? ''),
+              createdAt: String(c.createdAt ?? ''),
+              issueIdentifier,
+              user: c.user as { id: string; name?: string } | null | undefined,
+            });
+          }
+        }
+      }
+
+      // Parse relations from raw response
+      const rawRelations: RawRelationData[] = [];
+      if (includeRelations) {
+        for (const node of conn.nodes ?? []) {
+          const issueIdentifier = (node.identifier as string) ?? '';
+          const relationNodes =
+            (node.relations as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
+          for (const r of relationNodes) {
+            const relatedIssue = r.relatedIssue as { identifier?: string } | undefined;
+            rawRelations.push({
+              type: String(r.type ?? ''),
+              issueIdentifier,
+              relatedIssueIdentifier: relatedIssue?.identifier ?? '',
+            });
+          }
+        }
+      }
+
       // Initialize registry if needed (lazy init)
       let registry: ShortKeyRegistry | null = null;
       try {
@@ -701,7 +910,9 @@ export const listIssuesTool = defineTool({
           cursor: nextCursor,
           fetched: rawIssues.length,
         },
-        { filter, teamId: args.teamId, projectId: args.projectId },
+        { filter, teamId: resolvedTeamId, projectId: args.projectId },
+        rawComments,
+        rawRelations,
       );
 
       // Encode TOON output
