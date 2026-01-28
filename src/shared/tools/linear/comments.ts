@@ -30,6 +30,7 @@ import {
   encodeResponse,
   encodeToon,
   getOrInitRegistry,
+  type RegistryBuildData,
   type ShortKeyRegistry,
   type ToonResponse,
   type ToonRow,
@@ -55,33 +56,37 @@ interface RawCommentData {
 }
 
 /**
- * Fetch workspace data for registry initialization.
+ * Fetch workspace data for registry initialization with full metadata.
  */
 async function fetchWorkspaceDataForRegistry(
   client: Awaited<ReturnType<typeof getLinearClient>>,
-): Promise<{
-  users: Array<{ id: string; createdAt: Date | string }>;
-  states: Array<{ id: string; createdAt: Date | string }>;
-  projects: Array<{ id: string; createdAt: Date | string }>;
-  workspaceId: string;
-}> {
-  // Fetch users
+): Promise<RegistryBuildData> {
+  // Fetch users with full metadata
   const usersConn = await client.users({ first: 100 });
   const users = (usersConn.nodes ?? []).map((u) => ({
     id: u.id,
     createdAt: (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+    name: u.name ?? '',
+    displayName: (u as unknown as { displayName?: string }).displayName ?? '',
+    email: (u as unknown as { email?: string }).email ?? '',
+    active: (u as unknown as { active?: boolean }).active ?? true,
   }));
 
-  // Fetch workflow states via teams
+  // Fetch workflow states via teams with full metadata
   const teamsConn = await client.teams({ first: 100 });
   const teams = teamsConn.nodes ?? [];
-  const states: Array<{ id: string; createdAt: Date | string }> = [];
+  const states: RegistryBuildData['states'] = [];
 
   for (const team of teams) {
     const statesConn = await (
       team as unknown as {
         states: () => Promise<{
-          nodes: Array<{ id: string; createdAt?: Date | string }>;
+          nodes: Array<{
+            id: string;
+            createdAt?: Date | string;
+            name: string;
+            type?: string;
+          }>;
         }>;
       }
     ).states();
@@ -89,15 +94,19 @@ async function fetchWorkspaceDataForRegistry(
       states.push({
         id: state.id,
         createdAt: state.createdAt ?? new Date(),
+        name: state.name,
+        type: state.type ?? '',
       });
     }
   }
 
-  // Fetch projects
+  // Fetch projects with full metadata
   const projectsConn = await client.projects({ first: 100 });
   const projects = (projectsConn.nodes ?? []).map((p) => ({
     id: p.id,
     createdAt: (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+    name: p.name,
+    state: (p as unknown as { state?: string }).state ?? '',
   }));
 
   // Get workspace ID from viewer

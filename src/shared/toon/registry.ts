@@ -25,6 +25,36 @@ import {
  */
 export type ShortKeyEntityType = 'user' | 'state' | 'project';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Metadata Types
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Metadata for user entities stored in the registry.
+ */
+export interface UserMetadata {
+  name: string;
+  displayName: string;
+  email: string;
+  active: boolean;
+}
+
+/**
+ * Metadata for workflow state entities stored in the registry.
+ */
+export interface StateMetadata {
+  name: string;
+  type: string;
+}
+
+/**
+ * Metadata for project entities stored in the registry.
+ */
+export interface ProjectMetadata {
+  name: string;
+  state: string;
+}
+
 /**
  * Transport type affects TTL strategy.
  * - stdio: Claude Desktop, infinite TTL (user controls refresh)
@@ -43,15 +73,49 @@ export interface RegistryEntity {
 }
 
 /**
+ * User entity with metadata for registry building.
+ */
+export interface RegistryUserEntity extends RegistryEntity {
+  /** User's full name */
+  name: string;
+  /** User's display name */
+  displayName: string;
+  /** User's email address */
+  email: string;
+  /** Whether the user is active */
+  active: boolean;
+}
+
+/**
+ * Workflow state entity with metadata for registry building.
+ */
+export interface RegistryStateEntity extends RegistryEntity {
+  /** State name (e.g., "In Progress") */
+  name: string;
+  /** State type (e.g., "started", "completed", "unstarted", "canceled") */
+  type: string;
+}
+
+/**
+ * Project entity with metadata for registry building.
+ */
+export interface RegistryProjectEntity extends RegistryEntity {
+  /** Project name */
+  name: string;
+  /** Project state (e.g., "planned", "started", "completed", "canceled") */
+  state: string;
+}
+
+/**
  * Input data for building the registry.
  */
 export interface RegistryBuildData {
   /** Users to register (will be assigned u0, u1, ...) */
-  users: RegistryEntity[];
+  users: RegistryUserEntity[];
   /** Workflow states to register (will be assigned s0, s1, ...) */
-  states: RegistryEntity[];
+  states: RegistryStateEntity[];
   /** Projects to register (will be assigned pr0, pr1, ...) */
-  projects: RegistryEntity[];
+  projects: RegistryProjectEntity[];
   /** Workspace ID for scoping */
   workspaceId: string;
 }
@@ -91,7 +155,20 @@ export interface ShortKeyRegistry {
   projectsByUuid: Map<string, string>;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Metadata
+  // Entity Metadata (UUID -> metadata)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** User metadata by UUID */
+  userMetadata: Map<string, UserMetadata>;
+
+  /** State metadata by UUID */
+  stateMetadata: Map<string, StateMetadata>;
+
+  /** Project metadata by UUID */
+  projectMetadata: Map<string, ProjectMetadata>;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Registry Metadata
   // ─────────────────────────────────────────────────────────────────────────
 
   /** When the registry was generated */
@@ -140,6 +217,9 @@ export function createEmptyRegistry(
     usersByUuid: new Map(),
     statesByUuid: new Map(),
     projectsByUuid: new Map(),
+    userMetadata: new Map(),
+    stateMetadata: new Map(),
+    projectMetadata: new Map(),
     generatedAt: new Date(),
     workspaceId,
     transport,
@@ -188,12 +268,69 @@ function buildMapsForType(
 }
 
 /**
+ * Build user metadata map from user entities.
+ *
+ * @param users - User entities with metadata
+ * @returns Map of UUID -> UserMetadata
+ */
+function buildUserMetadata(users: RegistryUserEntity[]): Map<string, UserMetadata> {
+  const metadata = new Map<string, UserMetadata>();
+  for (const user of users) {
+    metadata.set(user.id, {
+      name: user.name,
+      displayName: user.displayName,
+      email: user.email,
+      active: user.active,
+    });
+  }
+  return metadata;
+}
+
+/**
+ * Build state metadata map from state entities.
+ *
+ * @param states - State entities with metadata
+ * @returns Map of UUID -> StateMetadata
+ */
+function buildStateMetadata(states: RegistryStateEntity[]): Map<string, StateMetadata> {
+  const metadata = new Map<string, StateMetadata>();
+  for (const state of states) {
+    metadata.set(state.id, {
+      name: state.name,
+      type: state.type,
+    });
+  }
+  return metadata;
+}
+
+/**
+ * Build project metadata map from project entities.
+ *
+ * @param projects - Project entities with metadata
+ * @returns Map of UUID -> ProjectMetadata
+ */
+function buildProjectMetadata(
+  projects: RegistryProjectEntity[],
+): Map<string, ProjectMetadata> {
+  const metadata = new Map<string, ProjectMetadata>();
+  for (const project of projects) {
+    metadata.set(project.id, {
+      name: project.name,
+      state: project.state,
+    });
+  }
+  return metadata;
+}
+
+/**
  * Build a complete registry from workspace data.
  *
  * Entities are sorted by createdAt (ascending) and assigned sequential keys:
  * - Users: u0, u1, u2, ...
  * - States: s0, s1, s2, ...
  * - Projects: pr0, pr1, pr2, ...
+ *
+ * Also populates metadata maps for each entity type.
  *
  * @param data - Workspace data with users, states, projects
  * @returns Complete ShortKeyRegistry
@@ -206,6 +343,11 @@ export function buildRegistry(data: RegistryBuildData): ShortKeyRegistry {
     KEY_PREFIXES.project,
   );
 
+  // Build metadata maps
+  const userMetadata = buildUserMetadata(data.users);
+  const stateMetadata = buildStateMetadata(data.states);
+  const projectMetadata = buildProjectMetadata(data.projects);
+
   return {
     users,
     states,
@@ -213,6 +355,9 @@ export function buildRegistry(data: RegistryBuildData): ShortKeyRegistry {
     usersByUuid,
     statesByUuid,
     projectsByUuid,
+    userMetadata,
+    stateMetadata,
+    projectMetadata,
     generatedAt: new Date(),
     workspaceId: data.workspaceId,
   };
@@ -361,6 +506,70 @@ export function tryResolveShortKey(
 
   const map = getKeyToUuidMap(registry, type);
   return map.get(shortKey);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Metadata Retrieval Functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Get user metadata by UUID.
+ *
+ * @param registry - The short key registry
+ * @param uuid - The user's UUID
+ * @returns User metadata or undefined if not found
+ *
+ * @example
+ * ```typescript
+ * const metadata = getUserMetadata(registry, 'abc12345-...');
+ * // Returns: { name: 'John Doe', displayName: 'john', email: 'john@example.com', active: true }
+ * ```
+ */
+export function getUserMetadata(
+  registry: ShortKeyRegistry,
+  uuid: string,
+): UserMetadata | undefined {
+  return registry.userMetadata.get(uuid);
+}
+
+/**
+ * Get state metadata by UUID.
+ *
+ * @param registry - The short key registry
+ * @param uuid - The state's UUID
+ * @returns State metadata or undefined if not found
+ *
+ * @example
+ * ```typescript
+ * const metadata = getStateMetadata(registry, 'def67890-...');
+ * // Returns: { name: 'In Progress', type: 'started' }
+ * ```
+ */
+export function getStateMetadata(
+  registry: ShortKeyRegistry,
+  uuid: string,
+): StateMetadata | undefined {
+  return registry.stateMetadata.get(uuid);
+}
+
+/**
+ * Get project metadata by UUID.
+ *
+ * @param registry - The short key registry
+ * @param uuid - The project's UUID
+ * @returns Project metadata or undefined if not found
+ *
+ * @example
+ * ```typescript
+ * const metadata = getProjectMetadata(registry, 'ghi11223-...');
+ * // Returns: { name: 'Q1 Launch', state: 'started' }
+ * ```
+ */
+export function getProjectMetadata(
+  registry: ShortKeyRegistry,
+  uuid: string,
+): ProjectMetadata | undefined {
+  return registry.projectMetadata.get(uuid);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

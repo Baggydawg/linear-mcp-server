@@ -17,8 +17,11 @@ import {
   encodeResponse,
   GAP_SCHEMA,
   getOrInitRegistry,
+  getProjectMetadata,
+  getUserMetadata,
   PROJECT_LOOKUP_SCHEMA,
   RELATION_SCHEMA,
+  type RegistryBuildData,
   type ShortKeyRegistry,
   STATE_LOOKUP_SCHEMA,
   type ToonResponse,
@@ -409,6 +412,10 @@ function collectReferencedEntities(
   return refs;
 }
 
+/**
+ * Build a filtered user lookup section with only referenced users.
+ * Uses registry metadata for user details, with issue/comment data as fallback.
+ */
 function buildUserLookup(
   registry: ShortKeyRegistry,
   referencedIds: Set<string>,
@@ -417,7 +424,7 @@ function buildUserLookup(
 ): ToonSection {
   const items: ToonRow[] = [];
 
-  // Build name map from issues and comments
+  // Build name map from issues and comments as fallback
   const userInfo = new Map<string, { name?: string }>();
   for (const issue of issues) {
     if (issue.assignee?.id) {
@@ -432,13 +439,14 @@ function buildUserLookup(
 
   for (const [shortKey, uuid] of registry.users) {
     if (referencedIds.has(uuid)) {
-      const info = userInfo.get(uuid);
+      const metadata = getUserMetadata(registry, uuid);
+      const fallbackInfo = userInfo.get(uuid);
       items.push({
         key: shortKey,
-        name: info?.name ?? '',
-        displayName: '',
-        email: '',
-        role: '',
+        name: metadata?.name ?? fallbackInfo?.name ?? '',
+        displayName: metadata?.displayName ?? '',
+        email: metadata?.email ?? '',
+        role: '', // Keep empty, not stored in registry
       });
     }
   }
@@ -492,6 +500,10 @@ function buildStateLookup(
   return { schema: STATE_LOOKUP_SCHEMA, items };
 }
 
+/**
+ * Build a filtered project lookup section with only referenced projects.
+ * Uses registry metadata for project details, with issue data as fallback.
+ */
 function buildProjectLookup(
   registry: ShortKeyRegistry,
   referencedIds: Set<string>,
@@ -499,7 +511,7 @@ function buildProjectLookup(
 ): ToonSection {
   const items: ToonRow[] = [];
 
-  // Build project info from issues
+  // Build project info from issues as fallback
   const projectInfo = new Map<string, { name?: string }>();
   for (const issue of issues) {
     if (issue.project?.id) {
@@ -509,11 +521,12 @@ function buildProjectLookup(
 
   for (const [shortKey, uuid] of registry.projects) {
     if (referencedIds.has(uuid)) {
-      const info = projectInfo.get(uuid);
+      const metadata = getProjectMetadata(registry, uuid);
+      const issueInfo = projectInfo.get(uuid);
       items.push({
         key: shortKey,
-        name: info?.name ?? '',
-        state: '', // Project state not available from issue data
+        name: metadata?.name ?? issueInfo?.name ?? '',
+        state: metadata?.state ?? '', // Now from registry!
       });
     }
   }
@@ -532,31 +545,38 @@ function buildProjectLookup(
 // Registry Data Fetcher
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Fetch workspace data for registry initialization with full metadata.
+ */
 async function fetchWorkspaceDataForRegistry(
   client: Awaited<ReturnType<typeof getLinearClient>>,
-): Promise<{
-  users: Array<{ id: string; createdAt: Date | string }>;
-  states: Array<{ id: string; createdAt: Date | string }>;
-  projects: Array<{ id: string; createdAt: Date | string }>;
-  workspaceId: string;
-}> {
-  // Fetch users
+): Promise<RegistryBuildData> {
+  // Fetch users with full metadata
   const usersConn = await client.users({ first: 100 });
   const users = (usersConn.nodes ?? []).map((u) => ({
     id: u.id,
     createdAt: (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+    name: u.name ?? '',
+    displayName: (u as unknown as { displayName?: string }).displayName ?? '',
+    email: (u as unknown as { email?: string }).email ?? '',
+    active: (u as unknown as { active?: boolean }).active ?? true,
   }));
 
-  // Fetch workflow states via teams
+  // Fetch workflow states via teams with full metadata
   const teamsConn = await client.teams({ first: 100 });
   const teams = teamsConn.nodes ?? [];
-  const states: Array<{ id: string; createdAt: Date | string }> = [];
+  const states: RegistryBuildData['states'] = [];
 
   for (const team of teams) {
     const statesConn = await (
       team as unknown as {
         states: () => Promise<{
-          nodes: Array<{ id: string; createdAt?: Date | string }>;
+          nodes: Array<{
+            id: string;
+            createdAt?: Date | string;
+            name: string;
+            type?: string;
+          }>;
         }>;
       }
     ).states();
@@ -564,15 +584,19 @@ async function fetchWorkspaceDataForRegistry(
       states.push({
         id: state.id,
         createdAt: state.createdAt ?? new Date(),
+        name: state.name,
+        type: state.type ?? '',
       });
     }
   }
 
-  // Fetch projects
+  // Fetch projects with full metadata
   const projectsConn = await client.projects({ first: 100 });
   const projects = (projectsConn.nodes ?? []).map((p) => ({
     id: p.id,
     createdAt: (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+    name: p.name,
+    state: (p as unknown as { state?: string }).state ?? '',
   }));
 
   // Get workspace ID from viewer

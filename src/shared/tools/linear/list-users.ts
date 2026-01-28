@@ -18,6 +18,7 @@ import {
   encodeResponse,
   getOrInitRegistry,
   PAGINATION_SCHEMA,
+  type RegistryBuildData,
   type ShortKeyRegistry,
   type ToonResponse,
   type ToonRow,
@@ -94,19 +95,26 @@ export const listUsersTool = defineTool({
             sessionId: context.sessionId,
             transport: 'stdio', // Default to stdio
           },
-          async () => {
-            // Build registry from the fetched users
-            // Note: For full registry we'd need all users, but for list_users
-            // we only show the current page with keys based on their position
+          async (): Promise<RegistryBuildData> => {
+            // Build registry from the fetched users with full metadata
             // We need to fetch ALL users to get proper short keys
             const allUsersResp = await client.client.rawRequest(
-              `query { users(first: 100) { nodes { id createdAt } } }`,
+              `query { users(first: 100) { nodes { id name displayName email active createdAt } } }`,
             );
             const allUsersData =
               (
                 allUsersResp as {
                   data?: {
-                    users?: { nodes?: Array<{ id: string; createdAt: string }> };
+                    users?: {
+                      nodes?: Array<{
+                        id: string;
+                        name?: string;
+                        displayName?: string;
+                        email?: string;
+                        active?: boolean;
+                        createdAt: string;
+                      }>;
+                    };
                   };
                 }
               ).data?.users?.nodes ?? [];
@@ -120,6 +128,10 @@ export const listUsersTool = defineTool({
               users: allUsersData.map((u) => ({
                 id: u.id,
                 createdAt: new Date(u.createdAt),
+                name: u.name ?? '',
+                displayName: u.displayName ?? '',
+                email: u.email ?? '',
+                active: u.active ?? true,
               })),
               states: [],
               projects: [],

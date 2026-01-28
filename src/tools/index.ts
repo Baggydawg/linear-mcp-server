@@ -56,6 +56,7 @@ function createWrappedHandler(
     args: Record<string, unknown>,
     extra?: {
       requestId?: string | number;
+      sessionId?: string;
       _meta?: { progressToken?: string | number };
       signal?: AbortSignal;
     },
@@ -68,7 +69,7 @@ function createWrappedHandler(
 
     // Build shared ToolContext
     const context: ToolContext = {
-      sessionId: String(requestId || crypto.randomUUID()),
+      sessionId: extra?.sessionId ?? 'stdio-default-session',
       signal: extra?.signal,
       meta: {
         progressToken: extra?._meta?.progressToken,

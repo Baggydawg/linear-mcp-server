@@ -18,6 +18,7 @@ import {
   resolvePriority,
   resolveProject,
   resolveState,
+  resolveTeamId,
 } from '../../../utils/resolvers.js';
 import { resolveAssignee } from '../../../utils/user-resolver.js';
 import {
@@ -230,11 +231,39 @@ export const createIssuesTool = defineTool({
       labels?: string[];
     }> = [];
 
+    // Batch-level cache for team key resolution to avoid redundant API calls
+    // when multiple items use the same team key (e.g., all items have teamId: "SQT")
+    const teamKeyCache = new Map<string, string>();
+
     for (let i = 0; i < items.length; i++) {
       const it = items[i] as (typeof items)[number];
       try {
+        // Resolve team from key or UUID (with batch-level caching)
+        const cacheKey = it.teamId.toLowerCase();
+        let resolvedTeamId = teamKeyCache.get(cacheKey);
+
+        if (!resolvedTeamId) {
+          const teamResult = await resolveTeamId(client, it.teamId);
+          if (!teamResult.success) {
+            results.push({
+              input: { title: it.title, teamId: it.teamId },
+              success: false,
+              error: {
+                code: 'TEAM_RESOLUTION_FAILED',
+                message: teamResult.error,
+                suggestions: teamResult.suggestions,
+              },
+              index: i,
+              ok: false,
+            });
+            continue;
+          }
+          resolvedTeamId = teamResult.value;
+          teamKeyCache.set(cacheKey, resolvedTeamId);
+        }
+
         const payloadInput: Record<string, unknown> = {
-          teamId: it.teamId,
+          teamId: resolvedTeamId,
           title: it.title,
         };
 
@@ -284,7 +313,7 @@ export const createIssuesTool = defineTool({
         } else if (it.stateId) {
           payloadInput.stateId = it.stateId;
         } else if (it.stateName || it.stateType) {
-          const stateResult = await resolveState(client, it.teamId, {
+          const stateResult = await resolveState(client, resolvedTeamId, {
             stateName: it.stateName,
             stateType: it.stateType,
           });
@@ -314,7 +343,11 @@ export const createIssuesTool = defineTool({
         if (Array.isArray(it.labelIds) && it.labelIds.length > 0) {
           payloadInput.labelIds = it.labelIds;
         } else if (Array.isArray(it.labelNames) && it.labelNames.length > 0) {
-          const labelsResult = await resolveLabels(client, it.teamId, it.labelNames);
+          const labelsResult = await resolveLabels(
+            client,
+            resolvedTeamId,
+            it.labelNames,
+          );
           if (!labelsResult.success) {
             results.push({
               input: { title: it.title, teamId: it.teamId, labelNames: it.labelNames },
@@ -506,7 +539,7 @@ export const createIssuesTool = defineTool({
         // Use shared validation for estimate
         const estimate = await validateEstimate(
           it.estimate,
-          it.teamId,
+          resolvedTeamId,
           teamAllowZeroCache,
           client,
           it.allowZeroEstimate,

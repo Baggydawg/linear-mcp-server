@@ -589,19 +589,27 @@ export const workspaceMetadataTool = defineTool({
     };
 
     if (config.TOON_OUTPUT_ENABLED) {
-      // Prepare registry build data
+      // Prepare registry build data with full metadata
       const registryData: RegistryBuildData = {
         users: workspaceData.users.map((u) => ({
           id: u.id,
           createdAt: u.createdAt ?? new Date(0),
+          name: u.name ?? '',
+          displayName: u.displayName ?? '',
+          email: u.email ?? '',
+          active: u.active ?? true,
         })),
         states: workspaceData.states.map((s) => ({
           id: s.id,
           createdAt: s.createdAt ?? new Date(0),
+          name: s.name,
+          type: s.type ?? '',
         })),
         projects: workspaceData.projects.map((p) => ({
           id: p.id,
           createdAt: p.createdAt ?? new Date(0),
+          name: p.name,
+          state: p.state ?? '',
         })),
         workspaceId: workspaceData.viewer?.id ?? 'unknown',
       };

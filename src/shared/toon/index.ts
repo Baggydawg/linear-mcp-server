@@ -150,29 +150,36 @@ export {
 // Registry types
 export type {
   FetchWorkspaceDataFn,
+  ProjectMetadata,
   RegistryBuildData,
   RegistryEntity,
   RegistryInitContext,
   ShortKeyEntityType,
   ShortKeyRegistry,
+  StateMetadata,
   TransportType,
+  UserMetadata,
 } from './registry.js';
 // Registry building
 // Resolution functions
 // TTL & staleness
 // Session storage
 // Utility functions
+// Metadata retrieval
 export {
   buildRegistry,
   clearAllRegistries,
   clearRegistry,
   createEmptyRegistry,
   getOrInitRegistry,
+  getProjectMetadata,
   getRegistryAge,
   getRegistryStats,
   getRemainingTtl,
   getShortKey,
+  getStateMetadata,
   getStoredRegistry,
+  getUserMetadata,
   hasShortKey,
   hasUuid,
   isStale,

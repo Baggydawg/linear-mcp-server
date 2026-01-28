@@ -262,6 +262,45 @@ export async function resolveLabels(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Resolve team by key or UUID
+ * Accepts: team key (e.g., "SQT") or UUID
+ */
+export async function resolveTeamId(
+  client: LinearClient,
+  teamIdOrKey: string,
+): Promise<ResolverResult<string>> {
+  // If it looks like a UUID (contains dashes or is long), return as-is
+  if (teamIdOrKey.includes('-') || teamIdOrKey.length > 20) {
+    return { success: true, value: teamIdOrKey };
+  }
+
+  // Otherwise, treat as team key and look up
+  try {
+    const teams = await client.teams({ first: 250 });
+    const match = teams.nodes.find(
+      (t) => t.key?.toLowerCase() === teamIdOrKey.toLowerCase(),
+    );
+
+    if (match) {
+      return { success: true, value: match.id };
+    }
+
+    return {
+      success: false,
+      error: `Team "${teamIdOrKey}" not found`,
+      suggestions: [
+        `Available team keys: ${teams.nodes.map((t) => t.key).filter(Boolean).join(', ')}`,
+      ],
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: `Failed to fetch teams: ${(e as Error).message}`,
+    };
+  }
+}
+
+/**
  * Resolve project by name
  */
 export async function resolveProject(
