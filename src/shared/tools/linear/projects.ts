@@ -567,7 +567,8 @@ export const createProjectsTool = defineTool({
           { maxRetries: 3, baseDelayMs: 500 },
         );
 
-        const project = payload.project as {
+        // Must await project relation as Linear SDK uses lazy-loading (returns Promise)
+        const project = (await payload.project) as {
           id?: string;
           state?: string;
         } | null;

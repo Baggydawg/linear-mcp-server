@@ -327,12 +327,17 @@ export const listCommentsTool = defineTool({
     // ─────────────────────────────────────────────────────────────────────────
     if (config.TOON_OUTPUT_ENABLED) {
       // Convert items to RawCommentData for TOON processing
-      const rawComments: RawCommentData[] = conn.nodes.map((c) => ({
-        id: c.id,
-        body: (c as unknown as { body?: string }).body ?? '',
-        createdAt: c.createdAt,
-        user: (c as unknown as { user?: { id: string; name?: string } }).user ?? null,
-      }));
+      // Must await user relation as Linear SDK uses lazy-loading (returns Promise)
+      const rawComments: RawCommentData[] = await Promise.all(
+        conn.nodes.map(async (c) => ({
+          id: c.id,
+          body: (c as unknown as { body?: string }).body ?? '',
+          createdAt: c.createdAt,
+          user:
+            (await (c as unknown as { user?: Promise<{ id: string; name?: string } | null> })
+              .user) ?? null,
+        })),
+      );
 
       // Initialize registry if needed (lazy init)
       let registry: ShortKeyRegistry | null = null;
