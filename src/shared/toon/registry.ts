@@ -37,6 +37,7 @@ export interface UserMetadata {
   displayName: string;
   email: string;
   active: boolean;
+  role?: string;
 }
 
 /**
@@ -84,6 +85,8 @@ export interface RegistryUserEntity extends RegistryEntity {
   email: string;
   /** Whether the user is active */
   active: boolean;
+  /** User's role: 'admin' or 'member' */
+  role?: string;
 }
 
 /**
@@ -281,6 +284,7 @@ function buildUserMetadata(users: RegistryUserEntity[]): Map<string, UserMetadat
       displayName: user.displayName,
       email: user.email,
       active: user.active,
+      role: user.role,
     });
   }
   return metadata;
@@ -865,4 +869,47 @@ export function hasUuid(
 ): boolean {
   const map = getUuidToKeyMap(registry, type);
   return map.has(uuid);
+}
+
+/**
+ * Register a newly created project in the registry.
+ *
+ * Finds the next available project short key by scanning existing keys,
+ * adds the project to both maps, and stores its metadata.
+ *
+ * @param registry - The short key registry
+ * @param projectId - The UUID of the new project
+ * @param metadata - Project metadata (name, state)
+ * @returns The assigned short key (e.g., 'pr6')
+ *
+ * @example
+ * ```typescript
+ * const shortKey = registerNewProject(registry, 'abc-123', { name: 'My Project', state: 'planned' });
+ * // Returns: 'pr6' (or next available)
+ * ```
+ */
+export function registerNewProject(
+  registry: ShortKeyRegistry,
+  projectId: string,
+  metadata: ProjectMetadata,
+): string {
+  // Find next available key by finding max index (NOT just map.size)
+  // This handles gaps in the sequence (e.g., if pr0, pr1, pr5 exist, next is pr6)
+  let maxIndex = -1;
+  for (const key of registry.projects.keys()) {
+    const num = parseInt(key.replace('pr', ''), 10);
+    if (!isNaN(num) && num > maxIndex) {
+      maxIndex = num;
+    }
+  }
+  const nextKey = `pr${maxIndex + 1}`;
+
+  // Add to both maps (key -> UUID and UUID -> key)
+  registry.projects.set(nextKey, projectId);
+  registry.projectsByUuid.set(projectId, nextKey);
+
+  // Add metadata
+  registry.projectMetadata.set(projectId, metadata);
+
+  return nextKey;
 }

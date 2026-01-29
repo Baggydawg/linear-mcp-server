@@ -167,13 +167,6 @@ export const toolsMetadata = {
       '- priority_mismatch: Urgent (priority 1) issues not started\n\n' +
       "Next: Use update_issues with short keys (u0, s2, pr1) from lookups. Use 'list_cycles' to see all cycles.",
   },
-
-  show_issues_ui: {
-    name: 'show_issues_ui',
-    title: 'Show Issues Dashboard',
-    description:
-      'Opens an interactive Linear issues dashboard. The UI displays issues in a dark, minimalistic Linear-style interface where users can browse, filter, and manage issues visually. Inputs: { teamId?, stateType?, assignedToMe? }. Use this when the user wants to see their issues in a visual interface rather than text output.',
-  },
 } as const satisfies Record<string, ToolMetadata>;
 
 /**

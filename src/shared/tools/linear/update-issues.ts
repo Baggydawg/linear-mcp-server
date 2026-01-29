@@ -685,6 +685,24 @@ export const updateIssuesTool = defineTool({
           if (requestedFields.has('assignee')) requestedFields.add('assigneeId');
           if (requestedFields.has('project')) requestedFields.add('projectId');
 
+          // Map name-based input fields to legacy field names for computeFieldChanges
+          // Label name mappings
+          if (requestedFields.has('labelNames')) requestedFields.add('labelIds');
+          if (requestedFields.has('addLabelNames')) requestedFields.add('addLabelIds');
+          if (requestedFields.has('removeLabelNames'))
+            requestedFields.add('removeLabelIds');
+          // State name mappings (for completeness with existing short key mapping)
+          if (requestedFields.has('stateName') || requestedFields.has('stateType'))
+            requestedFields.add('stateId');
+          // Assignee name mappings (for completeness with existing short key mapping)
+          if (
+            requestedFields.has('assigneeName') ||
+            requestedFields.has('assigneeEmail')
+          )
+            requestedFields.add('assigneeId');
+          // Project name mapping (for completeness with existing short key mapping)
+          if (requestedFields.has('projectName')) requestedFields.add('projectId');
+
           const changes = computeFieldChanges(
             beforeSnapshot,
             afterSnapshot,

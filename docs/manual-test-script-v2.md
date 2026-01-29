@@ -9,7 +9,7 @@ Comprehensive test script combining the original 30-step stress test with verifi
 
 **Convention:** Test data uses `[TEST]` prefix in titles for easy cleanup in Linear.
 
-**Tool Count:** 14 tools (reduced from 17 after removing `list_teams`, `list_users`, `list_my_issues`)
+**Tool Count:** 13 tools (reduced from 17 after removing `list_teams`, `list_users`, `list_my_issues`, `show_issues_ui`)
 
 ---
 
@@ -443,19 +443,9 @@ These prompts establish the registry and verify Claude can see the workspace.
 
 ## Phase 8: Visual Dashboard
 
-### Step 26 — Show UI dashboard
-**Prompt:**
-> Show me a visual dashboard of all in-progress issues assigned to me
+### Step 26 — REMOVED
 
-**Expected tool(s):** `show_issues_ui`
-
-**Verify:**
-- [ ] Tool returns structured filter data — NO, just returns text message
-- [x] Response mentions "Opening Linear Issues Dashboard" — Yes
-- [x] Filters include stateType: started, assignedToMe: true — Implied in response text
-- [ ] (If your client supports it) UI renders — NO, Claude Desktop doesn't support UI rendering
-
-**Note:** This tool appears designed for MCP clients with UI rendering capabilities. Claude Desktop doesn't support this — the tool returns a text message but no UI actually renders. The tool's purpose and target client is unclear.
+**Note:** The `show_issues_ui` tool has been removed. It used a custom `ui://` protocol that no MCP client supports, providing no value.
 
 ---
 
@@ -560,9 +550,8 @@ After completing all steps, verify every tool was exercised:
 | 11 | update_comments | 22 | (depends on BUG-10) |
 | 12 | list_cycles | 6 | BUG-5 |
 | 13 | get_sprint_context | 4, 5, 11, 27 | NOTE-1, NOTE-3, NOTE-4 |
-| 14 | show_issues_ui | 26 | — |
 
-**All 14 tools covered.**
+**All 13 tools covered.**
 
 ---
 
@@ -660,33 +649,6 @@ created[1]{key,name,state}:
 **Impact:** Saves 2-3 tool calls for any create→update workflow. Better UX, less context usage.
 
 **Priority:** Medium — nice-to-have improvement, not blocking functionality.
-
----
-
-### QUESTION: `show_issues_ui` Tool Purpose Unclear
-
-**Observed in:** Step 26
-
-**Problem:** The tool returns only a text message:
-```
-Opening Linear Issues Dashboard (filtered by state: started, assigned to you). The interactive UI will display below.
-```
-
-No UI actually renders in Claude Desktop. The tool doesn't return structured filter data — just prose.
-
-**Questions:**
-1. What MCP client is this tool designed for? (Not Claude Desktop)
-2. Should this tool return structured filter data that a UI-capable client could render?
-3. Is this tool needed at all, or should it be removed?
-
-**Current Behavior:** Tool "works" (doesn't error) but provides no value in Claude Desktop.
-
-**Recommendation:** Either:
-- **A)** Document which clients support this tool's UI rendering
-- **B)** Return structured filter data (JSON) that clients could use
-- **C)** Remove the tool if no client supports it
-
-**Priority:** Low — doesn't break anything, but takes up tool slot with no apparent value.
 
 ---
 

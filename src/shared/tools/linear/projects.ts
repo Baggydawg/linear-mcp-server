@@ -40,6 +40,7 @@ import {
   type ToonResponse,
   type ToonRow,
   type ToonSection,
+  registerNewProject,
   tryGetShortKey,
   tryResolveShortKey,
   USER_LOOKUP_SCHEMA,
@@ -77,14 +78,19 @@ async function fetchWorkspaceDataForRegistry(
 ): Promise<RegistryBuildData> {
   // Fetch users with full metadata
   const usersConn = await client.users({ first: 100 });
-  const users = (usersConn.nodes ?? []).map((u) => ({
-    id: u.id,
-    createdAt: (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
-    name: u.name ?? '',
-    displayName: (u as unknown as { displayName?: string }).displayName ?? '',
-    email: (u as unknown as { email?: string }).email ?? '',
-    active: (u as unknown as { active?: boolean }).active ?? true,
-  }));
+  const users = (usersConn.nodes ?? []).map((u) => {
+    const admin = (u as unknown as { admin?: boolean }).admin ?? false;
+    return {
+      id: u.id,
+      createdAt:
+        (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+      name: u.name ?? '',
+      displayName: (u as unknown as { displayName?: string }).displayName ?? '',
+      email: (u as unknown as { email?: string }).email ?? '',
+      active: (u as unknown as { active?: boolean }).active ?? true,
+      role: admin ? 'admin' : 'member',
+    };
+  });
 
   // Fetch workflow states via teams with full metadata
   const teamsConn = await client.teams({ first: 100 });
@@ -193,7 +199,7 @@ function buildProjectLeadLookup(
         name: metadata?.name ?? '',
         displayName: metadata?.displayName ?? '',
         email: metadata?.email ?? '',
-        role: '', // Role not stored in registry metadata
+        role: metadata?.role ?? '',
       });
     }
   }
@@ -432,7 +438,10 @@ const CreateProjectsInputSchema = z.object({
       z.object({
         name: z.string().describe('Project name. Required.'),
         description: z.string().optional().describe('Markdown description.'),
-        teamId: z.string().optional().describe('Team UUID or key (e.g., "SQT") to associate.'),
+        teamId: z
+          .string()
+          .optional()
+          .describe('Team UUID or key (e.g., "SQT") to associate.'),
         leadId: z
           .string()
           .optional()
@@ -563,11 +572,14 @@ export const createProjectsTool = defineTool({
           state?: string;
         } | null;
 
-        // Get project short key for TOON output
-        const projectKey =
-          registry && project?.id
-            ? tryGetShortKey(registry, 'project', project.id)
-            : undefined;
+        // Register new project and get short key for TOON output
+        let projectKey: string | undefined;
+        if (registry && project?.id) {
+          projectKey = registerNewProject(registry, project.id, {
+            name: it.name,
+            state: project.state ?? 'planned',
+          });
+        }
 
         results.push({
           input: { name: it.name, teamId: it.teamId },

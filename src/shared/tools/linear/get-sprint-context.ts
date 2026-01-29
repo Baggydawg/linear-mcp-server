@@ -464,7 +464,7 @@ function buildUserLookup(
         name: metadata?.name ?? fallbackInfo?.name ?? '',
         displayName: metadata?.displayName ?? '',
         email: metadata?.email ?? '',
-        role: '', // Keep empty, not stored in registry
+        role: metadata?.role ?? '',
       });
     }
   }
@@ -571,14 +571,19 @@ async function fetchWorkspaceDataForRegistry(
 ): Promise<RegistryBuildData> {
   // Fetch users with full metadata
   const usersConn = await client.users({ first: 100 });
-  const users = (usersConn.nodes ?? []).map((u) => ({
-    id: u.id,
-    createdAt: (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
-    name: u.name ?? '',
-    displayName: (u as unknown as { displayName?: string }).displayName ?? '',
-    email: (u as unknown as { email?: string }).email ?? '',
-    active: (u as unknown as { active?: boolean }).active ?? true,
-  }));
+  const users = (usersConn.nodes ?? []).map((u) => {
+    const admin = (u as unknown as { admin?: boolean }).admin ?? false;
+    return {
+      id: u.id,
+      createdAt:
+        (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+      name: u.name ?? '',
+      displayName: (u as unknown as { displayName?: string }).displayName ?? '',
+      email: (u as unknown as { email?: string }).email ?? '',
+      active: (u as unknown as { active?: boolean }).active ?? true,
+      role: admin ? 'admin' : 'member',
+    };
+  });
 
   // Fetch workflow states via teams with full metadata
   const teamsConn = await client.teams({ first: 100 });

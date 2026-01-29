@@ -18,8 +18,6 @@ export {
 } from './projects.js';
 // Shared utilities (for use in tools)
 export * from './shared/index.js';
-// UI
-export { showIssuesUITool } from './show-issues-ui.js';
 export { updateIssuesTool } from './update-issues.js';
 // Core tools
 export { workspaceMetadataTool } from './workspace-metadata.js';

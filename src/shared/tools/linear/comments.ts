@@ -24,7 +24,6 @@ import {
   summarizeList,
 } from '../../../utils/messages.js';
 import {
-  COMMENT_SCHEMA,
   COMMENT_SCHEMA_WITH_ID,
   COMMENT_WRITE_RESULT_SCHEMA,
   CREATED_COMMENT_SCHEMA,
@@ -39,7 +38,6 @@ import {
   type ToonSection,
   tryGetShortKey,
   USER_LOOKUP_SCHEMA,
-  WRITE_RESULT_META_SCHEMA,
 } from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 
@@ -65,14 +63,19 @@ async function fetchWorkspaceDataForRegistry(
 ): Promise<RegistryBuildData> {
   // Fetch users with full metadata
   const usersConn = await client.users({ first: 100 });
-  const users = (usersConn.nodes ?? []).map((u) => ({
-    id: u.id,
-    createdAt: (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
-    name: u.name ?? '',
-    displayName: (u as unknown as { displayName?: string }).displayName ?? '',
-    email: (u as unknown as { email?: string }).email ?? '',
-    active: (u as unknown as { active?: boolean }).active ?? true,
-  }));
+  const users = (usersConn.nodes ?? []).map((u) => {
+    const admin = (u as unknown as { admin?: boolean }).admin ?? false;
+    return {
+      id: u.id,
+      createdAt:
+        (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+      name: u.name ?? '',
+      displayName: (u as unknown as { displayName?: string }).displayName ?? '',
+      email: (u as unknown as { email?: string }).email ?? '',
+      active: (u as unknown as { active?: boolean }).active ?? true,
+      role: admin ? 'admin' : 'member',
+    };
+  });
 
   // Fetch workflow states via teams with full metadata
   const teamsConn = await client.teams({ first: 100 });
@@ -121,16 +124,26 @@ async function fetchWorkspaceDataForRegistry(
 
 /**
  * Convert a comment to TOON row format.
+ * @param fallbackUserMap - Map of user UUID to ad-hoc key for users not in registry
  */
 function commentToToonRow(
   comment: RawCommentData,
   issueIdentifier: string,
   registry: ShortKeyRegistry | null,
+  fallbackUserMap?: Map<string, string>,
 ): ToonRow {
-  const userKey =
-    registry && comment.user?.id
-      ? tryGetShortKey(registry, 'user', comment.user.id)
-      : undefined;
+  let userKey: string | undefined;
+
+  if (comment.user?.id) {
+    // First, try to get short key from registry
+    if (registry) {
+      userKey = tryGetShortKey(registry, 'user', comment.user.id);
+    }
+    // If not found in registry, check fallback map (external/deactivated users)
+    if (!userKey && fallbackUserMap) {
+      userKey = fallbackUserMap.get(comment.user.id);
+    }
+  }
 
   const createdAt =
     comment.createdAt instanceof Date
@@ -148,20 +161,28 @@ function commentToToonRow(
 
 /**
  * Build user lookup table with only comment authors (Tier 2).
+ * Also returns a fallback map for users not in the registry (external/deactivated users).
  */
 function buildCommentAuthorLookup(
   registry: ShortKeyRegistry,
   comments: RawCommentData[],
-): ToonSection {
-  // Collect unique user IDs from comments
+): { section: ToonSection; fallbackMap: Map<string, string> } {
+  // Collect unique user IDs from comments and build userId -> userName map
   const userIds = new Set<string>();
+  const userIdToName = new Map<string, string>();
   for (const comment of comments) {
     if (comment.user?.id) {
       userIds.add(comment.user.id);
+      if (comment.user.name) {
+        userIdToName.set(comment.user.id, comment.user.name);
+      }
     }
   }
 
-  // Build lookup items
+  // Track which userIds we've added to the lookup
+  const addedUserIds = new Set<string>();
+
+  // Build lookup items from registry users
   const items: ToonRow[] = [];
   for (const [shortKey, uuid] of registry.users) {
     if (userIds.has(uuid)) {
@@ -171,19 +192,53 @@ function buildCommentAuthorLookup(
         name: metadata?.name ?? '',
         displayName: metadata?.displayName ?? '',
         email: metadata?.email ?? '',
-        role: '',  // Role not stored in registry metadata
+        role: metadata?.role ?? '',
       });
+      addedUserIds.add(uuid);
     }
   }
 
-  // Sort by key number for consistent output
+  // Build fallback map for users not in registry (external/deactivated users)
+  // Use ad-hoc keys like "ext0", "ext1", etc.
+  const fallbackMap = new Map<string, string>();
+  let extIndex = 0;
+  for (const userId of userIds) {
+    if (!addedUserIds.has(userId)) {
+      const userName = userIdToName.get(userId) ?? 'Unknown User';
+      const adHocKey = `ext${extIndex}`;
+      extIndex++;
+
+      // Add to lookup items
+      items.push({
+        key: adHocKey,
+        name: userName,
+        displayName: '',
+        email: '',
+        role: '(external)', // Mark as external user
+      });
+
+      // Add to fallback map for use in commentToToonRow
+      fallbackMap.set(userId, adHocKey);
+    }
+  }
+
+  // Sort by key for consistent output (registry users first, then external)
   items.sort((a, b) => {
-    const numA = parseInt(String(a.key).replace('u', ''), 10);
-    const numB = parseInt(String(b.key).replace('u', ''), 10);
+    const keyA = String(a.key);
+    const keyB = String(b.key);
+    // Registry users (u0, u1...) come before external users (ext0, ext1...)
+    const isExtA = keyA.startsWith('ext');
+    const isExtB = keyB.startsWith('ext');
+    if (isExtA !== isExtB) {
+      return isExtA ? 1 : -1;
+    }
+    // Within same type, sort by number
+    const numA = parseInt(keyA.replace(/^(u|ext)/, ''), 10);
+    const numB = parseInt(keyB.replace(/^(u|ext)/, ''), 10);
     return numA - numB;
   });
 
-  return { schema: USER_LOOKUP_SCHEMA, items };
+  return { section: { schema: USER_LOOKUP_SCHEMA, items }, fallbackMap };
 }
 
 /**
@@ -196,10 +251,15 @@ function buildCommentsToonResponse(
 ): ToonResponse {
   // Build lookup sections (Tier 2 - only comment authors)
   const lookups: ToonSection[] = [];
+  let fallbackUserMap: Map<string, string> | undefined;
 
   // Add user lookup if we have a registry and comments with authors
   if (registry) {
-    const userLookup = buildCommentAuthorLookup(registry, comments);
+    const { section: userLookup, fallbackMap } = buildCommentAuthorLookup(
+      registry,
+      comments,
+    );
+    fallbackUserMap = fallbackMap;
     if (userLookup.items.length > 0) {
       lookups.push(userLookup);
     }
@@ -207,7 +267,7 @@ function buildCommentsToonResponse(
 
   // Convert comments to TOON rows
   const commentRows = comments.map((comment) =>
-    commentToToonRow(comment, issueIdentifier, registry),
+    commentToToonRow(comment, issueIdentifier, registry, fallbackUserMap),
   );
 
   // Build data sections

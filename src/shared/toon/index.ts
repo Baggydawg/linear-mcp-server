@@ -188,6 +188,7 @@ export {
   hasUuid,
   isStale,
   listShortKeys,
+  registerNewProject,
   resolveShortKey,
   storeRegistry,
   tryGetShortKey,

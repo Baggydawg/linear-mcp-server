@@ -14,7 +14,6 @@ import {
   listCyclesTool,
   listIssuesTool,
   listProjectsTool,
-  showIssuesUITool,
   updateCommentsTool,
   updateIssuesTool,
   updateProjectsTool,
@@ -62,8 +61,6 @@ export const sharedTools: RegisteredTool[] = [
   listProjectsTool as unknown as RegisteredTool,
   createProjectsTool as unknown as RegisteredTool,
   updateProjectsTool as unknown as RegisteredTool,
-  // Linear tools - UI
-  showIssuesUITool as unknown as RegisteredTool,
 ];
 
 /**
