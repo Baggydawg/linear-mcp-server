@@ -72,12 +72,12 @@ describeIf('Live API Integration', () => {
       : { accessToken: apiKey };
     client = new LinearClient(clientOptions);
 
-    // Find the "Tests" team
+    // Find the "SQT" team
     const teams = await client.teams();
-    const testTeam = teams.nodes.find((t) => t.name === 'Tests');
+    const testTeam = teams.nodes.find((t) => t.key === 'SQT');
 
     if (!testTeam) {
-      throw new Error('Team "Tests" not found. Please create it in Linear.');
+      throw new Error('Team "SQT" not found. Please create it in Linear.');
     }
 
     testTeamId = testTeam.id;
