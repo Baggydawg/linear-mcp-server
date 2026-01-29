@@ -18,11 +18,12 @@ export async function captureIssueSnapshot(
       return undefined;
     }
 
-    const [state, project, assignee, labelsConn] = await Promise.all([
+    const [state, project, assignee, labelsConn, cycleData] = await Promise.all([
       getState(issue),
       getProject(issue),
       getAssignee(issue),
       getLabels(issue),
+      getCycle(issue),
     ]);
 
     const idf = (issue as unknown as { identifier?: string })?.identifier;
@@ -48,6 +49,8 @@ export async function captureIssueSnapshot(
       estimate,
       dueDate,
       archivedAt: archivedAt ? String(archivedAt) : undefined,
+      cycleId: cycleData?.id,
+      cycleNumber: cycleData?.number,
       labels: labelsConn,
     };
   } catch {
@@ -115,6 +118,20 @@ async function getLabels(issue: unknown): Promise<Array<{ id: string; name: stri
     return labelsResponse.nodes.map((l) => ({ id: l.id, name: l.name }));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Get issue cycle information
+ */
+async function getCycle(
+  issue: unknown,
+): Promise<{ id?: string; number?: number } | undefined> {
+  try {
+    const cycle = await (issue as { cycle?: Promise<{ id?: string; number?: number }> }).cycle;
+    return cycle;
+  } catch {
+    return undefined;
   }
 }
 

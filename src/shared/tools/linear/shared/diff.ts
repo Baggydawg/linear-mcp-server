@@ -112,6 +112,18 @@ export function computeFieldChanges(
     }
   }
 
+  // Cycle
+  if (requestedFields.has('cycle') || requestedFields.has('cycleId')) {
+    const beforeCycle = before?.cycleNumber;
+    const afterCycle = after.cycleNumber;
+    if (beforeCycle !== afterCycle) {
+      changes.cycle = {
+        before: beforeCycle ? `c${beforeCycle}` : '—',
+        after: afterCycle ? `c${afterCycle}` : '—',
+      };
+    }
+  }
+
   return changes;
 }
 
@@ -209,6 +221,10 @@ export function formatDiffLine(issue: IssueSnapshot, changes: FieldChanges): str
         changes.archived.after ? 'Yes' : 'No'
       }`,
     );
+  }
+
+  if (changes.cycle) {
+    changeParts.push(`Cycle: ${changes.cycle.before} → ${changes.cycle.after}`);
   }
 
   if (changeParts.length === 0) {

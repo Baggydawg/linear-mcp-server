@@ -17,6 +17,8 @@ export interface IssueSnapshot {
   estimate?: number;
   dueDate?: string;
   archivedAt?: string;
+  cycleId?: string;
+  cycleNumber?: number;
   labels: Array<{ id: string; name: string }>;
 }
 
@@ -63,4 +65,5 @@ export interface FieldChanges {
     removed: string[];
   };
   archived?: { before: boolean; after: boolean };
+  cycle?: { before: string; after: string };
 }

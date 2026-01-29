@@ -15,6 +15,8 @@ import { logger } from '../../../utils/logger.js';
 import { summarizeBatch } from '../../../utils/messages.js';
 import {
   getIssueTeamId,
+  resolveCycleNumber,
+  resolveCycleNumberToId,
   resolveEstimate,
   resolveLabels,
   resolvePriority,
@@ -141,6 +143,12 @@ const IssueUpdateItem = z.object({
     .describe('New due date (YYYY-MM-DD) or empty string to clear.'),
   parentId: z.string().optional().describe('New parent issue UUID.'),
   archived: z.boolean().optional().describe('Set true to archive, false to unarchive.'),
+  cycle: z
+    .union([z.number(), z.string(), z.null()])
+    .optional()
+    .describe(
+      'Cycle number (5 or "c5") to assign, or null/0 to remove from cycle. Use list_cycles to see available.',
+    ),
 });
 
 const InputSchema = z.object({
@@ -530,6 +538,69 @@ export const updateIssuesTool = defineTool({
           payloadInput.projectId = projectResult.value;
         }
 
+        // Handle cycle assignment (supports number, "c5" format, or null to remove)
+        if (it.cycle !== undefined) {
+          // Handle cycle removal: null, 0, or empty string removes from cycle
+          if (it.cycle === null || it.cycle === 0 || it.cycle === '') {
+            payloadInput.cycleId = null;
+          } else {
+            if (!teamId) {
+              results.push({
+                index: i,
+                ok: false,
+                success: false,
+                id: it.id,
+                identifier: issueIdentifier,
+                error: {
+                  code: 'TEAM_RESOLUTION_FAILED',
+                  message: 'Cannot resolve cycle: failed to get issue team',
+                  suggestions: ['Ensure the issue exists and belongs to a team'],
+                },
+              });
+              continue;
+            }
+
+            const cycleNumberResult = resolveCycleNumber(it.cycle);
+            if (!cycleNumberResult.success) {
+              results.push({
+                index: i,
+                ok: false,
+                success: false,
+                id: it.id,
+                identifier: issueIdentifier,
+                error: {
+                  code: 'CYCLE_INVALID',
+                  message: cycleNumberResult.error,
+                  suggestions: ['Use a number like 5 or prefixed format like "c5", or null to remove'],
+                },
+              });
+              continue;
+            }
+
+            const cycleResult = await resolveCycleNumberToId(
+              client,
+              teamId,
+              cycleNumberResult.value,
+            );
+            if (!cycleResult.success) {
+              results.push({
+                index: i,
+                ok: false,
+                success: false,
+                id: it.id,
+                identifier: issueIdentifier,
+                error: {
+                  code: 'CYCLE_RESOLUTION_FAILED',
+                  message: cycleResult.error,
+                  suggestions: cycleResult.suggestions,
+                },
+              });
+              continue;
+            }
+            payloadInput.cycleId = cycleResult.value;
+          }
+        }
+
         // Resolve priority from number or string
         if (it.priority !== undefined) {
           const priorityResult = resolvePriority(it.priority);
@@ -613,11 +684,13 @@ export const updateIssuesTool = defineTool({
         );
 
         // Handle incremental label updates
-        if (it.addLabelIds?.length || it.removeLabelIds?.length) {
+        const resolvedAddLabelIds = payloadInput.addedLabelIds as string[] | undefined;
+        const resolvedRemoveLabelIds = payloadInput.removedLabelIds as string[] | undefined;
+        if (resolvedAddLabelIds?.length || resolvedRemoveLabelIds?.length) {
           const issue = await gate(() => client.issue(it.id));
           const current = new Set((await issue.labels()).nodes.map((l) => l.id));
-          it.addLabelIds?.forEach((id) => current.add(id));
-          it.removeLabelIds?.forEach((id) => current.delete(id));
+          resolvedAddLabelIds?.forEach((id) => current.add(id));
+          resolvedRemoveLabelIds?.forEach((id) => current.delete(id));
           await (args.parallel === true
             ? client.updateIssue(it.id, { labelIds: Array.from(current) })
             : gate(() => client.updateIssue(it.id, { labelIds: Array.from(current) })));
@@ -702,6 +775,7 @@ export const updateIssuesTool = defineTool({
             requestedFields.add('assigneeId');
           // Project name mapping (for completeness with existing short key mapping)
           if (requestedFields.has('projectName')) requestedFields.add('projectId');
+          if (requestedFields.has('cycle')) requestedFields.add('cycleId');
 
           const changes = computeFieldChanges(
             beforeSnapshot,
@@ -852,6 +926,16 @@ export const updateIssuesTool = defineTool({
                 field: 'archived',
                 before: changes.archived.before ? 'true' : 'false',
                 after: changes.archived.after ? 'true' : 'false',
+              });
+            }
+
+            // Cycle change
+            if (changes.cycle) {
+              toonChanges.push({
+                identifier: finalIdentifier,
+                field: 'cycle',
+                before: changes.cycle.before === '—' ? '' : changes.cycle.before,
+                after: changes.cycle.after === '—' ? '' : changes.cycle.after,
               });
             }
           }
