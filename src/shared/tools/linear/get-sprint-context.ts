@@ -15,6 +15,9 @@ import { getLinearClient } from '../../../services/linear/client.js';
 import {
   COMMENT_SCHEMA,
   encodeResponse,
+  formatCycleToon,
+  formatEstimateToon,
+  formatPriorityToon,
   GAP_SCHEMA,
   getOrInitRegistry,
   getProjectMetadata,
@@ -73,8 +76,10 @@ interface RawIssueData {
   assignee?: { id: string; name?: string } | null;
   cycle?: { number: number } | null;
   parent?: { identifier: string } | null;
+  createdAt?: string | Date;
   updatedAt: string;
   labels?: Array<{ id: string; name: string }>;
+  creator?: { id: string; name?: string } | null;
 }
 
 interface RawCommentData {
@@ -141,10 +146,12 @@ const SPRINT_CONTEXT_QUERY = `
               description
               priority
               estimate
+              createdAt
               updatedAt
               state { id name type }
               project { id name }
               assignee { id name }
+              creator { id name }
               parent { identifier }
               labels { nodes { id name } }
               comments(first: 50) @include(if: $includeComments) {
@@ -313,6 +320,10 @@ function issueToToonRow(
     registry && issue.project?.id
       ? tryGetShortKey(registry, 'project', issue.project.id)
       : undefined;
+  const creatorKey =
+    registry && issue.creator?.id
+      ? tryGetShortKey(registry, 'user', issue.creator.id)
+      : undefined;
 
   // Collect label names as comma-separated string
   const labelNames = (issue.labels ?? []).map((l) => l.name).join(',');
@@ -328,13 +339,19 @@ function issueToToonRow(
     title: issue.title,
     state: stateKey ?? issue.state?.name ?? '',
     assignee: assigneeKey ?? '',
-    priority: issue.priority ?? null,
-    estimate: issue.estimate ?? null,
+    priority: formatPriorityToon(issue.priority),
+    estimate: formatEstimateToon(issue.estimate),
     project: projectKey ?? '',
-    cycle: issue.cycle?.number ?? null,
+    cycle: formatCycleToon(issue.cycle?.number),
     labels: labelNames || null,
     parent: issue.parent?.identifier ?? null,
     desc,
+    createdAt: issue.createdAt
+      ? issue.createdAt instanceof Date
+        ? issue.createdAt.toISOString()
+        : issue.createdAt
+      : null,
+    creator: creatorKey ?? '',
   };
 }
 
@@ -400,6 +417,7 @@ function collectReferencedEntities(
 
   for (const issue of issues) {
     if (issue.assignee?.id) refs.userIds.add(issue.assignee.id);
+    if (issue.creator?.id) refs.userIds.add(issue.creator.id);
     if (issue.state?.id) refs.stateIds.add(issue.state.id);
     if (issue.project?.id) refs.projectIds.add(issue.project.id);
   }
@@ -626,6 +644,8 @@ const SPRINT_ISSUE_SCHEMA = {
     'labels',
     'parent',
     'desc',
+    'createdAt',
+    'creator',
   ],
 };
 
@@ -947,10 +967,12 @@ export const getSprintContextTool = defineTool({
                     description?: string;
                     priority?: number;
                     estimate?: number;
+                    createdAt?: string;
                     updatedAt: string;
                     state: { id: string; name: string; type: string };
                     project?: { id: string; name?: string } | null;
                     assignee?: { id: string; name?: string } | null;
+                    creator?: { id: string; name?: string } | null;
                     parent?: { identifier: string } | null;
                     labels?: { nodes?: Array<{ id: string; name: string }> };
                     comments?: {
@@ -1019,8 +1041,10 @@ export const getSprintContextTool = defineTool({
       state: node.state,
       project: node.project,
       assignee: node.assignee,
+      creator: node.creator,
       cycle: { number: cycle.number },
       parent: node.parent,
+      createdAt: node.createdAt,
       updatedAt: node.updatedAt,
       labels: node.labels?.nodes ?? [],
     }));

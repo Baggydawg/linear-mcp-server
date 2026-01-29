@@ -21,6 +21,9 @@ import { logger } from '../../../utils/logger.js';
 import { summarizeBatch } from '../../../utils/messages.js';
 import {
   encodeResponse,
+  formatCycleToon,
+  formatEstimateToon,
+  formatPriorityToon,
   getOrInitRegistry,
   getProjectMetadata,
   getUserMetadata,
@@ -73,6 +76,7 @@ interface RawIssueData {
   url?: string;
   labels?: Array<{ id: string; name: string }>;
   branchName?: string | null;
+  creator?: { id: string; name?: string } | null;
 }
 
 /**
@@ -100,6 +104,9 @@ function collectReferencedEntities(issues: RawIssueData[]): ReferencedEntities {
   for (const issue of issues) {
     if (issue.assignee?.id) {
       refs.userIds.add(issue.assignee.id);
+    }
+    if (issue.creator?.id) {
+      refs.userIds.add(issue.creator.id);
     }
     if (issue.state?.id) {
       refs.stateIds.add(issue.state.id);
@@ -135,6 +142,10 @@ function issueToToonRow(
     registry && issue.project?.id
       ? tryGetShortKey(registry, 'project', issue.project.id)
       : undefined;
+  const creatorKey =
+    registry && issue.creator?.id
+      ? tryGetShortKey(registry, 'user', issue.creator.id)
+      : undefined;
 
   const labelNames = (issue.labels ?? []).map((l) => l.name).join(',');
 
@@ -143,16 +154,22 @@ function issueToToonRow(
     title: issue.title,
     state: stateKey ?? issue.state?.name ?? '',
     assignee: assigneeKey ?? '',
-    priority: issue.priority ?? null,
-    estimate: issue.estimate ?? null,
+    priority: formatPriorityToon(issue.priority),
+    estimate: formatEstimateToon(issue.estimate),
     project: projectKey ?? '',
-    cycle: issue.cycle?.number ?? null,
+    cycle: formatCycleToon(issue.cycle?.number),
     dueDate: issue.dueDate ?? null,
     labels: labelNames || null,
     parent: issue.parent?.identifier ?? null,
     team: issue.team?.key ?? '',
     url: issue.url ?? null,
     desc: issue.description ?? null, // Full description - no truncation for detail view
+    createdAt: issue.createdAt
+      ? issue.createdAt instanceof Date
+        ? issue.createdAt.toISOString()
+        : issue.createdAt
+      : null,
+    creator: creatorKey ?? '',
   };
 }
 
@@ -436,6 +453,9 @@ export const getIssuesTool = defineTool({
       success: boolean;
       issue?: ReturnType<typeof GetIssueOutputSchema.parse>;
       error?: { code: string; message: string; suggestions?: string[] };
+      // Extra fields for TOON output (not in GetIssueOutputSchema)
+      creator?: { id: string; name?: string } | null;
+      createdAt?: Date | string;
     }> = [];
 
     for (let i = 0; i < ids.length; i++) {
@@ -451,8 +471,13 @@ export const getIssuesTool = defineTool({
         const assigneeData = await issue.assignee;
         const stateData = await issue.state;
         const projectData = await issue.project;
+        const cycleData = await issue.cycle;
+        const teamData = await issue.team;
+        const creatorData = await issue.creator;
 
         const issueUrl = (issue as unknown as { url?: string })?.url;
+        const issueCreatedAt = (issue as unknown as { createdAt?: Date | string })
+          ?.createdAt;
 
         const structured = GetIssueOutputSchema.parse({
           id: issue.id,
@@ -460,6 +485,15 @@ export const getIssuesTool = defineTool({
           description: issue.description ?? undefined,
           identifier: issue.identifier ?? undefined,
           url: issueUrl,
+          priority: issue.priority,
+          estimate: issue.estimate ?? undefined,
+          cycle: cycleData ? { number: cycleData.number } : undefined,
+          team: teamData
+            ? {
+                id: teamData.id,
+                key: (teamData as unknown as { key?: string })?.key,
+              }
+            : undefined,
           assignee: assigneeData
             ? {
                 id: assigneeData.id,
@@ -482,6 +516,14 @@ export const getIssuesTool = defineTool({
           labels,
           branchName: issue.branchName ?? undefined,
           attachments: (await issue.attachments()).nodes,
+          creator: creatorData
+            ? { id: creatorData.id, name: creatorData.name ?? undefined }
+            : undefined,
+          createdAt: issueCreatedAt
+            ? issueCreatedAt instanceof Date
+              ? issueCreatedAt.toISOString()
+              : issueCreatedAt
+            : undefined,
         });
 
         results.push({
@@ -528,6 +570,10 @@ export const getIssuesTool = defineTool({
             title: string;
             description?: string | null;
             url?: string;
+            priority?: number;
+            estimate?: number | null;
+            cycle?: { number?: number };
+            team?: { id: string; key?: string };
             assignee?: { id: string; name?: string };
             state?: { id: string; name: string; type?: string };
             project?: { id: string; name?: string };
@@ -540,10 +586,16 @@ export const getIssuesTool = defineTool({
             title: issue.title,
             description: issue.description,
             url: issue.url,
+            priority: issue.priority,
+            estimate: issue.estimate,
+            cycle: issue.cycle,
+            team: issue.team,
             assignee: issue.assignee,
             state: issue.state,
             project: issue.project,
             labels: issue.labels,
+            creator: r.creator,
+            createdAt: r.createdAt,
           };
         });
 

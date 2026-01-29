@@ -38,7 +38,7 @@ Handling assignees and failures
 - To assign to yourself, prefer using your viewer id from 'workspace_metadata' as 'assigneeId'.
 - If a create or update fails with 'assigneeId ... could not be found', either:
   - Re-run 'workspace_metadata' and verify the correct team/project and user id, or
-  - Use 'list_users' to fetch users and pick the right id.
+  - Use 'workspace_metadata' to fetch users and pick the right id.
 
 Filtering (list_issues)
   - 'filter' supports GraphQL-style comparators and relationship fields. Comparators: { eq, neq, lt, lte, gt, gte, in, nin, containsIgnoreCase, startsWith, endsWith, null }. Common examples:
@@ -83,13 +83,6 @@ export const toolsMetadata = {
       "Fetch detailed issues in batch by ids (UUIDs or short ids like ENG-123). Inputs: { ids: string[] }.\nReturns: { results: Array<{ index, ok, id?, identifier?, issue? }>, summary }. Each issue includes assignee, state, project, labels, attachments, and branchName when available. Next: Call 'update_issues' to modify fields or 'list_issues' to discover more.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities in lookups. Full description included (no truncation). Use short keys from output in update calls.",
   },
 
-  list_my_issues: {
-    name: 'list_my_issues',
-    title: 'List My Issues',
-    description:
-      "List issues assigned to you (current viewer). Inputs: filter?, q?, keywords?, matchMode?, includeArchived?, orderBy?(updatedAt|createdAt), detail?(minimal|standard|full), limit?, cursor?.\n\nKEYWORD SEARCH (q/keywords):\n- q: Extract 2-4 significant keywords from user intent.\n- matchMode: 'all' (default, precise) or 'any' (broad).\n\nFILTERING:\n- Active issues: filter: { state: { type: { neq: 'completed' } } }\n- In progress: filter: { state: { type: { eq: 'started' } } }\n\nDETAIL LEVELS: minimal (id,title,state), standard (default), full (+labels,description).\n\nReturns: { items[], pagination, meta }. Shortcut for list_issues with assignedToMe: true.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities in lookups.",
-  },
-
   create_issues: {
     name: 'create_issues',
     title: 'Create Issues (Batch)',
@@ -123,20 +116,6 @@ export const toolsMetadata = {
     title: 'Update Projects (Batch)',
     description:
       "Update multiple projects in one call. Inputs: { items: Array<{ id: string; name?: string; description?: string; targetDate?: string; state?: string; leadId?: string; archived?: boolean }> }.\nReturns: per-item results and a summary. Next: verify with 'list_projects' (filter.id.eq, limit=1); discover via 'list_projects'.",
-  },
-
-  list_teams: {
-    name: 'list_teams',
-    title: 'List Teams',
-    description:
-      "List teams in the workspace. Inputs: limit?, cursor?.\nReturns: { items: Array<{ id, key?, name }>, cursor?, nextCursor?, limit? }. Next: Use team ids with 'workspace_metadata' (workflowStatesByTeam) and 'list_issues'.\n\nTOON Output (when enabled): Tier 2. Teams use natural key (SQT) - no short key translation needed.",
-  },
-
-  list_users: {
-    name: 'list_users',
-    title: 'List Users',
-    description:
-      "List users in the workspace. Inputs: limit?, cursor?.\nReturns: { items: Array<{ id, name?, email?, displayName?, avatarUrl? }>, cursor?, nextCursor?, limit? }. Next: Use user ids in 'update_issues' (assigneeId).\n\nTOON Output (when enabled): Tier 2. Users have short keys (u0, u1) - use these in assignee field for updates.",
   },
 
   list_comments: {

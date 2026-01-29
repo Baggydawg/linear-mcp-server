@@ -139,6 +139,8 @@ type UserLike = {
   displayName?: string;
   email?: string;
   active?: boolean;
+  admin?: boolean;
+  guest?: boolean;
   createdAt?: Date | string;
 };
 
@@ -386,6 +388,14 @@ export const workspaceMetadataTool = defineTool({
         displayName: viewer.displayName ?? undefined,
         timezone: viewer.timezone ?? undefined,
       };
+
+      // Fetch organization name for TOON _meta section
+      try {
+        const org = await viewer.organization;
+        workspaceData.organizationName = org?.name ?? undefined;
+      } catch {
+        // Organization fetch failed, leave organizationName undefined
+      }
     }
 
     // Fetch teams
@@ -438,6 +448,7 @@ export const workspaceMetadataTool = defineTool({
         displayName: u.displayName ?? undefined,
         email: u.email ?? undefined,
         active: u.active,
+        role: u.admin ? 'Admin' : u.guest ? 'Guest' : 'Member',
         createdAt: u.createdAt,
       }));
     }

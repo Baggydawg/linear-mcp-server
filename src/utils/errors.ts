@@ -31,7 +31,7 @@ export interface ToolError {
 export const ERROR_HINTS: Record<ErrorCode, string> = {
   NOT_FOUND: 'Use workspace_metadata or list tools to find valid IDs.',
   USER_NOT_FOUND:
-    'Use list_users to see available users. You can search by name or email.',
+    'Use workspace_metadata to see available users. You can search by name or email.',
   TEAM_NOT_FOUND:
     'Use workspace_metadata with include=["teams"] to see available teams and their IDs.',
   PROJECT_NOT_FOUND:
@@ -227,7 +227,7 @@ export function getZeroResultHints(context: {
     hints.push('Verify teamId exists using workspace_metadata.');
   }
   if (context.hasAssigneeFilter) {
-    hints.push('Remove assignee filter, or verify user ID with list_users.');
+    hints.push('Remove assignee filter, or verify user ID with workspace_metadata.');
   }
   if (context.hasProjectFilter) {
     hints.push('Remove project filter, or verify project ID with list_projects.');

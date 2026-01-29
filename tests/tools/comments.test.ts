@@ -656,7 +656,7 @@ describe('list_comments TOON output', () => {
 
     // Should have comment schema header with fields
     expect(textContent).toContain('comments[');
-    expect(textContent).toContain('{issue,user,body,createdAt}');
+    expect(textContent).toContain('{id,issue,user,body,createdAt}');
   });
 
   it('includes issue identifier in meta', async () => {

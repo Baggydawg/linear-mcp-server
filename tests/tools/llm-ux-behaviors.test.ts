@@ -10,7 +10,6 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { listIssuesTool } from '../../src/shared/tools/linear/list-issues.js';
-import { listMyIssuesTool } from '../../src/shared/tools/linear/list-my-issues.js';
 import { workspaceMetadataTool } from '../../src/shared/tools/linear/workspace-metadata.js';
 import type { ToolContext } from '../../src/shared/tools/types.js';
 import {

@@ -78,8 +78,17 @@ function buildCyclesToonResponse(
   cycles: RawCycleData[],
   teamKey: string,
 ): ToonResponse {
+  // Sort cycles by number descending (most recent first)
+  // Cycles without a number are pushed to the end
+  const sortedCycles = [...cycles].sort((a, b) => {
+    if (a.number === undefined && b.number === undefined) return 0;
+    if (a.number === undefined) return 1; // a goes after b
+    if (b.number === undefined) return -1; // b goes after a
+    return b.number - a.number; // Descending order
+  });
+
   // Convert cycles to TOON rows
-  const cycleRows = cycles.map((cycle) => cycleToToonRow(cycle));
+  const cycleRows = sortedCycles.map((cycle) => cycleToToonRow(cycle));
 
   // Build data sections
   const data: ToonSection[] = [{ schema: CYCLE_SCHEMA, items: cycleRows }];

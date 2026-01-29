@@ -15,6 +15,7 @@ import { logger } from '../../../utils/logger.js';
 import { summarizeBatch } from '../../../utils/messages.js';
 import {
   getIssueTeamId,
+  resolveEstimate,
   resolveLabels,
   resolvePriority,
   resolveProject,
@@ -24,6 +25,8 @@ import { resolveAssignee } from '../../../utils/user-resolver.js';
 import {
   CHANGES_SCHEMA,
   encodeToon,
+  formatEstimateToon,
+  formatPriorityToon,
   getStoredRegistry,
   type ShortKeyRegistry,
   type ToonResponse,
@@ -121,26 +124,13 @@ const IssueUpdateItem = z.object({
   projectName: z.string().optional().describe('Project name. Resolved to projectId.'),
   // Priority - number or string
   priority: z
-    .union([
-      z.number().int().min(0).max(4),
-      z.enum([
-        'None',
-        'Urgent',
-        'High',
-        'Medium',
-        'Normal',
-        'Low',
-        'none',
-        'urgent',
-        'high',
-        'medium',
-        'normal',
-        'low',
-      ]),
-    ])
+    .union([z.number().int().min(0).max(4), z.string()])
     .optional()
-    .describe('Priority: 0-4 or "None"/"Urgent"/"High"/"Medium"/"Low".'),
-  estimate: z.number().optional().describe('New estimate / story points.'),
+    .describe('Priority (0-4 or p0-p4)'),
+  estimate: z
+    .union([z.number(), z.string()])
+    .optional()
+    .describe('Estimate points (number or e-prefixed like e5)'),
   allowZeroEstimate: z
     .boolean()
     .optional()
@@ -560,8 +550,24 @@ export const updateIssuesTool = defineTool({
           }
         }
 
-        // Use shared validation for estimate
-        if (typeof it.estimate === 'number') {
+        // Use shared validation for estimate (resolve string inputs first)
+        if (it.estimate !== undefined) {
+          const estimateResult = resolveEstimate(it.estimate);
+          if (!estimateResult.success) {
+            results.push({
+              index: i,
+              ok: false,
+              success: false,
+              id: it.id,
+              identifier: issueIdentifier,
+              error: {
+                code: 'ESTIMATE_INVALID',
+                message: estimateResult.error,
+              },
+            });
+            continue;
+          }
+
           // Try to get team ID from the issue
           let estimateTeamId: string | undefined;
           try {
@@ -570,7 +576,7 @@ export const updateIssuesTool = defineTool({
           } catch {}
 
           const estimate = await validateEstimate(
-            it.estimate,
+            estimateResult.value,
             estimateTeamId,
             teamAllowZeroCache,
             client,
@@ -739,29 +745,45 @@ export const updateIssuesTool = defineTool({
 
             // Priority change
             if (changes.priority) {
+              const beforePriority =
+                changes.priority.before === '—'
+                  ? null
+                  : typeof changes.priority.before === 'number'
+                    ? changes.priority.before
+                    : parseInt(String(changes.priority.before), 10);
+              const afterPriority =
+                changes.priority.after === '—'
+                  ? null
+                  : typeof changes.priority.after === 'number'
+                    ? changes.priority.after
+                    : parseInt(String(changes.priority.after), 10);
               toonChanges.push({
                 identifier: finalIdentifier,
                 field: 'priority',
-                before: String(
-                  changes.priority.before === '—' ? '' : changes.priority.before,
-                ),
-                after: String(
-                  changes.priority.after === '—' ? '' : changes.priority.after,
-                ),
+                before: formatPriorityToon(beforePriority) ?? '',
+                after: formatPriorityToon(afterPriority) ?? '',
               });
             }
 
             // Estimate change
             if (changes.estimate) {
+              const beforeEstimate =
+                changes.estimate.before === '—'
+                  ? null
+                  : typeof changes.estimate.before === 'number'
+                    ? changes.estimate.before
+                    : parseInt(String(changes.estimate.before), 10);
+              const afterEstimate =
+                changes.estimate.after === '—'
+                  ? null
+                  : typeof changes.estimate.after === 'number'
+                    ? changes.estimate.after
+                    : parseInt(String(changes.estimate.after), 10);
               toonChanges.push({
                 identifier: finalIdentifier,
                 field: 'estimate',
-                before: String(
-                  changes.estimate.before === '—' ? '' : changes.estimate.before,
-                ),
-                after: String(
-                  changes.estimate.after === '—' ? '' : changes.estimate.after,
-                ),
+                before: formatEstimateToon(beforeEstimate) ?? '',
+                after: formatEstimateToon(afterEstimate) ?? '',
               });
             }
 
@@ -772,6 +794,46 @@ export const updateIssuesTool = defineTool({
                 field: 'title',
                 before: changes.title.before,
                 after: changes.title.after,
+              });
+            }
+
+            // Due date change
+            if (changes.dueDate) {
+              toonChanges.push({
+                identifier: finalIdentifier,
+                field: 'dueDate',
+                before: changes.dueDate.before === '—' ? '' : changes.dueDate.before,
+                after: changes.dueDate.after === '—' ? '' : changes.dueDate.after,
+              });
+            }
+
+            // Labels change (split into added/removed for clarity)
+            if (changes.labels) {
+              if (changes.labels.added.length > 0) {
+                toonChanges.push({
+                  identifier: finalIdentifier,
+                  field: 'labels+', // "+" indicates additions
+                  before: '',
+                  after: changes.labels.added.join(','),
+                });
+              }
+              if (changes.labels.removed.length > 0) {
+                toonChanges.push({
+                  identifier: finalIdentifier,
+                  field: 'labels-', // "-" indicates removals
+                  before: changes.labels.removed.join(','),
+                  after: '',
+                });
+              }
+            }
+
+            // Archived change
+            if (changes.archived) {
+              toonChanges.push({
+                identifier: finalIdentifier,
+                field: 'archived',
+                before: changes.archived.before ? 'true' : 'false',
+                after: changes.archived.after ? 'true' : 'false',
               });
             }
           }
@@ -806,7 +868,7 @@ export const updateIssuesTool = defineTool({
             suggestions: [
               'Verify the issue ID exists with list_issues or get_issues.',
               'Check that stateId exists in workflowStatesByTeam.',
-              'Use list_users to find valid assigneeId.',
+              'Use workspace_metadata to find valid assigneeId.',
             ],
             retryable: false,
           },

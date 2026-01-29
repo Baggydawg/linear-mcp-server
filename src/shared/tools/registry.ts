@@ -14,8 +14,6 @@ import {
   listCyclesTool,
   listIssuesTool,
   listProjectsTool,
-  listTeamsTool,
-  listUsersTool,
   showIssuesUITool,
   updateCommentsTool,
   updateIssuesTool,
@@ -54,9 +52,6 @@ export const sharedTools: RegisteredTool[] = [
   updateIssuesTool as unknown as RegisteredTool,
   // Linear tools - Sprint Context
   getSprintContextTool as unknown as RegisteredTool,
-  // Linear tools - Teams & Users
-  listTeamsTool as unknown as RegisteredTool,
-  listUsersTool as unknown as RegisteredTool,
   // Linear tools - Comments
   listCommentsTool as unknown as RegisteredTool,
   addCommentsTool as unknown as RegisteredTool,

@@ -88,7 +88,7 @@ export async function resolveUserByEmail(
     error: createToolError(
       'USER_NOT_FOUND',
       `No user found with email "${email}".`,
-      `Use list_users to see available users and their emails.`,
+      `Use workspace_metadata to see available users and their emails.`,
     ),
   };
 }
@@ -168,7 +168,7 @@ export async function resolveUserByName(
     error: createToolError(
       'USER_NOT_FOUND',
       `No user found matching "${name}".`,
-      `Use list_users to see available users. Check spelling or try a different name.`,
+      `Use workspace_metadata to see available users. Check spelling or try a different name.`,
     ),
   };
 }

@@ -110,7 +110,12 @@ export const GetIssueOutputSchema = z
     description: z.string().optional(),
     identifier: z.string().optional(),
     url: z.string().optional(),
+    priority: z.number().optional(),
+    estimate: z.number().optional(),
+    cycle: z.object({ number: z.number().optional() }).optional(),
+    team: z.object({ id: z.string(), key: z.string().optional() }).optional(),
     assignee: z.object({ id: z.string(), name: z.string().optional() }).optional(),
+    creator: z.object({ id: z.string(), name: z.string().optional() }).optional(),
     state: z
       .object({ id: z.string(), name: z.string(), type: z.string().optional() })
       .optional(),
@@ -118,6 +123,7 @@ export const GetIssueOutputSchema = z
     labels: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
     branchName: z.string().optional(),
     attachments: z.array(z.unknown()).optional(),
+    createdAt: z.string().optional(),
   })
   .strict();
 export type GetIssueOutput = z.infer<typeof GetIssueOutputSchema>;

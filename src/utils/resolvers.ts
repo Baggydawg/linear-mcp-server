@@ -43,7 +43,7 @@ export type ResolverResult<T> = ResolveResult<T> | ResolveError;
 
 /**
  * Resolve priority from number or string
- * Accepts: 0-4, "None", "Urgent", "High", "Medium", "Normal", "Low"
+ * Accepts: 0-4, "p0"-"p4" prefix format, "None", "Urgent", "High", "Medium", "Normal", "Low"
  */
 export function resolvePriority(input: PriorityInput): ResolverResult<number> {
   if (typeof input === 'number') {
@@ -55,6 +55,12 @@ export function resolvePriority(input: PriorityInput): ResolverResult<number> {
       error: `Invalid priority number: ${input}. Must be 0-4.`,
       suggestions: ['0=None, 1=Urgent, 2=High, 3=Medium, 4=Low'],
     };
+  }
+
+  // Accept prefixed format (p0, p1, p2, p3, p4)
+  const prefixMatch = typeof input === 'string' ? input.match(/^p([0-4])$/i) : null;
+  if (prefixMatch) {
+    return { success: true, value: parseInt(prefixMatch[1], 10) };
   }
 
   const normalized = input.toLowerCase().trim();
@@ -349,6 +355,40 @@ export async function resolveProject(
 export type CycleSelector = 'current' | 'next' | 'previous' | number;
 
 /**
+ * Resolve a cycle number to its UUID.
+ * Requires a team ID since cycle numbers are team-specific.
+ */
+export async function resolveCycleNumberToId(
+  client: LinearClient,
+  teamId: string,
+  cycleNumber: number,
+): Promise<ResolverResult<string>> {
+  try {
+    const team = await client.team(teamId);
+    const cyclesConn = await team.cycles({ first: 100 });
+    const cycle = cyclesConn.nodes?.find((c) => c.number === cycleNumber);
+
+    if (!cycle) {
+      return {
+        success: false,
+        error: `Cycle ${cycleNumber} not found for this team.`,
+        suggestions: [
+          'Use workspace_metadata or list_cycles to see available cycles.',
+          'Check that the cycle number exists for this team.',
+        ],
+      };
+    }
+
+    return { success: true, value: cycle.id };
+  } catch (e) {
+    return {
+      success: false,
+      error: `Failed to resolve cycle: ${(e as Error).message}`,
+    };
+  }
+}
+
+/**
  * Resolve a cycle selector to a concrete cycle number.
  * Accepts: 'current', 'next', 'previous', or a specific cycle number.
  * Requires a team ID since cycle numbers are team-specific.
@@ -439,4 +479,58 @@ export async function resolveCycleSelector(
       error: `Failed to resolve cycle: ${(e as Error).message}`,
     };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Estimate Resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve estimate input to a number.
+ * Accepts: number, "e5" prefix format, or string number.
+ */
+export function resolveEstimate(input: number | string): ResolverResult<number> {
+  if (typeof input === 'number') {
+    return { success: true, value: input };
+  }
+  const match = /^e(\d+)$/i.exec(input);
+  if (match) {
+    return { success: true, value: parseInt(match[1], 10) };
+  }
+  // Try parsing as number
+  const num = parseInt(input, 10);
+  if (!isNaN(num)) {
+    return { success: true, value: num };
+  }
+  return {
+    success: false,
+    error: `Invalid estimate: "${input}". Use a number or e-prefixed format (e5, e8).`,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cycle Number Resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Resolve cycle number input to a number.
+ * Accepts: number, "c5" prefix format, or string number.
+ */
+export function resolveCycleNumber(input: number | string): ResolverResult<number> {
+  if (typeof input === 'number') {
+    return { success: true, value: input };
+  }
+  const match = /^c(\d+)$/i.exec(input);
+  if (match) {
+    return { success: true, value: parseInt(match[1], 10) };
+  }
+  // Try parsing as number
+  const num = parseInt(input, 10);
+  if (!isNaN(num)) {
+    return { success: true, value: num };
+  }
+  return {
+    success: false,
+    error: `Invalid cycle: "${input}". Use a number or c-prefixed format (c5, c6).`,
+  };
 }

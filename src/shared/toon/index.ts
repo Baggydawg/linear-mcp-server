@@ -75,7 +75,11 @@ export {
   encodeToonRow,
   encodeToonSection,
   encodeToonValue,
+  formatCycleToon,
+  formatEstimateToon,
+  formatPriorityToon,
   safeEncode,
+  stripMarkdownImages,
   validateRowAgainstSchema,
 } from './encoder.js';
 

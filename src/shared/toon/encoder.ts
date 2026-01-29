@@ -135,6 +135,52 @@ export function encodeToonValue(value: ToonValue): string {
 }
 
 /**
+ * Strip markdown image syntax from text and replace with image count.
+ *
+ * Markdown images: ![alt text](url)
+ * Linear uploads: ![](https://uploads.linear.app/...)
+ *
+ * @param text - The text to process
+ * @returns Text with images stripped and count appended if any were removed
+ *
+ * @example
+ * stripMarkdownImages("See ![screenshot](https://...) here")
+ * // Returns: "See  here [1 image]"
+ */
+export function stripMarkdownImages(text: string | null | undefined): string | null {
+  if (!text) {
+    return text === '' ? '' : null;
+  }
+
+  // Pattern: ![optional alt text](url)
+  const imagePattern = /!\[[^\]]*\]\([^)]+\)/g;
+
+  // Count matches
+  const matches = text.match(imagePattern);
+  const imageCount = matches?.length ?? 0;
+
+  if (imageCount === 0) {
+    return text;
+  }
+
+  // Strip images
+  let result = text.replace(imagePattern, '');
+
+  // Clean up multiple consecutive spaces left by removal
+  result = result.replace(/  +/g, ' ');
+
+  // Append count
+  const suffix = imageCount === 1 ? '[1 image]' : `[${imageCount} images]`;
+
+  // If the result is just whitespace, return just the suffix
+  if (result.trim() === '') {
+    return suffix;
+  }
+
+  return `${result.trimEnd()} ${suffix}`;
+}
+
+/**
  * Truncate a string value if it exceeds the maximum length.
  *
  * @param value - The value to potentially truncate
@@ -195,7 +241,16 @@ export function encodeToonRow(
   const values: string[] = [];
 
   for (const field of schema.fields) {
-    const value = row[field];
+    let value = row[field];
+
+    // Strip markdown images from description fields
+    if (
+      (field === 'desc' || field === 'description' || field === 'body') &&
+      typeof value === 'string'
+    ) {
+      value = stripMarkdownImages(value);
+    }
+
     let encoded = encodeToonValue(value);
 
     // Apply truncation for string values
@@ -432,4 +487,28 @@ export function safeEncode(
     const message = error instanceof Error ? error.message : 'Unknown error';
     return { success: false, error: message };
   }
+}
+
+/**
+ * Format priority for TOON output with 'p' prefix.
+ * @example formatPriorityToon(1) // "p1"
+ */
+export function formatPriorityToon(priority: number | null | undefined): string | null {
+  return priority !== null && priority !== undefined ? `p${priority}` : null;
+}
+
+/**
+ * Format estimate for TOON output with 'e' prefix.
+ * @example formatEstimateToon(5) // "e5"
+ */
+export function formatEstimateToon(estimate: number | null | undefined): string | null {
+  return estimate !== null && estimate !== undefined ? `e${estimate}` : null;
+}
+
+/**
+ * Format cycle number for TOON output with 'c' prefix.
+ * @example formatCycleToon(5) // "c5"
+ */
+export function formatCycleToon(cycleNumber: number | null | undefined): string | null {
+  return cycleNumber !== null && cycleNumber !== undefined ? `c${cycleNumber}` : null;
 }

@@ -10,11 +10,6 @@ export { getIssuesTool } from './get-issues.js';
 export { getSprintContextTool } from './get-sprint-context.js';
 // Issues
 export { listIssuesTool } from './list-issues.js';
-export { listMyIssuesTool } from './list-my-issues.js';
-
-// Teams & Users
-export { listTeamsTool } from './list-teams.js';
-export { listUsersTool } from './list-users.js';
 // Projects
 export {
   createProjectsTool,

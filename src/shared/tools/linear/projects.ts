@@ -20,6 +20,7 @@ import { getLinearClient } from '../../../services/linear/client.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { mapProjectNodeToListItem } from '../../../utils/mappers.js';
+import { resolveTeamId } from '../../../utils/resolvers.js';
 import {
   previewLinesFromItems,
   summarizeBatch,
@@ -30,6 +31,7 @@ import {
   encodeResponse,
   encodeToon,
   getOrInitRegistry,
+  getUserMetadata,
   PROJECT_CHANGES_SCHEMA,
   PROJECT_SCHEMA,
   PROJECT_WRITE_RESULT_SCHEMA,
@@ -185,12 +187,13 @@ function buildProjectLeadLookup(
   const items: ToonRow[] = [];
   for (const [shortKey, uuid] of registry.users) {
     if (userIds.has(uuid)) {
+      const metadata = getUserMetadata(registry, uuid);
       items.push({
         key: shortKey,
-        name: '', // User details not available in registry
-        displayName: '',
-        email: '',
-        role: '',
+        name: metadata?.name ?? '',
+        displayName: metadata?.displayName ?? '',
+        email: metadata?.email ?? '',
+        role: '', // Role not stored in registry metadata
       });
     }
   }
@@ -429,7 +432,7 @@ const CreateProjectsInputSchema = z.object({
       z.object({
         name: z.string().describe('Project name. Required.'),
         description: z.string().optional().describe('Markdown description.'),
-        teamId: z.string().optional().describe('Team UUID to associate.'),
+        teamId: z.string().optional().describe('Team UUID or key (e.g., "SQT") to associate.'),
         leadId: z
           .string()
           .optional()
@@ -488,6 +491,9 @@ export const createProjectsTool = defineTool({
       success?: boolean;
     }[] = [];
 
+    // Batch-level cache for team key resolution
+    const teamKeyCache = new Map<string, string>();
+
     for (let i = 0; i < args.items.length; i++) {
       const it = args.items[i];
       try {
@@ -510,13 +516,41 @@ export const createProjectsTool = defineTool({
           }
         }
 
+        // Resolve team from key or UUID (with batch-level caching)
+        let resolvedTeamIds: string[] = [];
+        if (it.teamId) {
+          const cacheKey = it.teamId.toLowerCase();
+          let resolvedTeamId = teamKeyCache.get(cacheKey);
+
+          if (!resolvedTeamId) {
+            const teamResult = await resolveTeamId(client, it.teamId);
+            if (!teamResult.success) {
+              results.push({
+                input: { name: it.name, teamId: it.teamId },
+                success: false,
+                error: {
+                  code: 'TEAM_RESOLUTION_FAILED',
+                  message: teamResult.error,
+                  suggestions: teamResult.suggestions ?? [],
+                },
+                index: i,
+                ok: false,
+              });
+              continue;
+            }
+            resolvedTeamId = teamResult.value;
+            teamKeyCache.set(cacheKey, resolvedTeamId);
+          }
+          resolvedTeamIds = [resolvedTeamId];
+        }
+
         const call = () =>
           client.createProject({
             name: it.name,
             description: it.description,
             leadId: resolvedLeadId,
             targetDate: it.targetDate,
-            teamIds: it.teamId ? [it.teamId] : [],
+            teamIds: resolvedTeamIds,
           });
 
         const payload = await withRetry(

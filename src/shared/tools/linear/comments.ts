@@ -25,11 +25,13 @@ import {
 } from '../../../utils/messages.js';
 import {
   COMMENT_SCHEMA,
+  COMMENT_SCHEMA_WITH_ID,
   COMMENT_WRITE_RESULT_SCHEMA,
   CREATED_COMMENT_SCHEMA,
   encodeResponse,
   encodeToon,
   getOrInitRegistry,
+  getUserMetadata,
   type RegistryBuildData,
   type ShortKeyRegistry,
   type ToonResponse,
@@ -136,6 +138,7 @@ function commentToToonRow(
       : comment.createdAt;
 
   return {
+    id: comment.id,
     issue: issueIdentifier,
     user: userKey ?? '',
     body: comment.body ?? '',
@@ -162,12 +165,13 @@ function buildCommentAuthorLookup(
   const items: ToonRow[] = [];
   for (const [shortKey, uuid] of registry.users) {
     if (userIds.has(uuid)) {
+      const metadata = getUserMetadata(registry, uuid);
       items.push({
         key: shortKey,
-        name: '', // User details not available in registry
-        displayName: '',
-        email: '',
-        role: '',
+        name: metadata?.name ?? '',
+        displayName: metadata?.displayName ?? '',
+        email: metadata?.email ?? '',
+        role: '',  // Role not stored in registry metadata
       });
     }
   }
@@ -207,7 +211,7 @@ function buildCommentsToonResponse(
   );
 
   // Build data sections
-  const data: ToonSection[] = [{ schema: COMMENT_SCHEMA, items: commentRows }];
+  const data: ToonSection[] = [{ schema: COMMENT_SCHEMA_WITH_ID, items: commentRows }];
 
   // Build meta section
   const metaFields = ['tool', 'issue', 'count', 'generated'];

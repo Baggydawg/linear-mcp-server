@@ -37,7 +37,7 @@ All tool logic lives in `src/shared/` and works in both Node.js and Cloudflare W
 - `src/worker.ts` - Cloudflare Workers entry
 
 ### Key Directories
-- `src/shared/tools/linear/` - All 17 tool implementations (workspace_metadata, list_issues, create_issues, etc.)
+- `src/shared/tools/linear/` - All 14 tool implementations (workspace_metadata, list_issues, create_issues, etc.)
 - `src/shared/tools/shared/` - Shared utilities (formatting, validation, caching, diff/snapshots)
 - `src/shared/config/env.ts` - Unified config parser for both runtimes
 - `src/shared/oauth/` - OAuth 2.1 PKCE flow implementation

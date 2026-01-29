@@ -721,7 +721,7 @@ describe('create_issues TOON output', () => {
 
     // Should have created section with short keys
     expect(textContent).toContain('created[');
-    expect(textContent).toContain('{identifier,title,state,assignee,project}');
+    expect(textContent).toContain('{identifier,title,state,assignee,project,url}');
     // The created row should use short keys for state, assignee, project
     expect(textContent).toContain('ENG-123');
   });

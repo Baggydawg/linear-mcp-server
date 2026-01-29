@@ -14,6 +14,9 @@ import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js'
 import { logger } from '../../../utils/logger.js';
 import { summarizeBatch } from '../../../utils/messages.js';
 import {
+  resolveCycleNumber,
+  resolveCycleNumberToId,
+  resolveEstimate,
   resolveLabels,
   resolvePriority,
   resolveProject,
@@ -112,33 +115,23 @@ const IssueCreateItem = z.object({
     .describe('Project name. Resolved to projectId automatically.'),
   // Priority - number or string
   priority: z
-    .union([
-      z.number().int().min(0).max(4),
-      z.enum([
-        'None',
-        'Urgent',
-        'High',
-        'Medium',
-        'Normal',
-        'Low',
-        'none',
-        'urgent',
-        'high',
-        'medium',
-        'normal',
-        'low',
-      ]),
-    ])
+    .union([z.number().int().min(0).max(4), z.string()])
     .optional()
-    .describe('Priority: 0-4 or "None"/"Urgent"/"High"/"Medium"/"Low".'),
-  estimate: z.number().optional().describe('Story points / estimate value.'),
+    .describe('Priority (0-4 or p0-p4). 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low'),
+  estimate: z
+    .union([z.number(), z.string()])
+    .optional()
+    .describe('Estimate points (number or e-prefixed like e5)'),
   allowZeroEstimate: z
     .boolean()
     .optional()
     .describe('If true and estimate=0, sends 0. Otherwise zero is omitted.'),
   dueDate: z.string().optional().describe('Due date (YYYY-MM-DD).'),
   parentId: z.string().optional().describe('Parent issue UUID for sub-issues.'),
-  cycle: z.number().optional().describe('Cycle number to assign the issue to.'),
+  cycle: z
+    .union([z.number(), z.string()])
+    .optional()
+    .describe('Cycle number (number or c-prefixed like c5)'),
 });
 
 const InputSchema = z.object({
@@ -223,6 +216,7 @@ export const createIssuesTool = defineTool({
     const createdIssues: Array<{
       identifier: string;
       title: string;
+      url?: string;
       stateId?: string;
       assigneeId?: string;
       projectId?: string;
@@ -234,6 +228,9 @@ export const createIssuesTool = defineTool({
     // Batch-level cache for team key resolution to avoid redundant API calls
     // when multiple items use the same team key (e.g., all items have teamId: "SQT")
     const teamKeyCache = new Map<string, string>();
+
+    // Batch-level cache for cycle number resolution (team-specific)
+    const cycleIdCache = new Map<string, string>(); // key: "teamId:cycleNumber" -> cycleId
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i] as (typeof items)[number];
@@ -536,16 +533,32 @@ export const createIssuesTool = defineTool({
           }
         }
 
-        // Use shared validation for estimate
-        const estimate = await validateEstimate(
-          it.estimate,
-          resolvedTeamId,
-          teamAllowZeroCache,
-          client,
-          it.allowZeroEstimate,
-        );
-        if (estimate !== undefined) {
-          payloadInput.estimate = estimate;
+        // Use shared validation for estimate (resolve string inputs first)
+        if (it.estimate !== undefined) {
+          const estimateResult = resolveEstimate(it.estimate);
+          if (!estimateResult.success) {
+            results.push({
+              input: { title: it.title, teamId: it.teamId, estimate: it.estimate },
+              success: false,
+              error: {
+                code: 'ESTIMATE_INVALID',
+                message: estimateResult.error,
+              },
+              index: i,
+              ok: false,
+            });
+            continue;
+          }
+          const estimate = await validateEstimate(
+            estimateResult.value,
+            resolvedTeamId,
+            teamAllowZeroCache,
+            client,
+            it.allowZeroEstimate,
+          );
+          if (estimate !== undefined) {
+            payloadInput.estimate = estimate;
+          }
         }
 
         if (typeof it.dueDate === 'string' && it.dueDate.trim() !== '') {
@@ -556,10 +569,51 @@ export const createIssuesTool = defineTool({
           payloadInput.parentId = it.parentId;
         }
 
-        // Handle cycle assignment
-        if (typeof it.cycle === 'number') {
-          // TODO: Resolve cycle number to cycleId via Linear API
-          // For now, we'd need to query cycles and find the matching one
+        // Handle cycle assignment (resolve string inputs like "c5" first)
+        if (it.cycle !== undefined) {
+          const cycleNumberResult = resolveCycleNumber(it.cycle);
+          if (!cycleNumberResult.success) {
+            results.push({
+              input: { title: it.title, teamId: it.teamId, cycle: it.cycle },
+              success: false,
+              error: {
+                code: 'CYCLE_INVALID',
+                message: cycleNumberResult.error,
+              },
+              index: i,
+              ok: false,
+            });
+            continue;
+          }
+          const cycleNumber = cycleNumberResult.value;
+          const cacheKey = `${resolvedTeamId}:${cycleNumber}`;
+          let cycleId = cycleIdCache.get(cacheKey);
+
+          if (!cycleId) {
+            const cycleResult = await resolveCycleNumberToId(
+              client,
+              resolvedTeamId,
+              cycleNumber,
+            );
+            if (!cycleResult.success) {
+              results.push({
+                input: { title: it.title, teamId: it.teamId, cycle: it.cycle },
+                success: false,
+                error: {
+                  code: 'CYCLE_RESOLUTION_FAILED',
+                  message: cycleResult.error,
+                  suggestions: cycleResult.suggestions,
+                },
+                index: i,
+                ok: false,
+              });
+              continue;
+            }
+            cycleId = cycleResult.value;
+            cycleIdCache.set(cacheKey, cycleId);
+          }
+
+          payloadInput.cycleId = cycleId;
         }
 
         if (context.signal?.aborted) {
@@ -585,6 +639,7 @@ export const createIssuesTool = defineTool({
               estimate?: number;
               dueDate?: string;
               parentId?: string;
+              cycleId?: string;
             },
           );
 
@@ -599,6 +654,17 @@ export const createIssuesTool = defineTool({
         const issueIdentifier = (issue as unknown as { identifier?: string })
           ?.identifier;
 
+        // Fetch actual state from Linear (lazy relation)
+        let actualStateId: string | undefined;
+        try {
+          const stateData = await (
+            issue as unknown as { state?: Promise<{ id?: string }> }
+          )?.state;
+          actualStateId = stateData?.id;
+        } catch {
+          actualStateId = payloadInput.stateId as string | undefined;
+        }
+
         results.push({
           input: {
             title: it.title,
@@ -610,7 +676,7 @@ export const createIssuesTool = defineTool({
           id: issueId,
           identifier: issueIdentifier,
           url: issueUrl,
-          stateId: payloadInput.stateId as string | undefined,
+          stateId: actualStateId,
           assigneeId: payloadInput.assigneeId as string | undefined,
           projectId: payloadInput.projectId as string | undefined,
           index: i,
@@ -622,7 +688,8 @@ export const createIssuesTool = defineTool({
           createdIssues.push({
             identifier: issueIdentifier,
             title: it.title,
-            stateId: payloadInput.stateId as string | undefined,
+            url: issueUrl,
+            stateId: actualStateId,
             assigneeId: payloadInput.assigneeId as string | undefined,
             projectId: payloadInput.projectId as string | undefined,
             priority: payloadInput.priority as number | undefined,
@@ -650,7 +717,7 @@ export const createIssuesTool = defineTool({
             suggestions: [
               'Verify teamId with workspace_metadata.',
               'Check that stateId exists in workflowStatesByTeam.',
-              'Use list_users to find valid assigneeId.',
+              'Use workspace_metadata to find valid assigneeId.',
             ],
             retryable: false,
           },
@@ -739,7 +806,7 @@ export const createIssuesTool = defineTool({
       if (createdIssues.length > 0) {
         const createdSchema = {
           name: 'created',
-          fields: ['identifier', 'title', 'state', 'assignee', 'project'],
+          fields: ['identifier', 'title', 'state', 'assignee', 'project', 'url'],
         };
 
         toonResponse.data?.push({
@@ -756,6 +823,7 @@ export const createIssuesTool = defineTool({
             project: issue.projectId
               ? (tryGetShortKey(registry, 'project', issue.projectId) ?? '')
               : '',
+            url: issue.url ?? '',
           })),
         });
       }
@@ -790,7 +858,7 @@ export const createIssuesTool = defineTool({
         "If 'assigneeId' was invalid, fetch viewer id via 'workspace_metadata' (include: ['profile']) and use it to assign to yourself.",
       );
       failureHints.push(
-        "Alternatively use 'list_users' to find the correct user id, or omit 'assigneeId' and assign later with 'update_issues'.",
+        "Alternatively use 'workspace_metadata' to find the correct user id, or omit 'assigneeId' and assign later with 'update_issues'.",
       );
     }
 

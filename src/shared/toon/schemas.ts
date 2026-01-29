@@ -171,6 +171,8 @@ export const ISSUE_SCHEMA: ToonSchema = {
     'team', // SQT (team key)
     'url', // Direct URL to issue
     'desc', // Description (may be truncated)
+    'createdAt', // ISO timestamp
+    'creator', // u0 (short key -> lookup) or empty
   ],
 };
 
