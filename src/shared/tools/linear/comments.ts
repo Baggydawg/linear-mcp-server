@@ -599,17 +599,19 @@ export const addCommentsTool = defineTool({
     // ─────────────────────────────────────────────────────────────────────────
     if (config.TOON_OUTPUT_ENABLED) {
       // Build TOON results section
-      const toonResults: ToonRow[] = results.map((r) => ({
-        index: r.index,
-        status: r.success ? 'ok' : 'error',
-        issue: r.issueIdentifier ?? '',
-        error:
-          r.success !== true
-            ? typeof r.error === 'object'
-              ? ((r.error as { message?: string }).message ?? '')
-              : String(r.error ?? '')
-            : '',
-      }));
+      const toonResults: ToonRow[] = results.map((r) => {
+        const errObj = typeof r.error === 'object'
+          ? (r.error as { code?: string; message?: string; suggestions?: string[] })
+          : null;
+        return {
+          index: r.index,
+          status: r.success ? 'ok' : 'error',
+          issue: r.issueIdentifier ?? '',
+          error: r.success ? '' : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+          code: r.success ? '' : (errObj?.code ?? ''),
+          hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
+        };
+      });
 
       // Build created comments section (only for successful results)
       const createdComments: ToonRow[] = results
@@ -723,7 +725,7 @@ const UpdateCommentsInputSchema = z.object({
 // Schema for update_comments TOON output - uses comment ID
 const UPDATE_COMMENT_RESULT_SCHEMA = {
   name: 'results',
-  fields: ['index', 'status', 'id', 'error'],
+  fields: ['index', 'status', 'id', 'error', 'code', 'hint'],
 };
 
 export const updateCommentsTool = defineTool({
@@ -827,17 +829,19 @@ export const updateCommentsTool = defineTool({
     // ─────────────────────────────────────────────────────────────────────────
     if (config.TOON_OUTPUT_ENABLED) {
       // Build TOON results section
-      const toonResults: ToonRow[] = results.map((r) => ({
-        index: r.index,
-        status: r.success ? 'ok' : 'error',
-        id: r.id ?? '',
-        error:
-          r.success !== true
-            ? typeof r.error === 'object'
-              ? ((r.error as { message?: string }).message ?? '')
-              : String(r.error ?? '')
-            : '',
-      }));
+      const toonResults: ToonRow[] = results.map((r) => {
+        const errObj = typeof r.error === 'object'
+          ? (r.error as { code?: string; message?: string; suggestions?: string[] })
+          : null;
+        return {
+          index: r.index,
+          status: r.success ? 'ok' : 'error',
+          id: r.id ?? '',
+          error: r.success ? '' : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+          code: r.success ? '' : (errObj?.code ?? ''),
+          hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
+        };
+      });
 
       // Build TOON response
       const toonResponse: ToonResponse = {

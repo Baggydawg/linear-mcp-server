@@ -696,7 +696,7 @@ describe('create_projects TOON output', () => {
 
     // Should have results schema
     expect(textContent).toContain('results[');
-    expect(textContent).toContain('{index,status,key,error}');
+    expect(textContent).toContain('{index,status,key,error,code,hint}');
   });
 
   it('includes created section for successful creates', async () => {
@@ -813,7 +813,7 @@ describe('update_projects TOON output', () => {
 
     // Should have results schema
     expect(textContent).toContain('results[');
-    expect(textContent).toContain('{index,status,key,error}');
+    expect(textContent).toContain('{index,status,key,error,code,hint}');
   });
 
   it('includes changes section for successful updates', async () => {

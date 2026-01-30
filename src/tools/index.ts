@@ -15,12 +15,14 @@ export function registerTools(server: McpServer): void {
     try {
       const wrappedHandler = createWrappedHandler(tool.handler);
 
-      // Shared tools use Zod schemas - pass .shape for SDK compatibility
+      // Pass the full Zod schema to the SDK - it handles JSON Schema conversion internally
+      // Note: Using tool.inputSchema (full schema), NOT tool.inputSchema.shape (partial)
+      // The SDK's internal zodToJsonSchema handles complex types correctly
       server.registerTool(
         tool.name,
         {
           description: tool.description,
-          inputSchema: tool.inputSchema.shape,
+          inputSchema: tool.inputSchema,
           ...(tool.outputSchema && { outputSchema: tool.outputSchema }),
           ...(tool.annotations && { annotations: tool.annotations }),
         },

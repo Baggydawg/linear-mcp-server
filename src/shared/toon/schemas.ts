@@ -409,15 +409,15 @@ export const WRITE_RESULT_META_SCHEMA: ToonSchema = {
  *
  * @example
  * ```
- * results[3]{index,status,identifier,error}:
- *   0,ok,SQT-175,
- *   1,ok,SQT-176,
- *   2,error,,Invalid teamId
+ * results[3]{index,status,identifier,error,code,hint}:
+ *   0,ok,SQT-175,,,
+ *   1,ok,SQT-176,,,
+ *   2,error,,Invalid teamId,TEAM_RESOLUTION_FAILED,Use workspace_metadata to see teams
  * ```
  */
 export const WRITE_RESULT_SCHEMA: ToonSchema = {
   name: 'results',
-  fields: ['index', 'status', 'identifier', 'error'],
+  fields: ['index', 'status', 'identifier', 'error', 'code', 'hint'],
 };
 
 /**
@@ -443,14 +443,14 @@ export const CHANGES_SCHEMA: ToonSchema = {
  *
  * @example
  * ```
- * results[2]{index,status,issue,error}:
- *   0,ok,SQT-160,
- *   1,ok,SQT-161,
+ * results[2]{index,status,issue,error,code,hint}:
+ *   0,ok,SQT-160,,,
+ *   1,ok,SQT-161,,,
  * ```
  */
 export const COMMENT_WRITE_RESULT_SCHEMA: ToonSchema = {
   name: 'results',
-  fields: ['index', 'status', 'issue', 'error'],
+  fields: ['index', 'status', 'issue', 'error', 'code', 'hint'],
 };
 
 /**
@@ -474,14 +474,14 @@ export const CREATED_COMMENT_SCHEMA: ToonSchema = {
  *
  * @example
  * ```
- * results[2]{index,status,key,error}:
- *   0,ok,pr0,
- *   1,error,,Invalid teamId
+ * results[2]{index,status,key,error,code,hint}:
+ *   0,ok,pr0,,,
+ *   1,error,,Invalid teamId,TEAM_RESOLUTION_FAILED,Use workspace_metadata to see teams
  * ```
  */
 export const PROJECT_WRITE_RESULT_SCHEMA: ToonSchema = {
   name: 'results',
-  fields: ['index', 'status', 'key', 'error'],
+  fields: ['index', 'status', 'key', 'error', 'code', 'hint'],
 };
 
 /**

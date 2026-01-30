@@ -634,17 +634,19 @@ export const createProjectsTool = defineTool({
     // ─────────────────────────────────────────────────────────────────────────
     if (config.TOON_OUTPUT_ENABLED) {
       // Build TOON results section
-      const toonResults: ToonRow[] = results.map((r) => ({
-        index: r.index,
-        status: r.success ? 'ok' : 'error',
-        key: r.projectKey ?? '',
-        error:
-          r.success !== true
-            ? typeof r.error === 'object'
-              ? ((r.error as { message?: string }).message ?? '')
-              : String(r.error ?? '')
-            : '',
-      }));
+      const toonResults: ToonRow[] = results.map((r) => {
+        const errObj = typeof r.error === 'object'
+          ? (r.error as { code?: string; message?: string; suggestions?: string[] })
+          : null;
+        return {
+          index: r.index,
+          status: r.success ? 'ok' : 'error',
+          key: r.projectKey ?? '',
+          error: r.success ? '' : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+          code: r.success ? '' : (errObj?.code ?? ''),
+          hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
+        };
+      });
 
       // Build created projects section (only for successful results)
       const createdProjects: ToonRow[] = results
@@ -1031,17 +1033,19 @@ export const updateProjectsTool = defineTool({
     // ─────────────────────────────────────────────────────────────────────────
     if (config.TOON_OUTPUT_ENABLED) {
       // Build TOON results section
-      const toonResults: ToonRow[] = results.map((r) => ({
-        index: r.index,
-        status: r.success ? 'ok' : 'error',
-        key: r.projectKey ?? '',
-        error:
-          r.success !== true
-            ? typeof r.error === 'object'
-              ? ((r.error as { message?: string }).message ?? '')
-              : String(r.error ?? '')
-            : '',
-      }));
+      const toonResults: ToonRow[] = results.map((r) => {
+        const errObj = typeof r.error === 'object'
+          ? (r.error as { code?: string; message?: string; suggestions?: string[] })
+          : null;
+        return {
+          index: r.index,
+          status: r.success ? 'ok' : 'error',
+          key: r.projectKey ?? '',
+          error: r.success ? '' : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+          code: r.success ? '' : (errObj?.code ?? ''),
+          hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
+        };
+      });
 
       // Build changes section (flatten all changes from all results)
       const allChanges: ToonRow[] = [];

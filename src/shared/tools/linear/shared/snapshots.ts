@@ -123,13 +123,44 @@ async function getLabels(issue: unknown): Promise<Array<{ id: string; name: stri
 
 /**
  * Get issue cycle information
+ *
+ * IMPORTANT: The Linear SDK's lazy-loaded cycle relation can return stale/cached
+ * data or the team's active cycle even when no cycle is assigned. To accurately
+ * detect null→value transitions, we MUST check the direct cycleId property first.
+ * If cycleId is null/undefined, the issue has no cycle assigned - do not await
+ * the lazy relation which may return incorrect data.
  */
 async function getCycle(
   issue: unknown,
 ): Promise<{ id?: string; number?: number } | undefined> {
   try {
-    const cycle = await (issue as { cycle?: Promise<{ id?: string; number?: number }> }).cycle;
-    return cycle;
+    // First check the direct cycleId property on the issue
+    // This is the authoritative source for whether a cycle is assigned
+    const issueObj = issue as {
+      cycleId?: string | null;
+      cycle?: Promise<{ id?: string; number?: number } | null> | null;
+    };
+
+    // If cycleId is null/undefined, the issue has no cycle assigned
+    // Do NOT await the lazy relation as it may return incorrect data
+    if (!issueObj.cycleId) {
+      return undefined;
+    }
+
+    // Cycle is assigned - fetch the full cycle data for the number
+    const cyclePromise = issueObj.cycle;
+    if (cyclePromise === null || cyclePromise === undefined) {
+      // cycleId exists but lazy relation doesn't - return just the ID
+      return { id: issueObj.cycleId, number: undefined };
+    }
+
+    const cycle = await cyclePromise;
+    if (!cycle) {
+      // cycleId exists but lazy relation returned null - return just the ID
+      return { id: issueObj.cycleId, number: undefined };
+    }
+
+    return { id: cycle.id, number: cycle.number };
   } catch {
     return undefined;
   }

@@ -796,7 +796,7 @@ describe('add_comments TOON output', () => {
 
     // Should have results schema
     expect(textContent).toContain('results[');
-    expect(textContent).toContain('{index,status,issue,error}');
+    expect(textContent).toContain('{index,status,issue,error,code,hint}');
   });
 
   it('includes comments section for successful adds', async () => {
@@ -913,7 +913,7 @@ describe('update_comments TOON output', () => {
 
     // Should have results schema
     expect(textContent).toContain('results[');
-    expect(textContent).toContain('{index,status,id,error}');
+    expect(textContent).toContain('{index,status,id,error,code,hint}');
   });
 
   it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {

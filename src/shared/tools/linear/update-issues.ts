@@ -142,7 +142,12 @@ const IssueUpdateItem = z.object({
     .optional()
     .describe('New due date (YYYY-MM-DD) or empty string to clear.'),
   parentId: z.string().optional().describe('New parent issue UUID.'),
-  archived: z.boolean().optional().describe('Set true to archive, false to unarchive.'),
+  archived: z
+    .boolean()
+    .optional()
+    .describe(
+      'Set true to archive (Linear equivalent of delete - removes from active views but preserves history), false to unarchive.',
+    ),
   cycle: z
     .union([z.number(), z.string(), z.null()])
     .optional()
@@ -302,10 +307,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: 'Cannot resolve state: failed to get issue team',
-              code: 'TEAM_RESOLUTION_FAILED',
+              error: {
+                code: 'TEAM_RESOLUTION_FAILED',
+                message: 'Cannot resolve state: failed to get issue team',
+                suggestions: ['Verify the issue exists using list_issues or get_issues'],
+              },
             });
             continue;
           }
@@ -317,10 +326,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: stateResult.error,
-              code: 'STATE_RESOLUTION_FAILED',
+              error: {
+                code: 'STATE_RESOLUTION_FAILED',
+                message: stateResult.error,
+                suggestions: ['Use workspace_metadata to see available states'],
+              },
             });
             continue;
           }
@@ -335,10 +348,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: 'Cannot resolve labels: failed to get issue team',
-              code: 'TEAM_RESOLUTION_FAILED',
+              error: {
+                code: 'TEAM_RESOLUTION_FAILED',
+                message: 'Cannot resolve labels: failed to get issue team',
+                suggestions: ['Verify the issue exists using list_issues or get_issues'],
+              },
             });
             continue;
           }
@@ -347,10 +364,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: labelsResult.error,
-              code: 'LABEL_RESOLUTION_FAILED',
+              error: {
+                code: 'LABEL_RESOLUTION_FAILED',
+                message: labelsResult.error,
+                suggestions: ['Use workspace_metadata to see available labels'],
+              },
             });
             continue;
           }
@@ -365,10 +386,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: 'Cannot resolve labels: failed to get issue team',
-              code: 'TEAM_RESOLUTION_FAILED',
+              error: {
+                code: 'TEAM_RESOLUTION_FAILED',
+                message: 'Cannot resolve labels: failed to get issue team',
+                suggestions: ['Verify the issue exists using list_issues or get_issues'],
+              },
             });
             continue;
           }
@@ -377,10 +402,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: addResult.error,
-              code: 'LABEL_RESOLUTION_FAILED',
+              error: {
+                code: 'LABEL_RESOLUTION_FAILED',
+                message: addResult.error,
+                suggestions: ['Use workspace_metadata to see available labels'],
+              },
             });
             continue;
           }
@@ -398,10 +427,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: 'Cannot resolve labels: failed to get issue team',
-              code: 'TEAM_RESOLUTION_FAILED',
+              error: {
+                code: 'TEAM_RESOLUTION_FAILED',
+                message: 'Cannot resolve labels: failed to get issue team',
+                suggestions: ['Verify the issue exists using list_issues or get_issues'],
+              },
             });
             continue;
           }
@@ -410,10 +443,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: removeResult.error,
-              code: 'LABEL_RESOLUTION_FAILED',
+              error: {
+                code: 'LABEL_RESOLUTION_FAILED',
+                message: removeResult.error,
+                suggestions: ['Use workspace_metadata to see available labels'],
+              },
             });
             continue;
           }
@@ -469,10 +506,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: assigneeResult.error.message,
-              code: assigneeResult.error.code,
+              error: {
+                code: assigneeResult.error.code,
+                message: assigneeResult.error.message,
+                suggestions: ['Use workspace_metadata to see available users'],
+              },
             });
             continue;
           }
@@ -528,10 +569,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: projectResult.error,
-              code: 'PROJECT_RESOLUTION_FAILED',
+              error: {
+                code: 'PROJECT_RESOLUTION_FAILED',
+                message: projectResult.error,
+                suggestions: ['Use workspace_metadata to see available projects'],
+              },
             });
             continue;
           }
@@ -608,10 +653,14 @@ export const updateIssuesTool = defineTool({
             results.push({
               index: i,
               ok: false,
+              success: false,
               id: it.id,
               identifier: issueIdentifier,
-              error: priorityResult.error,
-              code: 'PRIORITY_INVALID',
+              error: {
+                code: 'PRIORITY_INVALID',
+                message: priorityResult.error,
+                suggestions: ['Priority must be 0-4: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low'],
+              },
             });
             continue;
           }
@@ -1038,16 +1087,19 @@ export const updateIssuesTool = defineTool({
           // Results section
           {
             schema: WRITE_RESULT_SCHEMA,
-            items: results.map((r) => ({
-              index: r.index,
-              status: r.ok ? 'ok' : 'error',
-              identifier: r.identifier ?? r.id ?? '',
-              error: r.ok
-                ? ''
-                : ((typeof r.error === 'object'
-                    ? (r.error as { message?: string }).message
-                    : r.error) ?? ''),
-            })),
+            items: results.map((r) => {
+              const errObj = typeof r.error === 'object'
+                ? (r.error as { code?: string; message?: string; suggestions?: string[] })
+                : null;
+              return {
+                index: r.index,
+                status: r.ok ? 'ok' : 'error',
+                identifier: r.identifier ?? r.id ?? '',
+                error: r.ok ? '' : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+                code: r.ok ? '' : (errObj?.code ?? ''),
+                hint: r.ok ? '' : (errObj?.suggestions?.[0] ?? ''),
+              };
+            }),
           },
         ],
       };

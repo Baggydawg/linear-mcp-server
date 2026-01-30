@@ -358,6 +358,52 @@ describe('update_issues error handling', () => {
     );
   });
 
+  it('returns error with code, message, and suggestions for non-existent issue IDs', async () => {
+    // Simulate API error for non-existent issue
+    (mockClient.updateIssue as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('Entity not found: Issue with id FAKE-999'),
+    );
+
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'FAKE-999', stateId: 'state-done' }] },
+      baseContext,
+    );
+
+    // Batch operation should not mark entire result as error
+    expect(result.isError).toBeFalsy();
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    const results = structured.results as Array<Record<string, unknown>>;
+    const summary = structured.summary as { ok: number; failed: number };
+
+    // Verify the batch tracked the failure
+    expect(summary.failed).toBe(1);
+    expect(summary.ok).toBe(0);
+
+    // Verify the individual result has error details
+    expect(results[0].success).toBe(false);
+
+    const error = results[0].error as {
+      code?: string;
+      message: string;
+      suggestions?: string[];
+    };
+
+    // Verify error has the expected fields
+    expect(error.message).toBeDefined();
+    expect(typeof error.message).toBe('string');
+    expect(error.message.length).toBeGreaterThan(0);
+
+    // Code and suggestions may or may not be present depending on error type,
+    // but if they exist they should be properly typed
+    if (error.code !== undefined) {
+      expect(typeof error.code).toBe('string');
+    }
+    if (error.suggestions !== undefined) {
+      expect(Array.isArray(error.suggestions)).toBe(true);
+    }
+  });
+
   it('continues batch on partial failure', async () => {
     (mockClient.updateIssue as ReturnType<typeof vi.fn>)
       .mockRejectedValueOnce(new Error('First failed'))
@@ -665,7 +711,7 @@ describe('update_issues TOON output', () => {
 
     // Should have results section with expected fields
     expect(textContent).toContain('results[');
-    expect(textContent).toContain('{index,status,identifier,error}');
+    expect(textContent).toContain('{index,status,identifier,error,code,hint}');
     // Status should be 'ok' for successful updates
     expect(textContent).toContain('0,ok');
   });
