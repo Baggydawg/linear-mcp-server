@@ -74,6 +74,11 @@ export type UnifiedConfig = {
   // When true, tools output TOON (Token-Oriented Object Notation) format
   // When false (default), tools use legacy human-readable format
   TOON_OUTPUT_ENABLED: boolean;
+
+  // User Profiles
+  // Custom user profile metadata (role, skills, focus area) for work assignment context
+  USER_PROFILES_FILE?: string; // Path to JSON config file (default: ./team-profiles.json)
+  USER_PROFILES_JSON?: string; // JSON string for Workers runtime
 };
 
 function parseBoolean(value: unknown): boolean {
@@ -191,6 +196,10 @@ export function parseConfig(env: Record<string, unknown>): UnifiedConfig {
 
     // TOON Output Format (default: false for gradual rollout)
     TOON_OUTPUT_ENABLED: parseBoolean(env.TOON_OUTPUT_ENABLED),
+
+    // User Profiles
+    USER_PROFILES_FILE: env.USER_PROFILES_FILE as string | undefined,
+    USER_PROFILES_JSON: env.USER_PROFILES_JSON as string | undefined,
   };
 }
 

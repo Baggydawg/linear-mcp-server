@@ -789,14 +789,21 @@ export const createIssuesTool = defineTool({
           {
             schema: WRITE_RESULT_SCHEMA,
             items: results.map((r) => {
-              const errObj = typeof r.error === 'object'
-                ? (r.error as { code?: string; message?: string; suggestions?: string[] })
-                : null;
+              const errObj =
+                typeof r.error === 'object'
+                  ? (r.error as {
+                      code?: string;
+                      message?: string;
+                      suggestions?: string[];
+                    })
+                  : null;
               return {
                 index: r.index,
                 status: r.ok ? 'ok' : 'error',
                 identifier: r.identifier ?? '',
-                error: r.ok ? '' : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+                error: r.ok
+                  ? ''
+                  : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
                 code: r.ok ? '' : (errObj?.code ?? ''),
                 hint: r.ok ? '' : (errObj?.suggestions?.[0] ?? ''),
               };

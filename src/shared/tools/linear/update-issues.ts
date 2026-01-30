@@ -313,7 +313,9 @@ export const updateIssuesTool = defineTool({
               error: {
                 code: 'TEAM_RESOLUTION_FAILED',
                 message: 'Cannot resolve state: failed to get issue team',
-                suggestions: ['Verify the issue exists using list_issues or get_issues'],
+                suggestions: [
+                  'Verify the issue exists using list_issues or get_issues',
+                ],
               },
             });
             continue;
@@ -354,7 +356,9 @@ export const updateIssuesTool = defineTool({
               error: {
                 code: 'TEAM_RESOLUTION_FAILED',
                 message: 'Cannot resolve labels: failed to get issue team',
-                suggestions: ['Verify the issue exists using list_issues or get_issues'],
+                suggestions: [
+                  'Verify the issue exists using list_issues or get_issues',
+                ],
               },
             });
             continue;
@@ -392,7 +396,9 @@ export const updateIssuesTool = defineTool({
               error: {
                 code: 'TEAM_RESOLUTION_FAILED',
                 message: 'Cannot resolve labels: failed to get issue team',
-                suggestions: ['Verify the issue exists using list_issues or get_issues'],
+                suggestions: [
+                  'Verify the issue exists using list_issues or get_issues',
+                ],
               },
             });
             continue;
@@ -433,7 +439,9 @@ export const updateIssuesTool = defineTool({
               error: {
                 code: 'TEAM_RESOLUTION_FAILED',
                 message: 'Cannot resolve labels: failed to get issue team',
-                suggestions: ['Verify the issue exists using list_issues or get_issues'],
+                suggestions: [
+                  'Verify the issue exists using list_issues or get_issues',
+                ],
               },
             });
             continue;
@@ -616,7 +624,9 @@ export const updateIssuesTool = defineTool({
                 error: {
                   code: 'CYCLE_INVALID',
                   message: cycleNumberResult.error,
-                  suggestions: ['Use a number like 5 or prefixed format like "c5", or null to remove'],
+                  suggestions: [
+                    'Use a number like 5 or prefixed format like "c5", or null to remove',
+                  ],
                 },
               });
               continue;
@@ -659,7 +669,9 @@ export const updateIssuesTool = defineTool({
               error: {
                 code: 'PRIORITY_INVALID',
                 message: priorityResult.error,
-                suggestions: ['Priority must be 0-4: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low'],
+                suggestions: [
+                  'Priority must be 0-4: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low',
+                ],
               },
             });
             continue;
@@ -734,7 +746,9 @@ export const updateIssuesTool = defineTool({
 
         // Handle incremental label updates
         const resolvedAddLabelIds = payloadInput.addedLabelIds as string[] | undefined;
-        const resolvedRemoveLabelIds = payloadInput.removedLabelIds as string[] | undefined;
+        const resolvedRemoveLabelIds = payloadInput.removedLabelIds as
+          | string[]
+          | undefined;
         if (resolvedAddLabelIds?.length || resolvedRemoveLabelIds?.length) {
           const issue = await gate(() => client.issue(it.id));
           const current = new Set((await issue.labels()).nodes.map((l) => l.id));
@@ -1088,14 +1102,21 @@ export const updateIssuesTool = defineTool({
           {
             schema: WRITE_RESULT_SCHEMA,
             items: results.map((r) => {
-              const errObj = typeof r.error === 'object'
-                ? (r.error as { code?: string; message?: string; suggestions?: string[] })
-                : null;
+              const errObj =
+                typeof r.error === 'object'
+                  ? (r.error as {
+                      code?: string;
+                      message?: string;
+                      suggestions?: string[];
+                    })
+                  : null;
               return {
                 index: r.index,
                 status: r.ok ? 'ok' : 'error',
                 identifier: r.identifier ?? r.id ?? '',
-                error: r.ok ? '' : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+                error: r.ok
+                  ? ''
+                  : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
                 code: r.ok ? '' : (errObj?.code ?? ''),
                 hint: r.ok ? '' : (errObj?.suggestions?.[0] ?? ''),
               };

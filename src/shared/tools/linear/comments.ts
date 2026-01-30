@@ -334,8 +334,9 @@ export const listCommentsTool = defineTool({
           body: (c as unknown as { body?: string }).body ?? '',
           createdAt: c.createdAt,
           user:
-            (await (c as unknown as { user?: Promise<{ id: string; name?: string } | null> })
-              .user) ?? null,
+            (await (
+              c as unknown as { user?: Promise<{ id: string; name?: string } | null> }
+            ).user) ?? null,
         })),
       );
 
@@ -600,14 +601,17 @@ export const addCommentsTool = defineTool({
     if (config.TOON_OUTPUT_ENABLED) {
       // Build TOON results section
       const toonResults: ToonRow[] = results.map((r) => {
-        const errObj = typeof r.error === 'object'
-          ? (r.error as { code?: string; message?: string; suggestions?: string[] })
-          : null;
+        const errObj =
+          typeof r.error === 'object'
+            ? (r.error as { code?: string; message?: string; suggestions?: string[] })
+            : null;
         return {
           index: r.index,
           status: r.success ? 'ok' : 'error',
           issue: r.issueIdentifier ?? '',
-          error: r.success ? '' : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+          error: r.success
+            ? ''
+            : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
           code: r.success ? '' : (errObj?.code ?? ''),
           hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
         };
@@ -830,14 +834,17 @@ export const updateCommentsTool = defineTool({
     if (config.TOON_OUTPUT_ENABLED) {
       // Build TOON results section
       const toonResults: ToonRow[] = results.map((r) => {
-        const errObj = typeof r.error === 'object'
-          ? (r.error as { code?: string; message?: string; suggestions?: string[] })
-          : null;
+        const errObj =
+          typeof r.error === 'object'
+            ? (r.error as { code?: string; message?: string; suggestions?: string[] })
+            : null;
         return {
           index: r.index,
           status: r.success ? 'ok' : 'error',
           id: r.id ?? '',
-          error: r.success ? '' : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+          error: r.success
+            ? ''
+            : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
           code: r.success ? '' : (errObj?.code ?? ''),
           hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
         };

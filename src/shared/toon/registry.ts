@@ -37,7 +37,12 @@ export interface UserMetadata {
   displayName: string;
   email: string;
   active: boolean;
+  /** Custom role from user profiles config (e.g., "Tech Lead (Backend)") */
   role?: string;
+  /** Technical skills from user profiles config */
+  skills?: string[];
+  /** Primary area of focus from user profiles config */
+  focusArea?: string;
 }
 
 /**
@@ -85,8 +90,12 @@ export interface RegistryUserEntity extends RegistryEntity {
   email: string;
   /** Whether the user is active */
   active: boolean;
-  /** User's role: 'admin' or 'member' */
+  /** Custom role from user profiles config (e.g., "Tech Lead (Backend)") */
   role?: string;
+  /** Technical skills from user profiles config */
+  skills?: string[];
+  /** Primary area of focus from user profiles config */
+  focusArea?: string;
 }
 
 /**
@@ -285,6 +294,8 @@ function buildUserMetadata(users: RegistryUserEntity[]): Map<string, UserMetadat
       email: user.email,
       active: user.active,
       role: user.role,
+      skills: user.skills,
+      focusArea: user.focusArea,
     });
   }
   return metadata;

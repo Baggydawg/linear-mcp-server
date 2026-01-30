@@ -9,6 +9,12 @@
 import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
+import {
+  formatProfileForToon,
+  getUserProfile,
+  loadUserProfiles,
+  type UserProfilesConfig,
+} from '../../config/user-profiles.js';
 import { AccountOutputSchema } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import { previewLinesFromItems, summarizeList } from '../../../utils/messages.js';
@@ -173,6 +179,8 @@ interface WorkspaceData {
     email?: string;
     active?: boolean;
     role?: string;
+    skills?: string[];
+    focusArea?: string;
     createdAt?: Date | string;
   }>;
   states: Array<{
@@ -439,18 +447,34 @@ export const workspaceMetadataTool = defineTool({
 
     // Fetch users (always fetch for TOON to build registry)
     if (config.TOON_OUTPUT_ENABLED) {
+      // Load custom user profiles from config file or env var
+      const userProfilesConfig: UserProfilesConfig = loadUserProfiles({
+        envJson: config.USER_PROFILES_JSON,
+        filePath: config.USER_PROFILES_FILE,
+      });
+
       const usersConn = (await client.users({ first: 200 })) as unknown as {
         nodes: UserLike[];
       };
-      workspaceData.users = usersConn.nodes.map((u) => ({
-        id: u.id,
-        name: u.name ?? undefined,
-        displayName: u.displayName ?? undefined,
-        email: u.email ?? undefined,
-        active: u.active,
-        role: u.admin ? 'Admin' : u.guest ? 'Guest' : 'Member',
-        createdAt: u.createdAt,
-      }));
+      workspaceData.users = usersConn.nodes.map((u) => {
+        // Look up custom profile by email
+        const profile = getUserProfile(userProfilesConfig, u.email ?? undefined);
+        const formattedRole = formatProfileForToon(profile);
+
+        return {
+          id: u.id,
+          name: u.name ?? undefined,
+          displayName: u.displayName ?? undefined,
+          email: u.email ?? undefined,
+          active: u.active,
+          // Use custom profile role, fall back to Linear's admin/guest/member
+          role: formattedRole || (u.admin ? 'Admin' : u.guest ? 'Guest' : 'Member'),
+          // Include profile metadata for registry
+          skills: profile.skills,
+          focusArea: profile.focusArea,
+          createdAt: u.createdAt,
+        };
+      });
     }
 
     // Fetch workflow states
@@ -609,6 +633,9 @@ export const workspaceMetadataTool = defineTool({
           displayName: u.displayName ?? '',
           email: u.email ?? '',
           active: u.active ?? true,
+          role: u.role,
+          skills: u.skills,
+          focusArea: u.focusArea,
         })),
         states: workspaceData.states.map((s) => ({
           id: s.id,

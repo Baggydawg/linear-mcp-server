@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "profiles": {
+    "dev@example.com": {
+      "role": "Tech Lead",
+      "skills": ["TypeScript", "Node.js", "System design", "DevOps"],
+      "focusArea": "Backend infrastructure"
+    },
+    "frontend@example.com": {
+      "role": "Frontend Developer",
+      "skills": ["React", "CSS", "Accessibility", "Design systems"],
+      "focusArea": "User interfaces"
+    },
+    "fullstack@example.com": {
+      "role": "Full Stack Developer",
+      "skills": ["TypeScript", "React", "Node.js", "PostgreSQL"],
+      "focusArea": "End-to-end features"
+    }
+  },
+  "defaults": {
+    "role": "",
+    "skills": [],
+    "focusArea": ""
+  }
+}
