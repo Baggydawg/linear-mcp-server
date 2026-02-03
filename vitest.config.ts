@@ -6,6 +6,10 @@ export default defineConfig({
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.ts'],
+    // Default to legacy output format for tests (TOON-specific tests override this in beforeEach)
+    env: {
+      TOON_OUTPUT_ENABLED: 'false',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

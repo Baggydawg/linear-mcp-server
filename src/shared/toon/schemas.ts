@@ -514,6 +514,52 @@ export const PROJECT_CHANGES_SCHEMA: ToonSchema = {
   fields: ['key', 'field', 'before', 'after'],
 };
 
+/**
+ * Project update schema for listing project updates.
+ * Used for read-only output of project status updates.
+ *
+ * @example
+ * ```
+ * projectUpdates[2]{id,project,body,health,user,createdAt,url}:
+ *   upd-uuid-1,pr0,"Sprint going well, on track for milestone",onTrack,u0,2026-01-27T12:00:00Z,https://...
+ *   upd-uuid-2,pr0,"Blocked on API dependencies",atRisk,u1,2026-01-20T10:00:00Z,https://...
+ * ```
+ */
+export const PROJECT_UPDATE_SCHEMA: ToonSchema = {
+  name: 'projectUpdates',
+  fields: ['id', 'project', 'body', 'health', 'user', 'createdAt', 'url'],
+};
+
+/**
+ * Write result schema for project updates (uses id).
+ * Per-item outcome for project update batch operations.
+ *
+ * @example
+ * ```
+ * results[2]{index,status,id,project,error,code,hint}:
+ *   0,ok,upd-uuid-1,pr0,,,
+ *   1,error,,,Invalid project,PROJECT_NOT_FOUND,Use workspace_metadata to see projects
+ * ```
+ */
+export const PROJECT_UPDATE_WRITE_RESULT_SCHEMA: ToonSchema = {
+  name: 'results',
+  fields: ['index', 'status', 'id', 'project', 'error', 'code', 'hint'],
+};
+
+/**
+ * Created project updates schema for create_project_updates output.
+ *
+ * @example
+ * ```
+ * created[1]{id,project,body,health,url}:
+ *   upd-uuid-1,pr0,"Sprint completed successfully",onTrack,https://...
+ * ```
+ */
+export const CREATED_PROJECT_UPDATE_SCHEMA: ToonSchema = {
+  name: 'created',
+  fields: ['id', 'project', 'body', 'health', 'url'],
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GAP ANALYSIS SCHEMA (for get_sprint_context)
 // Identifies sprint health issues that require attention.
@@ -572,6 +618,7 @@ export const DATA_SCHEMAS = {
   RELATION: RELATION_SCHEMA,
   RELATION_WITH_ID: RELATION_SCHEMA_WITH_ID,
   ATTACHMENT: ATTACHMENT_SCHEMA,
+  PROJECT_UPDATE: PROJECT_UPDATE_SCHEMA,
 } as const;
 
 /**
@@ -597,6 +644,8 @@ export const WRITE_SCHEMAS = {
   PROJECT_RESULT: PROJECT_WRITE_RESULT_SCHEMA,
   CREATED_PROJECT: CREATED_PROJECT_SCHEMA,
   PROJECT_CHANGES: PROJECT_CHANGES_SCHEMA,
+  PROJECT_UPDATE_RESULT: PROJECT_UPDATE_WRITE_RESULT_SCHEMA,
+  CREATED_PROJECT_UPDATE: CREATED_PROJECT_UPDATE_SCHEMA,
 } as const;
 
 /**
@@ -628,6 +677,8 @@ export const ALL_SCHEMAS = {
   PROJECT_WRITE_RESULT: PROJECT_WRITE_RESULT_SCHEMA,
   CREATED_PROJECT: CREATED_PROJECT_SCHEMA,
   PROJECT_CHANGES: PROJECT_CHANGES_SCHEMA,
+  PROJECT_UPDATE_WRITE_RESULT: PROJECT_UPDATE_WRITE_RESULT_SCHEMA,
+  CREATED_PROJECT_UPDATE: CREATED_PROJECT_UPDATE_SCHEMA,
 
   // Gap analysis
   GAP: GAP_SCHEMA,

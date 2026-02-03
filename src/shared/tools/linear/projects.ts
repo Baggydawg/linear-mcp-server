@@ -437,7 +437,14 @@ const CreateProjectsInputSchema = z.object({
     .array(
       z.object({
         name: z.string().describe('Project name. Required.'),
-        description: z.string().optional().describe('Markdown description.'),
+        description: z
+          .string()
+          .optional()
+          .describe('Short description shown under project title.'),
+        content: z
+          .string()
+          .optional()
+          .describe('Full markdown content for the project (longer description area).'),
         teamId: z
           .string()
           .optional()
@@ -557,6 +564,7 @@ export const createProjectsTool = defineTool({
           client.createProject({
             name: it.name,
             description: it.description,
+            content: it.content,
             leadId: resolvedLeadId,
             targetDate: it.targetDate,
             teamIds: resolvedTeamIds,
@@ -757,7 +765,14 @@ const UpdateProjectsInputSchema = z.object({
       z.object({
         id: z.string().describe('Project UUID or short key (pr0, pr1...). Required.'),
         name: z.string().optional().describe('New project name.'),
-        description: z.string().optional().describe('New markdown description.'),
+        description: z
+          .string()
+          .optional()
+          .describe('New short description shown under project title.'),
+        content: z
+          .string()
+          .optional()
+          .describe('New full markdown content for the project (longer description area).'),
         leadId: z
           .string()
           .optional()
@@ -902,6 +917,7 @@ export const updateProjectsTool = defineTool({
         const updatePayload: Record<string, unknown> = {};
         if (it.name) updatePayload.name = it.name;
         if (it.description) updatePayload.description = it.description;
+        if (it.content) updatePayload.content = it.content;
         if (resolvedLeadId) updatePayload.leadId = resolvedLeadId;
         if (it.targetDate) updatePayload.targetDate = it.targetDate;
         if (it.state) updatePayload.state = it.state;

@@ -126,6 +126,17 @@ export interface MockCycle {
   team: { id: string };
 }
 
+export interface MockProjectUpdate {
+  id: string;
+  body: string;
+  health?: 'onTrack' | 'atRisk' | 'offTrack';
+  createdAt: Date;
+  updatedAt?: Date;
+  url?: string;
+  project: { id: string; name?: string };
+  user?: { id: string; name?: string };
+}
+
 export interface MockPageInfo {
   hasNextPage: boolean;
   endCursor?: string;
@@ -379,6 +390,28 @@ export const defaultMockCycles: MockCycle[] = [
   },
 ];
 
+export const defaultMockProjectUpdates: MockProjectUpdate[] = [
+  {
+    id: 'project-update-001',
+    body: 'Sprint 1 complete. All major features delivered.',
+    health: 'onTrack',
+    createdAt: new Date('2024-12-15T10:00:00Z'),
+    updatedAt: new Date('2024-12-15T10:00:00Z'),
+    url: 'https://linear.app/team/project/project-001/updates/001',
+    project: { id: 'project-001', name: 'Q1 Release' },
+    user: { id: 'user-001', name: 'Test User' },
+  },
+  {
+    id: 'project-update-002',
+    body: 'Milestone 2 delayed due to scope changes.',
+    health: 'atRisk',
+    createdAt: new Date('2024-12-20T14:00:00Z'),
+    url: 'https://linear.app/team/project/project-001/updates/002',
+    project: { id: 'project-001', name: 'Q1 Release' },
+    user: { id: 'user-002', name: 'Jane Doe' },
+  },
+];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock Client Factory
 // ─────────────────────────────────────────────────────────────────────────────
@@ -391,6 +424,7 @@ export interface MockLinearClientConfig {
   cycles?: MockCycle[];
   projects?: MockProject[];
   comments?: MockComment[];
+  projectUpdates?: MockProjectUpdate[];
   favorites?: unknown[];
 }
 
@@ -437,6 +471,19 @@ export interface MockLinearClient {
     id: string,
     input: Record<string, unknown>,
   ) => Promise<{ success: boolean; comment?: { id: string } }>;
+  projectUpdate: (id: string) => Promise<MockProjectUpdate | null>;
+  projectUpdates: (args?: {
+    first?: number;
+    after?: string;
+    filter?: Record<string, unknown>;
+  }) => Promise<MockConnection<MockProjectUpdate>>;
+  createProjectUpdate: (
+    input: Record<string, unknown>,
+  ) => Promise<{ success: boolean; projectUpdate?: { id: string } }>;
+  updateProjectUpdate: (
+    id: string,
+    input: Record<string, unknown>,
+  ) => Promise<{ success: boolean; projectUpdate?: { id: string } }>;
   /** Raw GraphQL client for rawRequest calls */
   client: {
     rawRequest: (
@@ -451,6 +498,9 @@ export interface MockLinearClient {
     createIssue: Array<Record<string, unknown>>;
     updateIssue: Array<{ id: string; input: Record<string, unknown> }>;
     rawRequest: Array<{ query: string; variables?: Record<string, unknown> }>;
+    projectUpdates: Array<Record<string, unknown>>;
+    createProjectUpdate: Array<Record<string, unknown>>;
+    updateProjectUpdate: Array<{ id: string; input: Record<string, unknown> }>;
   };
 }
 
@@ -465,6 +515,7 @@ export function createMockLinearClient(
     cycles = defaultMockCycles,
     projects = defaultMockProjects,
     comments = [],
+    projectUpdates = defaultMockProjectUpdates,
     favorites = [],
   } = config;
 
@@ -473,6 +524,9 @@ export function createMockLinearClient(
     createIssue: [] as Array<Record<string, unknown>>,
     updateIssue: [] as Array<{ id: string; input: Record<string, unknown> }>,
     rawRequest: [] as Array<{ query: string; variables?: Record<string, unknown> }>,
+    projectUpdates: [] as Array<Record<string, unknown>>,
+    createProjectUpdate: [] as Array<Record<string, unknown>>,
+    updateProjectUpdate: [] as Array<{ id: string; input: Record<string, unknown> }>,
   };
 
   return {
@@ -604,6 +658,51 @@ export function createMockLinearClient(
       success: true,
       comment: { id },
     })),
+
+    projectUpdate: vi.fn(async (id: string) => {
+      return projectUpdates.find((pu) => pu.id === id) ?? null;
+    }),
+
+    projectUpdates: vi.fn(
+      async (args?: {
+        first?: number;
+        after?: string;
+        filter?: Record<string, unknown>;
+      }) => {
+        calls.projectUpdates.push(args ?? {});
+        const limit = args?.first ?? projectUpdates.length;
+        const projectFilter = (
+          args?.filter as { project?: { id?: { eq?: string } } } | undefined
+        )?.project?.id?.eq;
+        const filtered = projectFilter
+          ? projectUpdates.filter((pu) => pu.project.id === projectFilter)
+          : projectUpdates;
+        return {
+          nodes: filtered.slice(0, limit),
+          pageInfo: {
+            hasNextPage: filtered.length > limit,
+            endCursor: filtered.length > limit ? 'project-update-cursor' : undefined,
+          },
+        };
+      },
+    ),
+
+    createProjectUpdate: vi.fn(async (input: Record<string, unknown>) => {
+      calls.createProjectUpdate.push(input);
+      return {
+        success: true,
+        projectUpdate: { id: `project-update-new-${Date.now()}` },
+      };
+    }),
+
+    updateProjectUpdate: vi.fn(async (id: string, input: Record<string, unknown>) => {
+      calls.updateProjectUpdate.push({ id, input });
+      const existing = projectUpdates.find((pu) => pu.id === id);
+      return {
+        success: !!existing,
+        projectUpdate: existing ? { id: existing.id } : undefined,
+      };
+    }),
 
     // Raw GraphQL client for rawRequest calls (used by list-issues, list-my-issues, etc.)
     client: {
@@ -918,6 +1017,9 @@ export function resetMockCalls(client: MockLinearClient): void {
   client._calls.createIssue = [];
   client._calls.updateIssue = [];
   client._calls.rawRequest = [];
+  client._calls.projectUpdates = [];
+  client._calls.createProjectUpdate = [];
+  client._calls.updateProjectUpdate = [];
 
   // Reset vi.fn() call history
   (client.teams as ReturnType<typeof vi.fn>).mockClear();
@@ -934,5 +1036,9 @@ export function resetMockCalls(client: MockLinearClient): void {
   (client.createProject as ReturnType<typeof vi.fn>).mockClear();
   (client.updateProject as ReturnType<typeof vi.fn>).mockClear();
   (client.createComment as ReturnType<typeof vi.fn>).mockClear();
+  (client.projectUpdate as ReturnType<typeof vi.fn>).mockClear();
+  (client.projectUpdates as ReturnType<typeof vi.fn>).mockClear();
+  (client.createProjectUpdate as ReturnType<typeof vi.fn>).mockClear();
+  (client.updateProjectUpdate as ReturnType<typeof vi.fn>).mockClear();
   (client.client.rawRequest as ReturnType<typeof vi.fn>).mockClear();
 }

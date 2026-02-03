@@ -8,6 +8,8 @@ import { vi } from 'vitest';
 // Mock environment variables for tests
 process.env.LINEAR_ACCESS_TOKEN = 'test-token-xxx';
 process.env.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT = 'false';
+// Default to legacy output format for tests (TOON-specific tests override this)
+process.env.TOON_OUTPUT_ENABLED = 'false';
 
 // Mock the Linear client module before any imports
 vi.mock('../src/services/linear/client.js', async () => {

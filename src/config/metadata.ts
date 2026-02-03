@@ -118,6 +118,27 @@ export const toolsMetadata = {
       "Update multiple projects in one call. Inputs: { items: Array<{ id: string; name?: string; description?: string; targetDate?: string; state?: string; leadId?: string; archived?: boolean }> }.\nReturns: per-item results and a summary. Next: verify with 'list_projects' (filter.id.eq, limit=1); discover via 'list_projects'.",
   },
 
+  create_project_update: {
+    name: 'create_project_update',
+    title: 'Create Project Update',
+    description:
+      'Create a status update for a project. Inputs: { project: string (short key pr0 or UUID), body: string (markdown), health?: "onTrack"|"atRisk"|"offTrack" }.\nReturns: created update with id and url. Next: Use list_project_updates to see all updates for a project.',
+  },
+
+  list_project_updates: {
+    name: 'list_project_updates',
+    title: 'List Project Updates',
+    description:
+      'List status updates for a project. Inputs: { project: string (short key pr0 or UUID), limit?, cursor? }.\nReturns: { items[] } with body, health, user, createdAt. Next: Use update_project_update to modify an existing update.',
+  },
+
+  update_project_update: {
+    name: 'update_project_update',
+    title: 'Update Project Update',
+    description:
+      'Update an existing project status update. Inputs: { id: string (UUID), body?: string, health?: "onTrack"|"atRisk"|"offTrack" }.\nReturns: updated record. Note: Use list_project_updates to find the update id first.',
+  },
+
   list_comments: {
     name: 'list_comments',
     title: 'List Comments',

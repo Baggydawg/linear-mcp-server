@@ -8,15 +8,18 @@ import {
   addCommentsTool,
   createIssuesTool,
   createProjectsTool,
+  createProjectUpdateTool,
   getIssuesTool,
   getSprintContextTool,
   listCommentsTool,
   listCyclesTool,
   listIssuesTool,
   listProjectsTool,
+  listProjectUpdatesTool,
   updateCommentsTool,
   updateIssuesTool,
   updateProjectsTool,
+  updateProjectUpdateTool,
   workspaceMetadataTool,
 } from './linear/index.js';
 import type { ToolContext, ToolResult } from './types.js';
@@ -61,6 +64,10 @@ export const sharedTools: RegisteredTool[] = [
   listProjectsTool as unknown as RegisteredTool,
   createProjectsTool as unknown as RegisteredTool,
   updateProjectsTool as unknown as RegisteredTool,
+  // Linear tools - Project Updates
+  listProjectUpdatesTool as unknown as RegisteredTool,
+  createProjectUpdateTool as unknown as RegisteredTool,
+  updateProjectUpdateTool as unknown as RegisteredTool,
 ];
 
 /**
