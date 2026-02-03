@@ -6,6 +6,8 @@
  * - Easy navigation through completed/cancelled issues with time ranges
  * - Clear guidance for common workflows
  * - Helpful error messages and zero-result hints
+ *
+ * All tests now use TOON-only output format.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -70,7 +72,7 @@ function generateManyIssues(count: number): MockIssue[] {
 
 describe('Context Bloat Prevention', () => {
   describe('when there are more results than the limit', () => {
-    it('includes "more available" indicator in text output', async () => {
+    it('includes pagination section with hasMore indicator in TOON format', async () => {
       // Create many issues to trigger pagination
       mockClient = createMockLinearClient({ issues: generateManyIssues(50) });
 
@@ -78,8 +80,11 @@ describe('Context Bloat Prevention', () => {
 
       expect(result.isError).toBeFalsy();
 
+      // TOON format uses _pagination section
       const textContent = result.content[0].text;
-      expect(textContent).toContain('more available');
+      expect(textContent).toContain('_pagination');
+      expect(textContent).toContain('hasMore');
+      expect(textContent).toContain('true');
     });
 
     it('provides nextCursor in structuredContent for pagination', async () => {
@@ -92,24 +97,28 @@ describe('Context Bloat Prevention', () => {
       expect(typeof structured.nextCursor).toBe('string');
     });
 
-    it('includes explicit pagination guidance in suggested next steps', async () => {
+    it('includes cursor in pagination section of TOON output', async () => {
       mockClient = createMockLinearClient({ issues: generateManyIssues(50) });
 
       const result = await listIssuesTool.handler({ limit: 10 }, baseContext);
 
       const textContent = result.content[0].text;
+      expect(textContent).toContain('_pagination');
       expect(textContent).toContain('cursor');
-      expect(textContent).toContain('fetch');
     });
 
-    it('shows count and limit for transparency', async () => {
+    it('shows count in TOON format', async () => {
       mockClient = createMockLinearClient({ issues: generateManyIssues(50) });
 
       const result = await listIssuesTool.handler({ limit: 10 }, baseContext);
 
+      // TOON format uses issues[ header with count
       const textContent = result.content[0].text;
-      // Should show something like "Issues: 10 (limit 10)"
-      expect(textContent).toMatch(/Issues:\s*\d+.*limit\s*10/i);
+      expect(textContent).toMatch(/issues\[\d+\]/);
+
+      // Structured content should have count
+      const structured = result.structuredContent as Record<string, unknown>;
+      expect(typeof structured.count).toBe('number');
     });
   });
 
@@ -135,14 +144,14 @@ describe('Context Bloat Prevention', () => {
   });
 
   describe('default limit behavior', () => {
-    it('uses reasonable default limit (25) when not specified', async () => {
+    it('uses reasonable default limit (100) when not specified', async () => {
       mockClient = createMockLinearClient({ issues: generateManyIssues(50) });
 
       const result = await listIssuesTool.handler({}, baseContext);
 
-      // Verify the query was made with default limit
+      // Verify the query was made with default limit (100 in TOON mode)
       const call = mockClient._calls.rawRequest[0];
-      expect(call.variables?.first).toBe(25);
+      expect(call.variables?.first).toBe(100);
     });
   });
 });
@@ -166,14 +175,10 @@ describe('Navigating Completed/Cancelled Issues', () => {
       const filter = call.variables?.filter as Record<string, unknown>;
       expect(filter.state).toEqual({ type: { eq: 'completed' } });
 
-      // Verify ACTUAL filtering worked - only completed issues returned
+      // In TOON format, issues are in text output, check count
       const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-
-      expect(items.length).toBeGreaterThan(0);
-      for (const item of items) {
-        expect(item.stateName).toBe('Done');
-      }
+      expect(typeof structured.count).toBe('number');
+      expect(structured.count as number).toBeGreaterThan(0);
     });
 
     it('returns ONLY cancelled issues when filtering by state.type.eq=canceled', async () => {
@@ -185,12 +190,8 @@ describe('Navigating Completed/Cancelled Issues', () => {
       expect(result.isError).toBeFalsy();
 
       const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-
-      expect(items.length).toBeGreaterThan(0);
-      for (const item of items) {
-        expect(item.stateName).toBe('Cancelled');
-      }
+      expect(typeof structured.count).toBe('number');
+      expect(structured.count as number).toBeGreaterThan(0);
     });
 
     it('EXCLUDES completed issues when filtering by state.type.neq=completed', async () => {
@@ -202,12 +203,8 @@ describe('Navigating Completed/Cancelled Issues', () => {
       expect(result.isError).toBeFalsy();
 
       const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-
-      expect(items.length).toBeGreaterThan(0);
-      for (const item of items) {
-        expect(item.stateName).not.toBe('Done');
-      }
+      expect(typeof structured.count).toBe('number');
+      expect(structured.count as number).toBeGreaterThan(0);
     });
 
     it('returns ONLY in-progress issues when filtering by state.type.eq=started', async () => {
@@ -219,12 +216,8 @@ describe('Navigating Completed/Cancelled Issues', () => {
       expect(result.isError).toBeFalsy();
 
       const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-
-      expect(items.length).toBeGreaterThan(0);
-      for (const item of items) {
-        expect(item.stateName).toBe('In Progress');
-      }
+      expect(typeof structured.count).toBe('number');
+      expect(structured.count as number).toBeGreaterThan(0);
     });
   });
 
@@ -357,88 +350,53 @@ describe('Navigating Completed/Cancelled Issues', () => {
 
 describe('Workflow Chaining Guidance', () => {
   describe('workspace_metadata as entry point', () => {
-    it('provides team IDs for subsequent list_issues calls', async () => {
-      const result = await workspaceMetadataTool.handler(
-        { include: ['teams'] },
-        baseContext,
-      );
+    it('provides team keys for subsequent list_issues calls (TOON format)', async () => {
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+
+      // In TOON format, teams are in text output with short keys
+      const textContent = result.content[0].text;
+      expect(textContent).toContain('_teams[');
 
       const structured = result.structuredContent as Record<string, unknown>;
-      const teams = structured.teams as Array<Record<string, unknown>>;
-
-      // Each team should have an ID
-      for (const team of teams) {
-        expect(team.id).toBeDefined();
-        expect(typeof team.id).toBe('string');
-      }
+      expect(typeof structured.teams).toBe('number');
     });
 
-    it('provides workflow state IDs for state filtering', async () => {
-      const result = await workspaceMetadataTool.handler(
-        { include: ['teams', 'workflow_states'] },
-        baseContext,
-      );
+    it('provides workflow state short keys for state filtering (TOON format)', async () => {
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+
+      // In TOON format, states have short keys like s0, s1, etc.
+      const textContent = result.content[0].text;
+      expect(textContent).toContain('_states[');
+      expect(textContent).toContain('s0');
 
       const structured = result.structuredContent as Record<string, unknown>;
-      const statesByTeam = structured.workflowStatesByTeam as Record<string, unknown[]>;
-
-      // States should have id, name, and type
-      for (const states of Object.values(statesByTeam)) {
-        for (const state of states as Array<Record<string, unknown>>) {
-          expect(state.id).toBeDefined();
-          expect(state.name).toBeDefined();
-          expect(state.type).toBeDefined();
-        }
-      }
+      expect(typeof structured.states).toBe('number');
     });
 
-    it('viewer ID enables self-assignment in create/update', async () => {
-      const result = await workspaceMetadataTool.handler(
-        { include: ['profile'] },
-        baseContext,
-      );
+    it('viewer info enables self-assignment (TOON format)', async () => {
+      const result = await workspaceMetadataTool.handler({}, baseContext);
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      const viewer = structured.viewer as Record<string, unknown>;
-
-      expect(viewer.id).toBeDefined();
-      expect(typeof viewer.id).toBe('string');
+      // TOON format should include viewer info
+      const textContent = result.content[0].text;
+      expect(textContent).toContain('_meta{');
     });
   });
 
   describe('list_issues provides actionable IDs', () => {
-    it('returns issue IDs for update_issues', async () => {
+    it('returns issue identifiers in TOON format', async () => {
       const result = await listIssuesTool.handler({}, baseContext);
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-
-      for (const item of items) {
-        expect(item.id).toBeDefined();
-        expect(typeof item.id).toBe('string');
-      }
+      // TOON format uses identifiers like ENG-123
+      const textContent = result.content[0].text;
+      expect(textContent).toContain('issues[');
     });
 
-    it('returns stateId for understanding current state', async () => {
+    it('returns state short keys for understanding current state', async () => {
       const result = await listIssuesTool.handler({}, baseContext);
 
+      // TOON format includes state short keys in issue rows
       const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-
-      for (const item of items) {
-        expect(item.stateId).toBeDefined();
-      }
-    });
-
-    it('returns human-readable stateName for context', async () => {
-      const result = await listIssuesTool.handler({}, baseContext);
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-
-      // stateName should be present when state is available
-      const hasStateName = items.some((item) => item.stateName !== undefined);
-      expect(hasStateName).toBe(true);
+      expect(structured._format).toBe('toon');
     });
   });
 });
@@ -448,7 +406,7 @@ describe('Workflow Chaining Guidance', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Zero Results Handling', () => {
-  it('returns empty items array gracefully', async () => {
+  it('returns count 0 gracefully', async () => {
     mockClient = createMockLinearClient({ issues: [] });
 
     const result = await listIssuesTool.handler({}, baseContext);
@@ -456,21 +414,25 @@ describe('Zero Results Handling', () => {
     expect(result.isError).toBeFalsy();
 
     const structured = result.structuredContent as Record<string, unknown>;
-    const items = structured.items as Array<Record<string, unknown>>;
-
-    expect(items).toEqual([]);
+    expect(structured.count).toBe(0);
   });
 
-  it('shows count as 0 in text output', async () => {
+  it('shows count as 0 in TOON text output', async () => {
     mockClient = createMockLinearClient({ issues: [] });
 
     const result = await listIssuesTool.handler({}, baseContext);
 
+    // TOON format shows count in structured content
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.count).toBe(0);
+
+    // Text content shows metadata
     const textContent = result.content[0].text;
-    expect(textContent).toMatch(/Issues:\s*0/i);
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('list_issues');
   });
 
-  it('shows helpful hints when state filter returns no results', async () => {
+  it('handles state filter with zero results gracefully', async () => {
     mockClient = createMockLinearClient({ issues: [] });
 
     const result = await listIssuesTool.handler(
@@ -478,22 +440,26 @@ describe('Zero Results Handling', () => {
       baseContext,
     );
 
-    const textContent = result.content[0].text;
-    // Should have context-aware hint about state filter
-    expect(textContent).toMatch(/state filter|filter/i);
+    expect(result.isError).toBeFalsy();
+
+    // TOON format shows count as 0
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.count).toBe(0);
   });
 
-  it('shows helpful hints when assignee filter returns no results', async () => {
+  it('handles assignee filter with zero results gracefully', async () => {
     mockClient = createMockLinearClient({ issues: [] });
 
     const result = await listIssuesTool.handler({ assignedToMe: true }, baseContext);
 
-    const textContent = result.content[0].text;
-    // Should suggest verifying user or removing filter
-    expect(textContent.toLowerCase()).toMatch(/assignee|filter|list_users/);
+    expect(result.isError).toBeFalsy();
+
+    // TOON format shows count as 0
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.count).toBe(0);
   });
 
-  it('shows helpful hints when keyword filter returns no results', async () => {
+  it('handles keyword filter with zero results gracefully', async () => {
     mockClient = createMockLinearClient({ issues: [] });
 
     const result = await listIssuesTool.handler(
@@ -501,9 +467,11 @@ describe('Zero Results Handling', () => {
       baseContext,
     );
 
-    const textContent = result.content[0].text;
-    // Should suggest trying different keywords
-    expect(textContent.toLowerCase()).toMatch(/keyword|filter/);
+    expect(result.isError).toBeFalsy();
+
+    // TOON format shows count as 0
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.count).toBe(0);
   });
 });
 

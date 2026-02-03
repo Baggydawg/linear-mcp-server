@@ -1,9 +1,8 @@
 /**
  * Projects tools - list, create, and update projects.
  *
- * Supports TOON output format (Tier 2):
- * - When TOON_OUTPUT_ENABLED=true, returns TOON format with project leads in _users lookup
- * - When TOON_OUTPUT_ENABLED=false (default), returns legacy human-readable format
+ * Uses TOON output format (Tier 2):
+ * - Returns TOON format with project leads in _users lookup
  *
  * Projects use short keys (pr0, pr1...).
  */
@@ -11,21 +10,10 @@
 import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
-import {
-  CreateProjectsOutputSchema,
-  ListProjectsOutputSchema,
-  UpdateProjectsOutputSchema,
-} from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
-import { mapProjectNodeToListItem } from '../../../utils/mappers.js';
 import { resolveTeamId } from '../../../utils/resolvers.js';
-import {
-  previewLinesFromItems,
-  summarizeBatch,
-  summarizeList,
-} from '../../../utils/messages.js';
 import {
   CREATED_PROJECT_SCHEMA,
   encodeResponse,
@@ -303,131 +291,59 @@ export const listProjectsTool = defineTool({
       includeArchived: args.includeArchived,
     });
 
-    const items = conn.nodes.map((p) => mapProjectNodeToListItem(p));
-
     const pageInfo = conn.pageInfo;
     const hasMore = pageInfo?.hasNextPage ?? false;
     const nextCursor = hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (config.TOON_OUTPUT_ENABLED) {
-      // Convert items to RawProjectData for TOON processing
-      const rawProjects: RawProjectData[] = conn.nodes.map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: (p as unknown as { description?: string }).description,
-        state: p.state,
-        priority: (p as unknown as { priority?: number }).priority,
-        progress: (p as unknown as { progress?: number }).progress,
-        leadId: (p as unknown as { leadId?: string }).leadId,
-        lead: (p as unknown as { lead?: { id?: string } }).lead,
-        teams: (p as unknown as { teams?: { nodes?: Array<{ key?: string }> } }).teams
-          ?.nodes,
-        startDate: (p as unknown as { startDate?: string }).startDate,
-        targetDate: (p as unknown as { targetDate?: string }).targetDate,
-        health: (p as unknown as { health?: string }).health,
-        createdAt: (p as unknown as { createdAt?: Date | string }).createdAt,
-      }));
+    // Convert items to RawProjectData for TOON processing
+    const rawProjects: RawProjectData[] = conn.nodes.map((p) => ({
+      id: p.id,
+      name: p.name,
+      description: (p as unknown as { description?: string }).description,
+      state: p.state,
+      priority: (p as unknown as { priority?: number }).priority,
+      progress: (p as unknown as { progress?: number }).progress,
+      leadId: (p as unknown as { leadId?: string }).leadId,
+      lead: (p as unknown as { lead?: { id?: string } }).lead,
+      teams: (p as unknown as { teams?: { nodes?: Array<{ key?: string }> } }).teams
+        ?.nodes,
+      startDate: (p as unknown as { startDate?: string }).startDate,
+      targetDate: (p as unknown as { targetDate?: string }).targetDate,
+      health: (p as unknown as { health?: string }).health,
+      createdAt: (p as unknown as { createdAt?: Date | string }).createdAt,
+    }));
 
-      // Initialize registry if needed (lazy init)
-      let registry: ShortKeyRegistry | null = null;
-      try {
-        registry = await getOrInitRegistry(
-          {
-            sessionId: context.sessionId,
-            transport: 'stdio',
-          },
-          () => fetchWorkspaceDataForRegistry(client),
-        );
-      } catch (error) {
-        // Registry init failed, continue without it
-        console.error('Registry initialization failed:', error);
-      }
-
-      // Build TOON response
-      const toonResponse = buildProjectsToonResponse(rawProjects, registry);
-
-      // Encode TOON output
-      const toonOutput = encodeResponse(rawProjects, toonResponse);
-
-      return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _format: 'toon',
-          _version: '1',
-          count: rawProjects.length,
-          hasMore,
-          nextCursor,
+    // Initialize registry if needed (lazy init)
+    let registry: ShortKeyRegistry | null = null;
+    try {
+      registry = await getOrInitRegistry(
+        {
+          sessionId: context.sessionId,
+          transport: 'stdio',
         },
-      };
+        () => fetchWorkspaceDataForRegistry(client),
+      );
+    } catch (error) {
+      // Registry init failed, continue without it
+      console.error('Registry initialization failed:', error);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
-    // ─────────────────────────────────────────────────────────────────────────
+    // Build TOON response
+    const toonResponse = buildProjectsToonResponse(rawProjects, registry);
 
-    // Build query echo
-    const query = {
-      filter: args.filter ? (filter as Record<string, unknown>) : undefined,
-      includeArchived: args.includeArchived,
-      limit: first,
+    // Encode TOON output
+    const toonOutput = encodeResponse(rawProjects, toonResponse);
+
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: {
+        _format: 'toon',
+        _version: '1',
+        count: rawProjects.length,
+        hasMore,
+        nextCursor,
+      },
     };
-
-    // Build pagination
-    const pagination = {
-      hasMore,
-      nextCursor,
-      itemsReturned: items.length,
-      limit: first,
-    };
-
-    // Build meta
-    const meta = {
-      nextSteps: [
-        ...(hasMore ? [`Call again with cursor="${nextCursor}" for more.`] : []),
-        'Use update_projects to modify state or details.',
-        'Use list_issues with projectId to see project issues.',
-      ],
-      relatedTools: ['update_projects', 'list_issues', 'create_projects'],
-    };
-
-    const structured = ListProjectsOutputSchema.parse({
-      query,
-      items,
-      pagination,
-      meta,
-      // Legacy
-      cursor: args.cursor,
-      nextCursor,
-      limit: first,
-    });
-
-    const preview = previewLinesFromItems(
-      items as unknown as Record<string, unknown>[],
-      (p) =>
-        `${String((p.name as string) ?? '')} (${p.id}) — state ${String((p.state as string) ?? '')}`,
-    );
-
-    const message = summarizeList({
-      subject: 'Projects',
-      count: items.length,
-      limit: first,
-      nextCursor,
-      previewLines: preview,
-      nextSteps: meta.nextSteps,
-    });
-
-    const parts: Array<{ type: 'text'; text: string }> = [
-      { type: 'text', text: message },
-    ];
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structured) });
-    }
-
-    return { content: parts, structuredContent: structured };
   },
 });
 
@@ -478,20 +394,18 @@ export const createProjectsTool = defineTool({
     const client = await getLinearClient(context);
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
 
-    // Initialize registry if TOON is enabled for short key resolution
+    // Initialize registry for short key resolution
     let registry: ShortKeyRegistry | null = null;
-    if (config.TOON_OUTPUT_ENABLED) {
-      try {
-        registry = await getOrInitRegistry(
-          {
-            sessionId: context.sessionId,
-            transport: 'stdio',
-          },
-          () => fetchWorkspaceDataForRegistry(client),
-        );
-      } catch (error) {
-        console.error('Registry initialization failed:', error);
-      }
+    try {
+      registry = await getOrInitRegistry(
+        {
+          sessionId: context.sessionId,
+          transport: 'stdio',
+        },
+        () => fetchWorkspaceDataForRegistry(client),
+      );
+    } catch (error) {
+      console.error('Registry initialization failed:', error);
     }
 
     const results: {
@@ -625,136 +539,65 @@ export const createProjectsTool = defineTool({
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success).length;
 
-    const summary = {
-      total: args.items.length,
-      succeeded,
-      failed,
-      ok: succeeded,
-    };
-
-    const meta = {
-      nextSteps: ['Use list_projects to verify.', 'Use update_projects to modify.'],
-      relatedTools: ['list_projects', 'update_projects', 'list_issues'],
-    };
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (config.TOON_OUTPUT_ENABLED) {
-      // Build TOON results section
-      const toonResults: ToonRow[] = results.map((r) => {
-        const errObj =
-          typeof r.error === 'object'
-            ? (r.error as { code?: string; message?: string; suggestions?: string[] })
-            : null;
-        return {
-          index: r.index,
-          status: r.success ? 'ok' : 'error',
-          key: r.projectKey ?? '',
-          error: r.success
-            ? ''
-            : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
-          code: r.success ? '' : (errObj?.code ?? ''),
-          hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
-        };
-      });
-
-      // Build created projects section (only for successful results)
-      const createdProjects: ToonRow[] = results
-        .filter((r) => r.success)
-        .map((r) => ({
-          key: r.projectKey ?? '',
-          name: r.name ?? '',
-          state: r.state ?? 'planned',
-        }));
-
-      // Build TOON response
-      const toonResponse: ToonResponse = {
-        meta: {
-          fields: ['action', 'succeeded', 'failed', 'total'],
-          values: {
-            action: 'create_projects',
-            succeeded,
-            failed,
-            total: args.items.length,
-          },
-        },
-        data: [
-          { schema: PROJECT_WRITE_RESULT_SCHEMA, items: toonResults },
-          ...(createdProjects.length > 0
-            ? [{ schema: CREATED_PROJECT_SCHEMA, items: createdProjects }]
-            : []),
-        ],
-      };
-
-      const toonOutput = encodeToon(toonResponse);
-
+    // Build TOON results section
+    const toonResults: ToonRow[] = results.map((r) => {
+      const errObj =
+        typeof r.error === 'object'
+          ? (r.error as { code?: string; message?: string; suggestions?: string[] })
+          : null;
       return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _format: 'toon',
-          _version: '1',
+        index: r.index,
+        status: r.success ? 'ok' : 'error',
+        key: r.projectKey ?? '',
+        error: r.success
+          ? ''
+          : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+        code: r.success ? '' : (errObj?.code ?? ''),
+        hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
+      };
+    });
+
+    // Build created projects section (only for successful results)
+    const createdProjects: ToonRow[] = results
+      .filter((r) => r.success)
+      .map((r) => ({
+        key: r.projectKey ?? '',
+        name: r.name ?? '',
+        state: r.state ?? 'planned',
+      }));
+
+    // Build TOON response
+    const toonResponse: ToonResponse = {
+      meta: {
+        fields: ['action', 'succeeded', 'failed', 'total'],
+        values: {
           action: 'create_projects',
           succeeded,
           failed,
           total: args.items.length,
         },
-      };
-    }
+      },
+      data: [
+        { schema: PROJECT_WRITE_RESULT_SCHEMA, items: toonResults },
+        ...(createdProjects.length > 0
+          ? [{ schema: CREATED_PROJECT_SCHEMA, items: createdProjects }]
+          : []),
+      ],
+    };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
-    // ─────────────────────────────────────────────────────────────────────────
+    const toonOutput = encodeToon(toonResponse);
 
-    // Strip TOON-specific fields for legacy schema compatibility
-    // BatchResultSchema only allows: input, success, id, identifier, url, error, index, ok
-    const legacyResults = results.map((r) => ({
-      index: r.index,
-      ok: r.ok,
-      id: r.id,
-      error: r.error,
-      input: r.input,
-      success: r.success,
-    }));
-
-    const structured = CreateProjectsOutputSchema.parse({
-      results: legacyResults,
-      summary,
-      meta,
-    });
-
-    const okIds = legacyResults
-      .filter((r) => r.ok)
-      .map((r) => r.id ?? `item[${String(r.index)}]`) as string[];
-
-    const failures = legacyResults
-      .filter((r) => !r.ok)
-      .map((r) => ({
-        index: r.index,
-        id: undefined,
-        error:
-          typeof r.error === 'object'
-            ? ((r.error as { message?: string }).message ?? '')
-            : (r.error ?? ''),
-        code: undefined,
-      }));
-
-    const text = summarizeBatch({
-      action: 'Created projects',
-      ok: summary.ok,
-      total: args.items.length,
-      okIdentifiers: okIds,
-      failures,
-      nextSteps: ['Use list_projects to verify; update_projects to modify.'],
-    });
-
-    const parts: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structured) });
-    }
-
-    return { content: parts, structuredContent: structured };
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: {
+        _format: 'toon',
+        _version: '1',
+        action: 'create_projects',
+        succeeded,
+        failed,
+        total: args.items.length,
+      },
+    };
   },
 });
 
@@ -845,23 +688,21 @@ export const updateProjectsTool = defineTool({
     const client = await getLinearClient(context);
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
 
-    // Initialize registry if TOON is enabled for short key resolution
+    // Initialize registry for short key resolution
     let registry: ShortKeyRegistry | null = null;
-    if (config.TOON_OUTPUT_ENABLED) {
-      try {
-        registry = await getOrInitRegistry(
-          {
-            sessionId: context.sessionId,
-            transport: 'stdio',
-          },
-          () => fetchWorkspaceDataForRegistry(client),
-        );
-      } catch (error) {
-        console.error('Registry initialization failed:', error);
-      }
+    try {
+      registry = await getOrInitRegistry(
+        {
+          sessionId: context.sessionId,
+          transport: 'stdio',
+        },
+        () => fetchWorkspaceDataForRegistry(client),
+      );
+    } catch (error) {
+      console.error('Registry initialization failed:', error);
     }
 
-    // Track results with changes for TOON output
+    // Track results with changes
     const results: {
       index: number;
       ok: boolean;
@@ -909,10 +750,10 @@ export const updateProjectsTool = defineTool({
           }
         }
 
-        // Capture BEFORE snapshot for diff (only if TOON enabled)
-        const beforeSnapshot = config.TOON_OUTPUT_ENABLED
-          ? await gate(() => captureProjectSnapshot(client, resolvedProjectId))
-          : null;
+        // Capture BEFORE snapshot for diff
+        const beforeSnapshot = await gate(() =>
+          captureProjectSnapshot(client, resolvedProjectId),
+        );
 
         const updatePayload: Record<string, unknown> = {};
         if (it.name) updatePayload.name = it.name;
@@ -942,10 +783,10 @@ export const updateProjectsTool = defineTool({
           }
         }
 
-        // Capture AFTER snapshot for diff (only if TOON enabled)
-        const afterSnapshot = config.TOON_OUTPUT_ENABLED
-          ? await gate(() => captureProjectSnapshot(client, resolvedProjectId))
-          : null;
+        // Capture AFTER snapshot for diff
+        const afterSnapshot = await gate(() =>
+          captureProjectSnapshot(client, resolvedProjectId),
+        );
 
         // Compute changes
         const changes: Array<{
@@ -1035,139 +876,68 @@ export const updateProjectsTool = defineTool({
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success).length;
 
-    const summary = {
-      total: args.items.length,
-      succeeded,
-      failed,
-      ok: succeeded,
-    };
-
-    const meta = {
-      nextSteps: ['Use list_projects to verify changes.'],
-      relatedTools: ['list_projects', 'list_issues'],
-    };
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (config.TOON_OUTPUT_ENABLED) {
-      // Build TOON results section
-      const toonResults: ToonRow[] = results.map((r) => {
-        const errObj =
-          typeof r.error === 'object'
-            ? (r.error as { code?: string; message?: string; suggestions?: string[] })
-            : null;
-        return {
-          index: r.index,
-          status: r.success ? 'ok' : 'error',
-          key: r.projectKey ?? '',
-          error: r.success
-            ? ''
-            : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
-          code: r.success ? '' : (errObj?.code ?? ''),
-          hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
-        };
-      });
-
-      // Build changes section (flatten all changes from all results)
-      const allChanges: ToonRow[] = [];
-      for (const r of results.filter((r) => r.success && r.changes)) {
-        for (const change of r.changes ?? []) {
-          allChanges.push({
-            key: r.projectKey ?? '',
-            field: change.field,
-            before: change.before ?? '',
-            after: change.after ?? '',
-          });
-        }
-      }
-
-      // Build TOON response
-      const toonResponse: ToonResponse = {
-        meta: {
-          fields: ['action', 'succeeded', 'failed', 'total'],
-          values: {
-            action: 'update_projects',
-            succeeded,
-            failed,
-            total: args.items.length,
-          },
-        },
-        data: [
-          { schema: PROJECT_WRITE_RESULT_SCHEMA, items: toonResults },
-          ...(allChanges.length > 0
-            ? [{ schema: PROJECT_CHANGES_SCHEMA, items: allChanges }]
-            : []),
-        ],
-      };
-
-      const toonOutput = encodeToon(toonResponse);
-
+    // Build TOON results section
+    const toonResults: ToonRow[] = results.map((r) => {
+      const errObj =
+        typeof r.error === 'object'
+          ? (r.error as { code?: string; message?: string; suggestions?: string[] })
+          : null;
       return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _format: 'toon',
-          _version: '1',
+        index: r.index,
+        status: r.success ? 'ok' : 'error',
+        key: r.projectKey ?? '',
+        error: r.success
+          ? ''
+          : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+        code: r.success ? '' : (errObj?.code ?? ''),
+        hint: r.success ? '' : (errObj?.suggestions?.[0] ?? ''),
+      };
+    });
+
+    // Build changes section (flatten all changes from all results)
+    const allChanges: ToonRow[] = [];
+    for (const r of results.filter((r) => r.success && r.changes)) {
+      for (const change of r.changes ?? []) {
+        allChanges.push({
+          key: r.projectKey ?? '',
+          field: change.field,
+          before: change.before ?? '',
+          after: change.after ?? '',
+        });
+      }
+    }
+
+    // Build TOON response
+    const toonResponse: ToonResponse = {
+      meta: {
+        fields: ['action', 'succeeded', 'failed', 'total'],
+        values: {
           action: 'update_projects',
           succeeded,
           failed,
           total: args.items.length,
         },
-      };
-    }
+      },
+      data: [
+        { schema: PROJECT_WRITE_RESULT_SCHEMA, items: toonResults },
+        ...(allChanges.length > 0
+          ? [{ schema: PROJECT_CHANGES_SCHEMA, items: allChanges }]
+          : []),
+      ],
+    };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
-    // ─────────────────────────────────────────────────────────────────────────
+    const toonOutput = encodeToon(toonResponse);
 
-    // Strip TOON-specific fields for legacy schema compatibility
-    // BatchResultSchema only allows: input, success, id, identifier, url, error, index, ok
-    const legacyResults = results.map((r) => ({
-      index: r.index,
-      ok: r.ok,
-      id: r.id,
-      error: r.error,
-      input: r.input,
-      success: r.success,
-    }));
-
-    const structured = UpdateProjectsOutputSchema.parse({
-      results: legacyResults,
-      summary,
-      meta,
-    });
-
-    const okIds = legacyResults
-      .filter((r) => r.ok)
-      .map((r) => r.id ?? `item[${String(r.index)}]`) as string[];
-
-    const failures = legacyResults
-      .filter((r) => !r.ok)
-      .map((r) => ({
-        index: r.index,
-        id: r.id,
-        error:
-          typeof r.error === 'object'
-            ? ((r.error as { message?: string }).message ?? '')
-            : (r.error ?? ''),
-        code: undefined,
-      }));
-
-    const text = summarizeBatch({
-      action: 'Updated projects',
-      ok: summary.ok,
-      total: args.items.length,
-      okIdentifiers: okIds,
-      failures,
-      nextSteps: ['Call list_projects to verify changes.'],
-    });
-
-    const parts: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structured) });
-    }
-
-    return { content: parts, structuredContent: structured };
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: {
+        _format: 'toon',
+        _version: '1',
+        action: 'update_projects',
+        succeeded,
+        failed,
+        total: args.items.length,
+      },
+    };
   },
 });

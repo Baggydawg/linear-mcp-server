@@ -7,7 +7,7 @@
  * - Registry persistence: verify registry survives across multiple tool calls
  * - Tier 1 -> Tier 2 flow: workspace_metadata populates registry, other tools use it correctly
  *
- * Run with: TOON_OUTPUT_ENABLED=true bun test tests/integration/toon-round-trip.test.ts
+ * Run with: bun test tests/integration/toon-round-trip.test.ts
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -41,7 +41,6 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let mockClient: MockLinearClient;
-let originalToonEnabled: boolean;
 
 const SESSION_ID = 'integration-test-session';
 
@@ -96,15 +95,7 @@ function createMockRegistry(): ShortKeyRegistry {
   });
 }
 
-beforeEach(async () => {
-  // Save original config
-  const { config } = await import('../../src/config/env.js');
-  originalToonEnabled = config.TOON_OUTPUT_ENABLED;
-
-  // Enable TOON output for these tests
-  // @ts-expect-error - modifying config for test
-  config.TOON_OUTPUT_ENABLED = true;
-
+beforeEach(() => {
   // Create fresh mock client
   mockClient = createMockLinearClient();
   resetMockCalls(mockClient);
@@ -113,12 +104,7 @@ beforeEach(async () => {
   clearAllRegistries();
 });
 
-afterEach(async () => {
-  // Restore original config
-  const { config } = await import('../../src/config/env.js');
-  // @ts-expect-error - modifying config for test
-  config.TOON_OUTPUT_ENABLED = originalToonEnabled;
-
+afterEach(() => {
   // Clean up registries
   clearAllRegistries();
 });
@@ -613,7 +599,7 @@ describe('TOON Error Handling', () => {
     expect(error.message).toContain('s999');
   });
 
-  it('tools work gracefully without registry (fallback to legacy format)', async () => {
+  it('tools work gracefully without registry (still uses TOON format)', async () => {
     // Ensure no registry exists
     clearRegistry(SESSION_ID);
 
@@ -632,10 +618,14 @@ describe('TOON Error Handling', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // Should use legacy format when no registry
+    // TOON format is always used now
     const textContent = result.content[0].text;
-    expect(textContent).toContain('Updated issues');
-    expect(textContent).not.toContain('_meta{');
+    expect(textContent).toContain('_meta{');
+
+    // update_issues uses summary/results in structuredContent
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.summary).toBeDefined();
+    expect(structured.results).toBeDefined();
   });
 
   it('create_issues returns error for invalid project short key', async () => {

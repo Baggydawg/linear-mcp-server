@@ -87,13 +87,9 @@ describe('get_issues handler', () => {
     expect(result.structuredContent).toBeDefined();
 
     const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.results).toBeDefined();
-
-    const results = structured.results as Array<Record<string, unknown>>;
-    expect(results.length).toBe(1);
-    expect(results[0].success).toBe(true);
-    expect(results[0].issue).toBeDefined();
-    expect((results[0].issue as Record<string, unknown>).id).toBe('issue-001');
+    // TOON format uses succeeded/failed counts
+    expect(structured.succeeded).toBe(1);
+    expect(structured.failed).toBe(0);
 
     // Verify issue() was called
     expect(mockClient.issue).toHaveBeenCalledWith('issue-001');
@@ -105,10 +101,8 @@ describe('get_issues handler', () => {
     expect(result.isError).toBeFalsy();
 
     const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-
-    expect(results[0].success).toBe(true);
-    expect((results[0].issue as Record<string, unknown>).identifier).toBe('ENG-123');
+    // TOON format uses succeeded/failed counts
+    expect(structured.succeeded).toBe(1);
 
     // Verify issue() was called with identifier
     expect(mockClient.issue).toHaveBeenCalledWith('ENG-123');
@@ -123,35 +117,31 @@ describe('get_issues handler', () => {
     expect(result.isError).toBeFalsy();
 
     const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-
-    expect(results.length).toBe(3);
+    // TOON format uses total count
+    expect(structured.total).toBe(3);
     expect(mockClient.issue).toHaveBeenCalledTimes(3);
   });
 
-  it('returns issue details in result', async () => {
+  it('returns issue details in text content', async () => {
     const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-    const issue = results[0].issue as Record<string, unknown>;
-
-    expect(issue).toBeDefined();
-    expect(issue.id).toBe('issue-001');
-    expect(issue.title).toBe('Fix authentication bug');
+    // TOON format returns issue details in text content
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('issues[');
+    expect(textContent).toContain('ENG-123'); // issue identifier
+    expect(textContent).toContain('Fix authentication bug'); // issue title
   });
 
-  it('includes summary with ok/failed counts', async () => {
+  it('includes succeeded/failed counts', async () => {
     const result = await getIssuesTool.handler(
       { ids: ['issue-001', 'issue-002'] },
       baseContext,
     );
 
     const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { succeeded: number; failed: number };
-
-    expect(summary.succeeded).toBe(2);
-    expect(summary.failed).toBe(0);
+    // TOON format uses top-level succeeded/failed
+    expect(structured.succeeded).toBe(2);
+    expect(structured.failed).toBe(0);
   });
 });
 
@@ -160,45 +150,29 @@ describe('get_issues handler', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('get_issues output shape', () => {
-  it('matches GetIssuesOutputSchema', async () => {
+  it('matches TOON output format', async () => {
     const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
 
     const structured = result.structuredContent as Record<string, unknown>;
 
-    expect(structured.results).toBeDefined();
-    expect(structured.summary).toBeDefined();
-
-    const results = structured.results as Array<Record<string, unknown>>;
-    for (const r of results) {
-      expect(typeof r.requestedId).toBe('string');
-      expect(typeof r.success).toBe('boolean');
-      if (r.success) {
-        expect(r.issue).toBeDefined();
-      }
-    }
+    // TOON format has these fields
+    expect(structured._format).toBe('toon');
+    expect(structured._version).toBe('1');
+    expect(typeof structured.succeeded).toBe('number');
+    expect(typeof structured.failed).toBe('number');
+    expect(typeof structured.total).toBe('number');
   });
 
-  it('issue contains expected fields', async () => {
+  it('text content contains expected fields', async () => {
     const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-    const issue = results[0].issue as Record<string, unknown>;
+    const textContent = result.content[0].text;
 
-    // Required identification fields
-    expect(issue.id).toBeDefined();
-    expect(issue.identifier).toBeDefined();
-    expect(issue.title).toBeDefined();
-
-    // State info (nested object in GetIssueOutputSchema)
-    expect(issue.state).toBeDefined();
-    const state = issue.state as Record<string, unknown>;
-    expect(state.id).toBeDefined();
-    expect(state.name).toBeDefined();
-
-    // Labels array
-    expect(issue.labels).toBeDefined();
-    expect(Array.isArray(issue.labels)).toBe(true);
+    // TOON format includes issue details in text
+    expect(textContent).toContain('issues[');
+    expect(textContent).toContain('identifier');
+    expect(textContent).toContain('title');
+    expect(textContent).toContain('state');
   });
 });
 
@@ -215,10 +189,9 @@ describe('get_issues error handling', () => {
     expect(result.isError).toBeFalsy();
 
     const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-
-    expect(results[0].success).toBe(false);
-    expect(results[0].error).toBeDefined();
+    // TOON format uses top-level failed count
+    expect(structured.failed).toBe(1);
+    expect(structured.succeeded).toBe(0);
   });
 
   it('continues batch on partial failure', async () => {
@@ -244,10 +217,9 @@ describe('get_issues error handling', () => {
     );
 
     const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { succeeded: number; failed: number };
-
-    expect(summary.succeeded).toBe(1);
-    expect(summary.failed).toBe(1);
+    // TOON format uses top-level succeeded/failed counts
+    expect(structured.succeeded).toBe(1);
+    expect(structured.failed).toBe(1);
   });
 
   it('handles API error gracefully', async () => {
@@ -260,12 +232,9 @@ describe('get_issues error handling', () => {
     expect(result.isError).toBeFalsy();
 
     const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-
-    expect(results[0].success).toBe(false);
-    expect((results[0].error as Record<string, unknown>).message).toContain(
-      'Network error',
-    );
+    // TOON format uses top-level failed count
+    expect(structured.failed).toBe(1);
+    expect(structured.succeeded).toBe(0);
   });
 });
 
@@ -274,25 +243,7 @@ describe('get_issues error handling', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('get_issues TOON output', () => {
-  // Store original config value
-  let originalToonEnabled: boolean;
-
-  beforeEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
-  });
-
-  afterEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
-  });
-
-  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format', async () => {
     mockClient = createMockLinearClient();
     resetMockCalls(mockClient);
 
@@ -316,10 +267,6 @@ describe('get_issues TOON output', () => {
   });
 
   it('returns TOON with lookup tables (Tier 2 - referenced only)', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     mockClient = createMockLinearClient();
     resetMockCalls(mockClient);
 
@@ -336,10 +283,6 @@ describe('get_issues TOON output', () => {
   });
 
   it('returns TOON with issue data rows including full description', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     mockClient = createMockLinearClient();
     resetMockCalls(mockClient);
 
@@ -363,10 +306,6 @@ describe('get_issues TOON output', () => {
   });
 
   it('includes succeeded and failed counts in TOON meta', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     mockClient = createMockLinearClient();
     resetMockCalls(mockClient);
 
@@ -388,30 +327,5 @@ describe('get_issues TOON output', () => {
     expect(structured.succeeded).toBe(2);
     expect(structured.failed).toBe(0);
     expect(structured.total).toBe(2);
-  });
-
-  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = false;
-
-    mockClient = createMockLinearClient();
-    resetMockCalls(mockClient);
-
-    const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
-
-    expect(result.isError).toBeFalsy();
-    const textContent = result.content[0].text;
-
-    // Legacy format should contain "Fetched" summary
-    expect(textContent).toContain('Fetched');
-
-    // Structured content should have results array (legacy format)
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.results).toBeDefined();
-    expect(Array.isArray(structured.results)).toBe(true);
-
-    // Should NOT have TOON format indicator
-    expect(structured._format).toBeUndefined();
   });
 });

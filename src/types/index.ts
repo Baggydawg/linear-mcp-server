@@ -9,19 +9,6 @@ export type {
   ListUsersInput,
   UpdateIssuesInput,
 } from '../schemas/inputs.js';
-export type {
-  AccountOutput,
-  CreateIssuesOutput,
-  GetIssueOutput,
-  GetIssuesOutput,
-  ListCommentsOutput,
-  ListCyclesOutput,
-  ListIssuesOutput,
-  ListProjectsOutput,
-  ListTeamsOutput,
-  ListUsersOutput,
-  UpdateIssuesOutput,
-} from '../schemas/outputs.js';
 
 // Service layer types
 export interface ApiError extends Error {

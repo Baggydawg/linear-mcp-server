@@ -2,24 +2,18 @@
  * List Issues tool - search and filter issues with powerful GraphQL filtering.
  * Uses raw GraphQL to avoid N+1 query problem with SDK lazy loading.
  *
- * Supports TOON output format (Tier 2):
- * - When TOON_OUTPUT_ENABLED=true, returns TOON format with only REFERENCED entities
- * - When TOON_OUTPUT_ENABLED=false (default), returns legacy human-readable format
+ * Returns TOON format (Tier 2) with only REFERENCED entities.
  */
 
 import { z } from 'zod';
-import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
-import { ListIssuesOutputSchema } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import {
   createToolError,
   formatErrorMessage,
-  getZeroResultHints,
   validateFilter,
 } from '../../../utils/errors.js';
 import { normalizeIssueFilter } from '../../../utils/filters.js';
-import { previewLinesFromItems, summarizeList } from '../../../utils/messages.js';
 import { resolveCycleSelector, resolveTeamId } from '../../../utils/resolvers.js';
 import {
   COMMENT_SCHEMA,
@@ -45,8 +39,6 @@ import {
   USER_LOOKUP_SCHEMA,
 } from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
-import type { DetailLevel, IssueListItem } from './shared/index.js';
-import { formatIssuePreviewLine } from './shared/index.js';
 
 const InputSchema = z.object({
   limit: z
@@ -759,10 +751,9 @@ export const listIssuesTool = defineTool({
     }
 
     // Use raw GraphQL to avoid N+1 query problem with SDK lazy loading
-    const includeComments =
-      config.TOON_OUTPUT_ENABLED && args.includeComments !== false;
-    const includeRelations =
-      config.TOON_OUTPUT_ENABLED && args.includeRelations !== false;
+    // TOON output defaults to including comments and relations
+    const includeComments = args.includeComments !== false;
+    const includeRelations = args.includeRelations !== false;
 
     const QUERY = `
       query ListIssues(
@@ -849,236 +840,111 @@ export const listIssuesTool = defineTool({
     const nextCursor = hasMore ? (pageInfo.endCursor ?? undefined) : undefined;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
+    // TOON Output Format
     // ─────────────────────────────────────────────────────────────────────────
-    if (config.TOON_OUTPUT_ENABLED) {
-      // Convert raw GraphQL response to RawIssueData for TOON processing
-      const rawIssues: RawIssueData[] = (conn.nodes ?? []).map((i) => ({
-        id: String(i.id ?? ''),
-        identifier: (i.identifier as string) ?? undefined,
-        title: String(i.title ?? ''),
-        description: (i.description as string | null) ?? undefined,
-        priority: (i.priority as number) ?? undefined,
-        estimate: (i.estimate as number | null) ?? undefined,
-        state: i.state as { id: string; name: string; type?: string } | undefined,
-        project: i.project as { id: string; name?: string } | null | undefined,
-        assignee: i.assignee as { id: string; name?: string } | null | undefined,
-        creator: i.creator as { id: string; name?: string } | null | undefined,
-        team: i.team as { id: string; key?: string } | undefined,
-        cycle: i.cycle as { number?: number } | null | undefined,
-        parent: i.parent as { identifier?: string } | null | undefined,
-        createdAt: (i.createdAt as string | Date) ?? '',
-        updatedAt: (i.updatedAt as string | Date) ?? '',
-        archivedAt: (i.archivedAt as string | null) ?? undefined,
-        dueDate: (i.dueDate as string | null) ?? undefined,
-        url: (i.url as string) ?? undefined,
-        labels: i.labels as { nodes?: Array<{ id: string; name: string }> } | undefined,
-      }));
 
-      // Parse comments from raw response
-      const rawComments: RawCommentData[] = [];
-      if (includeComments) {
-        for (const node of conn.nodes ?? []) {
-          const issueIdentifier = (node.identifier as string) ?? '';
-          const commentNodes =
-            (node.comments as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
-          for (const c of commentNodes) {
-            rawComments.push({
-              id: String(c.id ?? ''),
-              body: String(c.body ?? ''),
-              createdAt: String(c.createdAt ?? ''),
-              issueIdentifier,
-              user: c.user as { id: string; name?: string } | null | undefined,
-            });
-          }
+    // Convert raw GraphQL response to RawIssueData for TOON processing
+    const rawIssues: RawIssueData[] = (conn.nodes ?? []).map((i) => ({
+      id: String(i.id ?? ''),
+      identifier: (i.identifier as string) ?? undefined,
+      title: String(i.title ?? ''),
+      description: (i.description as string | null) ?? undefined,
+      priority: (i.priority as number) ?? undefined,
+      estimate: (i.estimate as number | null) ?? undefined,
+      state: i.state as { id: string; name: string; type?: string } | undefined,
+      project: i.project as { id: string; name?: string } | null | undefined,
+      assignee: i.assignee as { id: string; name?: string } | null | undefined,
+      creator: i.creator as { id: string; name?: string } | null | undefined,
+      team: i.team as { id: string; key?: string } | undefined,
+      cycle: i.cycle as { number?: number } | null | undefined,
+      parent: i.parent as { identifier?: string } | null | undefined,
+      createdAt: (i.createdAt as string | Date) ?? '',
+      updatedAt: (i.updatedAt as string | Date) ?? '',
+      archivedAt: (i.archivedAt as string | null) ?? undefined,
+      dueDate: (i.dueDate as string | null) ?? undefined,
+      url: (i.url as string) ?? undefined,
+      labels: i.labels as { nodes?: Array<{ id: string; name: string }> } | undefined,
+    }));
+
+    // Parse comments from raw response
+    const rawComments: RawCommentData[] = [];
+    if (includeComments) {
+      for (const node of conn.nodes ?? []) {
+        const issueIdentifier = (node.identifier as string) ?? '';
+        const commentNodes =
+          (node.comments as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
+        for (const c of commentNodes) {
+          rawComments.push({
+            id: String(c.id ?? ''),
+            body: String(c.body ?? ''),
+            createdAt: String(c.createdAt ?? ''),
+            issueIdentifier,
+            user: c.user as { id: string; name?: string } | null | undefined,
+          });
         }
       }
-
-      // Parse relations from raw response
-      const rawRelations: RawRelationData[] = [];
-      if (includeRelations) {
-        for (const node of conn.nodes ?? []) {
-          const issueIdentifier = (node.identifier as string) ?? '';
-          const relationNodes =
-            (node.relations as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
-          for (const r of relationNodes) {
-            const relatedIssue = r.relatedIssue as { identifier?: string } | undefined;
-            rawRelations.push({
-              type: String(r.type ?? ''),
-              issueIdentifier,
-              relatedIssueIdentifier: relatedIssue?.identifier ?? '',
-            });
-          }
-        }
-      }
-
-      // Initialize registry if needed (lazy init)
-      let registry: ShortKeyRegistry | null = null;
-      try {
-        registry = await getOrInitRegistry(
-          {
-            sessionId: context.sessionId,
-            transport: 'stdio', // Default to stdio for now
-          },
-          () => fetchWorkspaceDataForRegistry(client),
-        );
-      } catch (error) {
-        // Registry init failed, continue without it (will use names instead of short keys)
-        console.error('Registry initialization failed:', error);
-      }
-
-      // Build TOON response
-      const toonResponse = buildToonResponse(
-        rawIssues,
-        registry,
-        {
-          hasMore,
-          cursor: nextCursor,
-          fetched: rawIssues.length,
-        },
-        { filter, teamId: resolvedTeamId, projectId: args.projectId },
-        rawComments,
-        rawRelations,
-      );
-
-      // Encode TOON output
-      const toonOutput = encodeResponse(rawIssues, toonResponse);
-
-      return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _format: 'toon',
-          _version: '1',
-          count: rawIssues.length,
-          hasMore,
-          nextCursor,
-        },
-      };
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
-    // ─────────────────────────────────────────────────────────────────────────
-    const items: IssueListItem[] = (conn.nodes ?? []).map((i) => {
-      const state =
-        (i.state as { id?: string; name?: string } | undefined) ?? undefined;
-      const project =
-        (i.project as { id?: string; name?: string } | undefined) ?? undefined;
-      const assignee =
-        (i.assignee as { id?: string; name?: string } | undefined) ?? undefined;
-      const labelsConn = i.labels as
-        | { nodes?: Array<{ id: string; name: string }> }
-        | undefined;
-      const labels = (labelsConn?.nodes ?? []).map((l) => ({ id: l.id, name: l.name }));
-      const archivedAtRaw = (i.archivedAt as string | null | undefined) ?? undefined;
+    // Parse relations from raw response
+    const rawRelations: RawRelationData[] = [];
+    if (includeRelations) {
+      for (const node of conn.nodes ?? []) {
+        const issueIdentifier = (node.identifier as string) ?? '';
+        const relationNodes =
+          (node.relations as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
+        for (const r of relationNodes) {
+          const relatedIssue = r.relatedIssue as { identifier?: string } | undefined;
+          rawRelations.push({
+            type: String(r.type ?? ''),
+            issueIdentifier,
+            relatedIssueIdentifier: relatedIssue?.identifier ?? '',
+          });
+        }
+      }
+    }
 
-      return {
-        id: String(i.id ?? ''),
-        identifier: (i.identifier as string) ?? undefined,
-        title: String(i.title ?? ''),
-        description: (i.description as string | null) ?? undefined,
-        priority: (i.priority as number) ?? undefined,
-        estimate: (i.estimate as number | null) ?? undefined,
-        stateId: state?.id ?? '',
-        stateName: state?.name ?? undefined,
-        projectId: project?.id ?? undefined,
-        projectName: project?.name ?? undefined,
-        assigneeId: assignee?.id ?? undefined,
-        assigneeName: assignee?.name ?? undefined,
-        createdAt: String((i.createdAt as string | Date) ?? ''),
-        updatedAt: String((i.updatedAt as string | Date) ?? ''),
-        archivedAt: archivedAtRaw ? String(archivedAtRaw) : undefined,
-        dueDate: (i.dueDate as string) ?? undefined,
-        url: (i.url as string) ?? undefined,
-        labels,
-      };
-    });
+    // Initialize registry if needed (lazy init)
+    // When registry is unavailable, TOON output will use names/UUIDs instead of short keys
+    let registry: ShortKeyRegistry | null = null;
+    try {
+      registry = await getOrInitRegistry(
+        {
+          sessionId: context.sessionId,
+          transport: 'stdio', // Default to stdio for now
+        },
+        () => fetchWorkspaceDataForRegistry(client),
+      );
+    } catch (error) {
+      // Registry init failed, continue without it (will use names instead of short keys)
+      console.error('Registry initialization failed:', error);
+    }
 
-    // Build query echo for LLM context
-    const query = {
-      filter: Object.keys(filter).length > 0 ? filter : undefined,
-      teamId: args.teamId,
-      projectId: args.projectId,
-      assignedToMe: args.assignedToMe,
-      keywords: keywords.length > 0 ? keywords : undefined,
-      matchMode: args.matchMode ?? 'all',
-      includeArchived: args.includeArchived,
-      orderBy: args.orderBy,
-      limit,
-    };
-
-    // Build pagination info
-    const pagination = {
-      hasMore,
-      nextCursor,
-      itemsReturned: items.length,
-      limit,
-    };
-
-    // Build context-aware hints for zero results
-    const zeroReasonHints =
-      items.length === 0
-        ? getZeroResultHints({
-            hasStateFilter: !!(args.filter as Record<string, unknown> | undefined)
-              ?.state,
-            hasDateFilter:
-              !!(args.filter as Record<string, unknown> | undefined)?.updatedAt ||
-              !!(args.filter as Record<string, unknown> | undefined)?.createdAt,
-            hasTeamFilter: !!args.teamId,
-            hasAssigneeFilter:
-              !!args.assignedToMe ||
-              !!(args.filter as Record<string, unknown> | undefined)?.assignee,
-            hasProjectFilter: !!args.projectId,
-            hasKeywordFilter: !!args.q || (args.keywords?.length ?? 0) > 0,
-          })
-        : undefined;
-
-    // Build meta with next steps
-    const meta = {
-      nextSteps: [
-        ...(hasMore
-          ? [`Call again with cursor="${nextCursor}" to fetch more results.`]
-          : []),
-        'Use get_issues with specific IDs for detailed info.',
-        'Use update_issues to modify state, assignee, or labels.',
-      ],
-      hints: zeroReasonHints,
-      relatedTools: ['get_issues', 'update_issues', 'add_comments'],
-    };
-
-    const structured = ListIssuesOutputSchema.parse({
-      query,
-      items,
-      pagination,
-      meta,
-      // Legacy fields for backward compatibility
-      cursor: args.cursor,
-      nextCursor,
-      limit,
-    });
-
-    const detail: DetailLevel = args.detail ?? 'standard';
-    const preview = previewLinesFromItems(
-      items as unknown as Record<string, unknown>[],
-      (it) => formatIssuePreviewLine(it as unknown as IssueListItem, detail),
+    // Build TOON response
+    const toonResponse = buildToonResponse(
+      rawIssues,
+      registry,
+      {
+        hasMore,
+        cursor: nextCursor,
+        fetched: rawIssues.length,
+      },
+      { filter, teamId: resolvedTeamId, projectId: args.projectId },
+      rawComments,
+      rawRelations,
     );
 
-    const text = summarizeList({
-      subject: 'Issues',
-      count: items.length,
-      limit,
-      nextCursor,
-      previewLines: preview,
-      zeroReasonHints,
-      nextSteps: hasMore ? [`Pass cursor '${nextCursor}' to fetch more.`] : undefined,
-    });
+    // Encode TOON output
+    const toonOutput = encodeResponse(rawIssues, toonResponse);
 
-    const parts: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structured) });
-    }
-
-    return { content: parts, structuredContent: structured };
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: {
+        _format: 'toon',
+        _version: '1',
+        count: rawIssues.length,
+        hasMore,
+        nextCursor,
+      },
+    };
   },
 });

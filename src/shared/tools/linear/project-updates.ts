@@ -1,20 +1,17 @@
 /**
  * Project Updates tools - list, create, and update project status updates.
  *
- * Supports TOON output format (Tier 2):
- * - When TOON_OUTPUT_ENABLED=true, returns TOON format with update authors in _users lookup
- * - When TOON_OUTPUT_ENABLED=false (default), returns legacy human-readable format
+ * Uses TOON output format (Tier 2):
+ * - Returns TOON format with update authors in _users lookup
  *
  * Project updates use project short keys (pr0, pr1...) for project reference.
  */
 
 import { z } from 'zod';
-import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import { delay, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
-import { previewLinesFromItems, summarizeList } from '../../../utils/messages.js';
 import {
   CREATED_PROJECT_UPDATE_SCHEMA,
   encodeResponse,
@@ -323,20 +320,18 @@ export const listProjectUpdatesTool = defineTool({
     const first = args.limit ?? 20;
     const after = args.cursor;
 
-    // Initialize registry if TOON is enabled for short key resolution
+    // Initialize registry for short key resolution
     let registry: ShortKeyRegistry | null = null;
-    if (config.TOON_OUTPUT_ENABLED) {
-      try {
-        registry = await getOrInitRegistry(
-          {
-            sessionId: context.sessionId,
-            transport: 'stdio',
-          },
-          () => fetchWorkspaceDataForRegistry(client),
-        );
-      } catch (error) {
-        console.error('Registry initialization failed:', error);
-      }
+    try {
+      registry = await getOrInitRegistry(
+        {
+          sessionId: context.sessionId,
+          transport: 'stdio',
+        },
+        () => fetchWorkspaceDataForRegistry(client),
+      );
+    } catch (error) {
+      console.error('Registry initialization failed:', error);
     }
 
     // Resolve project short key (pr0, pr1...) to UUID
@@ -410,117 +405,27 @@ export const listProjectUpdatesTool = defineTool({
     const hasMore = pageInfo?.hasNextPage ?? false;
     const nextCursor = hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (config.TOON_OUTPUT_ENABLED) {
-      // Build TOON response
-      const toonResponse = buildProjectUpdatesToonResponse(
-        rawUpdates,
-        projectKey,
-        registry,
-      );
-
-      // Encode TOON output
-      const toonOutput = encodeResponse(rawUpdates, toonResponse);
-
-      return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _format: 'toon',
-          _version: '1',
-          project: projectKey,
-          count: rawUpdates.length,
-          hasMore,
-          nextCursor,
-        },
-      };
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // Build items for legacy output
-    const items = rawUpdates.map((update) => ({
-      id: update.id,
-      body: update.body,
-      health: update.health,
-      createdAt:
-        update.createdAt instanceof Date
-          ? update.createdAt.toISOString()
-          : update.createdAt,
-      url: update.url,
-      user: update.user ? { id: update.user.id, name: update.user.name } : undefined,
-      project: update.project
-        ? { id: update.project.id, name: update.project.name }
-        : undefined,
-    }));
-
-    // Build query echo
-    const query = {
-      project: args.project,
-      limit: first,
-    };
-
-    // Build pagination
-    const pagination = {
-      hasMore,
-      nextCursor,
-      itemsReturned: items.length,
-      limit: first,
-    };
-
-    // Build meta
-    const meta = {
-      nextSteps: [
-        ...(hasMore ? [`Call again with cursor="${nextCursor}" for more.`] : []),
-        'Use create_project_update to add a new status update.',
-        'Use update_project_update to modify an existing update.',
-      ],
-      relatedTools: ['create_project_update', 'update_project_update', 'list_projects'],
-    };
-
-    const structured = {
-      query,
-      items,
-      pagination,
-      meta,
-      // Legacy
-      cursor: args.cursor,
-      nextCursor,
-      limit: first,
-    };
-
-    const preview = previewLinesFromItems(
-      items as unknown as Record<string, unknown>[],
-      (u) => {
-        const health = (u.health as string | undefined) ?? 'unknown';
-        const body = String((u.body as string | undefined) ?? '').slice(0, 60);
-        const user = u.user as { name?: string; id?: string } | undefined;
-        const author = user?.name ?? user?.id ?? 'unknown';
-        return `[${health}] ${author}: ${body}...`;
-      },
+    // Build TOON response
+    const toonResponse = buildProjectUpdatesToonResponse(
+      rawUpdates,
+      projectKey,
+      registry,
     );
 
-    const message = summarizeList({
-      subject: 'Project Updates',
-      count: items.length,
-      limit: first,
-      nextCursor,
-      previewLines: preview,
-      nextSteps: meta.nextSteps,
-    });
+    // Encode TOON output
+    const toonOutput = encodeResponse(rawUpdates, toonResponse);
 
-    const parts: Array<{ type: 'text'; text: string }> = [
-      { type: 'text', text: message },
-    ];
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structured) });
-    }
-
-    return { content: parts, structuredContent: structured };
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: {
+        _format: 'toon',
+        _version: '1',
+        project: projectKey,
+        count: rawUpdates.length,
+        hasMore,
+        nextCursor,
+      },
+    };
   },
 });
 
@@ -550,20 +455,18 @@ export const createProjectUpdateTool = defineTool({
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
     const client = await getLinearClient(context);
 
-    // Initialize registry if TOON is enabled for short key resolution
+    // Initialize registry for short key resolution
     let registry: ShortKeyRegistry | null = null;
-    if (config.TOON_OUTPUT_ENABLED) {
-      try {
-        registry = await getOrInitRegistry(
-          {
-            sessionId: context.sessionId,
-            transport: 'stdio',
-          },
-          () => fetchWorkspaceDataForRegistry(client),
-        );
-      } catch (error) {
-        console.error('Registry initialization failed:', error);
-      }
+    try {
+      registry = await getOrInitRegistry(
+        {
+          sessionId: context.sessionId,
+          transport: 'stdio',
+        },
+        () => fetchWorkspaceDataForRegistry(client),
+      );
+    } catch (error) {
+      console.error('Registry initialization failed:', error);
     }
 
     // Resolve project short key (pr0, pr1...) to UUID
@@ -621,75 +524,40 @@ export const createProjectUpdateTool = defineTool({
         createdAt?: Date | string;
       } | null;
 
-      // ─────────────────────────────────────────────────────────────────────────
-      // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
-      // ─────────────────────────────────────────────────────────────────────────
-      if (config.TOON_OUTPUT_ENABLED) {
-        // Build TOON response for created update
-        const createdUpdate: ToonRow = {
-          id: projectUpdate?.id ?? '',
-          project: projectKey,
-          body: args.body.slice(0, 100) + (args.body.length > 100 ? '...' : ''),
-          health: args.health ?? 'onTrack',
-          url: projectUpdate?.url ?? '',
-        };
-
-        const toonResponse: ToonResponse = {
-          meta: {
-            fields: ['action', 'succeeded', 'project'],
-            values: {
-              action: 'create_project_update',
-              succeeded: 1,
-              project: projectKey,
-            },
-          },
-          data: [{ schema: CREATED_PROJECT_UPDATE_SCHEMA, items: [createdUpdate] }],
-        };
-
-        const toonOutput = encodeToon(toonResponse);
-
-        return {
-          content: [{ type: 'text', text: toonOutput }],
-          structuredContent: {
-            _format: 'toon',
-            _version: '1',
-            action: 'create_project_update',
-            succeeded: 1,
-            id: projectUpdate?.id,
-            url: projectUpdate?.url,
-          },
-        };
-      }
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
-      // ─────────────────────────────────────────────────────────────────────────
-
-      const structured = {
-        success: true,
-        id: projectUpdate?.id,
-        url: projectUpdate?.url,
+      // Build TOON response for created update
+      const createdUpdate: ToonRow = {
+        id: projectUpdate?.id ?? '',
+        project: projectKey,
+        body: args.body.slice(0, 100) + (args.body.length > 100 ? '...' : ''),
         health: args.health ?? 'onTrack',
-        meta: {
-          nextSteps: [
-            'Use list_project_updates to see all updates for this project.',
-            'Use update_project_update to modify this update.',
-          ],
-          relatedTools: ['list_project_updates', 'update_project_update'],
-        },
+        url: projectUpdate?.url ?? '',
       };
 
-      const message = `Created project update (id: ${projectUpdate?.id}).\n\nURL: ${projectUpdate?.url ?? 'N/A'}\n\nTip: Use list_project_updates to see all updates for this project.`;
+      const toonResponse: ToonResponse = {
+        meta: {
+          fields: ['action', 'succeeded', 'project'],
+          values: {
+            action: 'create_project_update',
+            succeeded: 1,
+            project: projectKey,
+          },
+        },
+        data: [{ schema: CREATED_PROJECT_UPDATE_SCHEMA, items: [createdUpdate] }],
+      };
 
-      const parts: Array<{ type: 'text'; text: string }> = [
-        { type: 'text', text: message },
-      ];
+      const toonOutput = encodeToon(toonResponse);
 
-      if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-        parts.push({ type: 'text', text: JSON.stringify(structured) });
-      }
-
-      return { content: parts, structuredContent: structured };
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+        structuredContent: {
+          _format: 'toon',
+          _version: '1',
+          action: 'create_project_update',
+          succeeded: 1,
+          id: projectUpdate?.id,
+          url: projectUpdate?.url,
+        },
+      };
     } catch (error) {
       await logger.error('create_project_update', {
         message: 'Failed to create project update',
@@ -782,81 +650,44 @@ export const updateProjectUpdateTool = defineTool({
       );
 
       // Must await projectUpdate relation as Linear SDK uses lazy-loading
-      const projectUpdate = (await payload.projectUpdate) as {
-        id?: string;
-        url?: string;
-        health?: string;
-        body?: string;
-      } | null;
+      await payload.projectUpdate;
 
-      // ─────────────────────────────────────────────────────────────────────────
-      // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
-      // ─────────────────────────────────────────────────────────────────────────
-      if (config.TOON_OUTPUT_ENABLED) {
-        // Build TOON result
-        const result: ToonRow = {
-          index: 0,
-          status: 'ok',
-          id: args.id,
-          project: '', // We don't have project key in update context
-          error: '',
-          code: '',
-          hint: '',
-        };
-
-        const toonResponse: ToonResponse = {
-          meta: {
-            fields: ['action', 'succeeded', 'failed', 'total'],
-            values: {
-              action: 'update_project_update',
-              succeeded: 1,
-              failed: 0,
-              total: 1,
-            },
-          },
-          data: [{ schema: PROJECT_UPDATE_WRITE_RESULT_SCHEMA, items: [result] }],
-        };
-
-        const toonOutput = encodeToon(toonResponse);
-
-        return {
-          content: [{ type: 'text', text: toonOutput }],
-          structuredContent: {
-            _format: 'toon',
-            _version: '1',
-            action: 'update_project_update',
-            succeeded: 1,
-            id: args.id,
-          },
-        };
-      }
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
-      // ─────────────────────────────────────────────────────────────────────────
-
-      const structured = {
-        success: true,
+      // Build TOON result
+      const result: ToonRow = {
+        index: 0,
+        status: 'ok',
         id: args.id,
-        url: projectUpdate?.url,
-        health: projectUpdate?.health ?? args.health,
-        meta: {
-          nextSteps: ['Use list_project_updates to verify changes.'],
-          relatedTools: ['list_project_updates', 'create_project_update'],
-        },
+        project: '', // We don't have project key in update context
+        error: '',
+        code: '',
+        hint: '',
       };
 
-      const message = `Updated project update (id: ${args.id}).\n\nURL: ${projectUpdate?.url ?? 'N/A'}\n\nTip: Use list_project_updates to verify changes.`;
+      const toonResponse: ToonResponse = {
+        meta: {
+          fields: ['action', 'succeeded', 'failed', 'total'],
+          values: {
+            action: 'update_project_update',
+            succeeded: 1,
+            failed: 0,
+            total: 1,
+          },
+        },
+        data: [{ schema: PROJECT_UPDATE_WRITE_RESULT_SCHEMA, items: [result] }],
+      };
 
-      const parts: Array<{ type: 'text'; text: string }> = [
-        { type: 'text', text: message },
-      ];
+      const toonOutput = encodeToon(toonResponse);
 
-      if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-        parts.push({ type: 'text', text: JSON.stringify(structured) });
-      }
-
-      return { content: parts, structuredContent: structured };
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+        structuredContent: {
+          _format: 'toon',
+          _version: '1',
+          action: 'update_project_update',
+          succeeded: 1,
+          id: args.id,
+        },
+      };
     } catch (error) {
       await logger.error('update_project_update', {
         message: 'Failed to update project update',

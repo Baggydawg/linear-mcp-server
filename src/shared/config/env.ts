@@ -56,7 +56,6 @@ export type UnifiedConfig = {
 
   // Linear-specific (for local dev only, prefer OAuth in production)
   LINEAR_ACCESS_TOKEN?: string;
-  LINEAR_MCP_INCLUDE_JSON_IN_CONTENT: boolean;
 
   // Storage
   RS_TOKENS_FILE?: string;
@@ -69,11 +68,6 @@ export type UnifiedConfig = {
 
   // Logging
   LOG_LEVEL: 'debug' | 'info' | 'warning' | 'error';
-
-  // TOON Output Format
-  // When true, tools output TOON (Token-Oriented Object Notation) format
-  // When false (default), tools use legacy human-readable format
-  TOON_OUTPUT_ENABLED: boolean;
 
   // User Profiles
   // Custom user profile metadata (role, skills, focus area) for work assignment context
@@ -182,9 +176,6 @@ export function parseConfig(env: Record<string, unknown>): UnifiedConfig {
 
     // Linear-specific (for local dev only, prefer OAuth in production)
     LINEAR_ACCESS_TOKEN: env.LINEAR_ACCESS_TOKEN as string | undefined,
-    LINEAR_MCP_INCLUDE_JSON_IN_CONTENT: parseBoolean(
-      env.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT,
-    ),
 
     RS_TOKENS_FILE: env.RS_TOKENS_FILE as string | undefined,
     RS_TOKENS_ENC_KEY: env.RS_TOKENS_ENC_KEY as string | undefined,
@@ -193,9 +184,6 @@ export function parseConfig(env: Record<string, unknown>): UnifiedConfig {
     CONCURRENCY_LIMIT: parseNumber(env.CONCURRENCY_LIMIT, 5),
 
     LOG_LEVEL: (env.LOG_LEVEL as UnifiedConfig['LOG_LEVEL']) || 'info',
-
-    // TOON Output Format (default: false for gradual rollout)
-    TOON_OUTPUT_ENABLED: parseBoolean(env.TOON_OUTPUT_ENABLED),
 
     // User Profiles
     USER_PROFILES_FILE: env.USER_PROFILES_FILE as string | undefined,

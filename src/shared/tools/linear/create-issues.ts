@@ -1,18 +1,16 @@
 /**
  * Create Issues tool - batch create issues in Linear.
  *
- * Supports TOON output format when TOON_OUTPUT_ENABLED=true.
+ * Returns TOON output format.
  * Accepts short keys (u0, s1, pr0) for assignee, state, and project inputs.
  */
 
 import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
-import { CreateIssuesOutputSchema } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
-import { summarizeBatch } from '../../../utils/messages.js';
 import {
   resolveCycleNumber,
   resolveCycleNumberToId,
@@ -26,14 +24,11 @@ import {
 import { resolveAssignee } from '../../../utils/user-resolver.js';
 import {
   encodeToon,
-  getOrInitRegistry,
   getStoredRegistry,
-  ISSUE_SCHEMA,
   type ShortKeyRegistry,
   type ToonResponse,
   tryGetShortKey,
   tryResolveShortKey,
-  WRITE_RESULT_META_SCHEMA,
   WRITE_RESULT_SCHEMA,
 } from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
@@ -180,14 +175,10 @@ export const createIssuesTool = defineTool({
     const { items } = args;
     const teamAllowZeroCache = createTeamSettingsCache();
 
-    // Get registry for short key resolution (if TOON enabled or short keys used)
-    let registry: ShortKeyRegistry | undefined;
-    const usesShortKeys = items.some((it) => it.assignee || it.state || it.project);
-    if (config.TOON_OUTPUT_ENABLED || usesShortKeys) {
-      registry = getStoredRegistry(context.sessionId);
-      // Registry may not exist if workspace_metadata hasn't been called yet
-      // Short key resolution will fail gracefully with helpful error
-    }
+    // Get registry for short key resolution
+    // Registry may not exist if workspace_metadata hasn't been called yet
+    // Short key resolution will fail gracefully with helpful error
+    const registry = getStoredRegistry(context.sessionId);
 
     const results: Array<{
       index: number;
@@ -752,210 +743,98 @@ export const createIssuesTool = defineTool({
       relatedTools: ['list_issues', 'get_issues', 'update_issues', 'add_comments'],
     };
 
-    // Clean results for schema validation (remove TOON-specific internal fields)
-    const cleanedResults = results.map((r) => ({
-      index: r.index,
-      ok: r.ok,
-      success: r.success,
-      id: r.id,
-      identifier: r.identifier,
-      url: r.url,
-      error: r.error,
-      input: r.input,
-    }));
-
-    const structured = CreateIssuesOutputSchema.parse({
-      results: cleanedResults,
-      summary,
-      meta,
-    });
-
     // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format (when enabled)
+    // TOON Output Format
     // ─────────────────────────────────────────────────────────────────────────
-    if (config.TOON_OUTPUT_ENABLED && registry) {
-      const toonResponse: ToonResponse = {
-        meta: {
-          fields: ['action', 'succeeded', 'failed', 'total'],
-          values: {
-            action: 'create_issues',
-            succeeded,
-            failed,
-            total: items.length,
-          },
+    const toonResponse: ToonResponse = {
+      meta: {
+        fields: ['action', 'succeeded', 'failed', 'total'],
+        values: {
+          action: 'create_issues',
+          succeeded,
+          failed,
+          total: items.length,
         },
-        data: [
-          // Results section
-          {
-            schema: WRITE_RESULT_SCHEMA,
-            items: results.map((r) => {
-              const errObj =
-                typeof r.error === 'object'
-                  ? (r.error as {
-                      code?: string;
-                      message?: string;
-                      suggestions?: string[];
-                    })
-                  : null;
-              return {
-                index: r.index,
-                status: r.ok ? 'ok' : 'error',
-                identifier: r.identifier ?? '',
-                error: r.ok
-                  ? ''
-                  : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
-                code: r.ok ? '' : (errObj?.code ?? ''),
-                hint: r.ok ? '' : (errObj?.suggestions?.[0] ?? ''),
-              };
-            }),
-          },
-        ],
+      },
+      data: [
+        // Results section
+        {
+          schema: WRITE_RESULT_SCHEMA,
+          items: results.map((r) => {
+            const errObj =
+              typeof r.error === 'object'
+                ? (r.error as {
+                    code?: string;
+                    message?: string;
+                    suggestions?: string[];
+                  })
+                : null;
+            return {
+              index: r.index,
+              status: r.ok ? 'ok' : 'error',
+              identifier: r.identifier ?? '',
+              error: r.ok
+                ? ''
+                : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+              code: r.ok ? '' : (errObj?.code ?? ''),
+              hint: r.ok ? '' : (errObj?.suggestions?.[0] ?? ''),
+            };
+          }),
+        },
+      ],
+    };
+
+    // Add created issues section if any succeeded
+    // When registry is unavailable, use empty strings for short keys (UUIDs stored in results)
+    if (createdIssues.length > 0) {
+      const createdSchema = {
+        name: 'created',
+        fields: ['identifier', 'title', 'state', 'assignee', 'project', 'url'],
       };
 
-      // Add created issues section if any succeeded
-      if (createdIssues.length > 0) {
-        const createdSchema = {
-          name: 'created',
-          fields: ['identifier', 'title', 'state', 'assignee', 'project', 'url'],
-        };
-
-        toonResponse.data?.push({
-          schema: createdSchema,
-          items: createdIssues.map((issue) => ({
-            identifier: issue.identifier,
-            title: issue.title,
-            state: issue.stateId
+      toonResponse.data?.push({
+        schema: createdSchema,
+        items: createdIssues.map((issue) => ({
+          identifier: issue.identifier,
+          title: issue.title,
+          state:
+            issue.stateId && registry
               ? (tryGetShortKey(registry, 'state', issue.stateId) ?? '')
               : '',
-            assignee: issue.assigneeId
+          assignee:
+            issue.assigneeId && registry
               ? (tryGetShortKey(registry, 'user', issue.assigneeId) ?? '')
               : '',
-            project: issue.projectId
+          project:
+            issue.projectId && registry
               ? (tryGetShortKey(registry, 'project', issue.projectId) ?? '')
               : '',
-            url: issue.url ?? '',
-          })),
-        });
-      }
-
-      const toonOutput = encodeToon(toonResponse);
-
-      return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: structured,
-      };
+          url: issue.url ?? '',
+        })),
+      });
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy Output Format
-    // ─────────────────────────────────────────────────────────────────────────
-    const okIds = results
-      .filter((r) => r.ok)
-      .map((r) => r.identifier ?? r.id ?? `item[${String(r.index)}]`) as string[];
+    const toonOutput = encodeToon(toonResponse);
 
-    const failures = results
-      .filter((r) => !r.ok)
-      .map((r) => ({
+    // Build structured content for MCP response
+    const structured = {
+      results: results.map((r) => ({
         index: r.index,
-        error: typeof r.error === 'object' ? r.error.message : (r.error ?? ''),
-        code: undefined,
-      }));
+        ok: r.ok,
+        success: r.success,
+        id: r.id,
+        identifier: r.identifier,
+        url: r.url,
+        error: r.error,
+        input: r.input,
+      })),
+      summary,
+      meta,
+    };
 
-    // Compose a richer message with links for created items
-    const failureHints: string[] = [];
-    if (summary.failed > 0) {
-      failureHints.push(
-        "If 'assigneeId' was invalid, fetch viewer id via 'workspace_metadata' (include: ['profile']) and use it to assign to yourself.",
-      );
-      failureHints.push(
-        "Alternatively use 'workspace_metadata' to find the correct user id, or omit 'assigneeId' and assign later with 'update_issues'.",
-      );
-    }
-
-    // Build summary without next steps (tips go at the end)
-    const summaryLine = summarizeBatch({
-      action: 'Created issues',
-      ok: summary.ok,
-      total: items.length,
-      okIdentifiers: okIds,
-      failures,
-    });
-
-    const tips = [
-      'Tip: Use list_issues to verify details, or update_issues to modify.',
-      ...failureHints,
-    ];
-
-    const detailLines: string[] = [];
-    for (const r of results.filter((r) => r.ok)) {
-      try {
-        const issue = await client.issue(r.id ?? (r.identifier as string));
-        const idf =
-          (issue as unknown as { identifier?: string })?.identifier ?? issue.id;
-        const url = (issue as unknown as { url?: string })?.url as string | undefined;
-        const title = issue.title;
-
-        let stateName: string | undefined;
-        let projectName: string | undefined;
-        let assigneeName: string | undefined;
-        try {
-          const s = await (issue as unknown as { state?: Promise<{ name?: string }> })
-            .state;
-          stateName = s?.name ?? undefined;
-        } catch {}
-        try {
-          const p = await (issue as unknown as { project?: Promise<{ name?: string }> })
-            .project;
-          projectName = p?.name ?? undefined;
-        } catch {}
-        try {
-          const a = await (
-            issue as unknown as { assignee?: Promise<{ name?: string }> }
-          ).assignee;
-          assigneeName = a?.name ?? undefined;
-        } catch {}
-
-        let labelsList = '';
-        try {
-          labelsList = (await issue.labels()).nodes
-            .map((l) => l.name)
-            .slice(0, 5)
-            .join(', ');
-        } catch {}
-
-        const dueDate = (issue as unknown as { dueDate?: string })?.dueDate;
-        const priorityVal = (issue as unknown as { priority?: number })?.priority;
-
-        const header = url ? `[${idf} — ${title}](${url})` : `${idf} — ${title}`;
-
-        const partsLine: string[] = [];
-        if (stateName) partsLine.push(`state ${stateName}`);
-        if (projectName) partsLine.push(`project ${projectName}`);
-        if (labelsList) partsLine.push(`labels ${labelsList}`);
-        if (typeof priorityVal === 'number') partsLine.push(`priority ${priorityVal}`);
-        if (dueDate) partsLine.push(`due ${dueDate}`);
-        if (assigneeName) partsLine.push(`assignee ${assigneeName}`);
-
-        const line =
-          partsLine.length > 0 ? `${header} — ${partsLine.join('; ')}` : header;
-        detailLines.push(`- ${line}`);
-      } catch {}
-    }
-
-    // Compose: summary → details → tips
-    const textParts = [summaryLine];
-    if (detailLines.length > 0) {
-      textParts.push(detailLines.join('\n'));
-    }
-    textParts.push(tips.join(' '));
-    const text = textParts.join('\n\n');
-
-    const parts: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structured) });
-    }
-
-    return { content: parts, structuredContent: structured };
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: structured,
+    };
   },
 });

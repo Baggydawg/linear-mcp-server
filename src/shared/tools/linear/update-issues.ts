@@ -1,18 +1,16 @@
 /**
  * Update Issues tool - batch update issues in Linear.
  *
- * Supports TOON output format when TOON_OUTPUT_ENABLED=true.
+ * Returns TOON output format.
  * Accepts short keys (u0, s1, pr0) for assignee, state, and project inputs.
  */
 
 import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
-import { UpdateIssuesOutputSchema } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
-import { summarizeBatch } from '../../../utils/messages.js';
 import {
   getIssueTeamId,
   resolveCycleNumber,
@@ -34,7 +32,6 @@ import {
   type ToonResponse,
   tryGetShortKey,
   tryResolveShortKey,
-  WRITE_RESULT_META_SCHEMA,
   WRITE_RESULT_SCHEMA,
 } from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
@@ -42,7 +39,6 @@ import {
   captureIssueSnapshot,
   computeFieldChanges,
   createTeamSettingsCache,
-  formatDiffLine,
   validateEstimate,
   validatePriority,
 } from './shared/index.js';
@@ -204,13 +200,9 @@ export const updateIssuesTool = defineTool({
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
     const { items } = args;
 
-    // Get registry for short key resolution (if TOON enabled or short keys used)
-    let registry: ShortKeyRegistry | undefined;
-    const usesShortKeys = items.some((it) => it.assignee || it.state || it.project);
-    if (config.TOON_OUTPUT_ENABLED || usesShortKeys) {
-      registry = getStoredRegistry(context.sessionId);
-      // Registry may not exist if workspace_metadata hasn't been called yet
-    }
+    // Get registry for short key resolution
+    // Registry may not exist if workspace_metadata hasn't been called yet
+    const registry = getStoredRegistry(context.sessionId);
 
     const results: Array<{
       index: number;
@@ -231,7 +223,6 @@ export const updateIssuesTool = defineTool({
     }> = [];
 
     const teamAllowZeroCache = createTeamSettingsCache();
-    const diffLines: string[] = [];
 
     // Track changes for TOON output (use index signature for ToonRow compatibility)
     const toonChanges: Array<{
@@ -846,8 +837,8 @@ export const updateIssuesTool = defineTool({
             requestedFields,
           );
 
-          // Track changes for TOON output
-          if (registry && config.TOON_OUTPUT_ENABLED) {
+          // Track changes for TOON output (when registry is available for short keys)
+          if (registry) {
             const finalIdentifier = afterSnapshot.identifier ?? it.id;
 
             // State change
@@ -1003,18 +994,6 @@ export const updateIssuesTool = defineTool({
             }
           }
 
-          // Format diff using shared utility (for legacy output)
-          if (Object.keys(changes).length > 0) {
-            const diffLine = formatDiffLine(afterSnapshot, changes);
-            diffLines.push(diffLine);
-          } else if (beforeSnapshot) {
-            // No changes detected, just show header
-            const idf = afterSnapshot.identifier ?? afterSnapshot.id;
-            const title = afterSnapshot.url
-              ? `[${idf} — ${afterSnapshot.title}](${afterSnapshot.url})`
-              : `${idf} — ${afterSnapshot.title}`;
-            diffLines.push(`- ${title} (id ${afterSnapshot.id})`);
-          }
         }
       } catch (error) {
         await logger.error('update_issues', {
@@ -1066,127 +1045,75 @@ export const updateIssuesTool = defineTool({
       relatedTools: ['list_issues', 'get_issues', 'add_comments'],
     };
 
-    // Clean results for schema validation (remove internal fields)
-    const cleanedResults = results.map((r) => ({
-      index: r.index,
-      ok: r.ok,
-      success: r.success,
-      id: r.id,
-      identifier: r.identifier,
-      error: r.error,
-      input: r.input,
-    }));
+    // ─────────────────────────────────────────────────────────────────────────
+    // TOON Output Format
+    // ─────────────────────────────────────────────────────────────────────────
+    const toonResponse: ToonResponse = {
+      meta: {
+        fields: ['action', 'succeeded', 'failed', 'total'],
+        values: {
+          action: 'update_issues',
+          succeeded,
+          failed,
+          total: items.length,
+        },
+      },
+      data: [
+        // Results section
+        {
+          schema: WRITE_RESULT_SCHEMA,
+          items: results.map((r) => {
+            const errObj =
+              typeof r.error === 'object'
+                ? (r.error as {
+                    code?: string;
+                    message?: string;
+                    suggestions?: string[];
+                  })
+                : null;
+            return {
+              index: r.index,
+              status: r.ok ? 'ok' : 'error',
+              identifier: r.identifier ?? r.id ?? '',
+              error: r.ok
+                ? ''
+                : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
+              code: r.ok ? '' : (errObj?.code ?? ''),
+              hint: r.ok ? '' : (errObj?.suggestions?.[0] ?? ''),
+            };
+          }),
+        },
+      ],
+    };
 
-    const structured = UpdateIssuesOutputSchema.parse({
-      results: cleanedResults,
+    // Add changes section if any changes were tracked
+    if (toonChanges.length > 0) {
+      toonResponse.data?.push({
+        schema: CHANGES_SCHEMA,
+        items: toonChanges as Array<Record<string, string>>,
+      });
+    }
+
+    const toonOutput = encodeToon(toonResponse);
+
+    // Build structured content for MCP response
+    const structured = {
+      results: results.map((r) => ({
+        index: r.index,
+        ok: r.ok,
+        success: r.success,
+        id: r.id,
+        identifier: r.identifier,
+        error: r.error,
+        input: r.input,
+      })),
       summary,
       meta,
-    });
+    };
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format (when enabled)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (config.TOON_OUTPUT_ENABLED && registry) {
-      const toonResponse: ToonResponse = {
-        meta: {
-          fields: ['action', 'succeeded', 'failed', 'total'],
-          values: {
-            action: 'update_issues',
-            succeeded,
-            failed,
-            total: items.length,
-          },
-        },
-        data: [
-          // Results section
-          {
-            schema: WRITE_RESULT_SCHEMA,
-            items: results.map((r) => {
-              const errObj =
-                typeof r.error === 'object'
-                  ? (r.error as {
-                      code?: string;
-                      message?: string;
-                      suggestions?: string[];
-                    })
-                  : null;
-              return {
-                index: r.index,
-                status: r.ok ? 'ok' : 'error',
-                identifier: r.identifier ?? r.id ?? '',
-                error: r.ok
-                  ? ''
-                  : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
-                code: r.ok ? '' : (errObj?.code ?? ''),
-                hint: r.ok ? '' : (errObj?.suggestions?.[0] ?? ''),
-              };
-            }),
-          },
-        ],
-      };
-
-      // Add changes section if any changes were tracked
-      if (toonChanges.length > 0) {
-        toonResponse.data?.push({
-          schema: CHANGES_SCHEMA,
-          items: toonChanges as Array<Record<string, string>>,
-        });
-      }
-
-      const toonOutput = encodeToon(toonResponse);
-
-      return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: structured,
-      };
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy Output Format
-    // ─────────────────────────────────────────────────────────────────────────
-    const okIds = results
-      .filter((r) => r.ok)
-      .map((r) => r.identifier ?? r.id ?? `item[${String(r.index)}]`) as string[];
-
-    const failures = results
-      .filter((r) => !r.ok)
-      .map((r) => ({
-        index: r.index,
-        id: r.id,
-        error: typeof r.error === 'object' ? r.error.message : (r.error ?? ''),
-        code: undefined,
-      }));
-
-    const archivedRequested = items.some((x) => typeof x.archived === 'boolean');
-
-    // Build summary without next steps first
-    const summaryLine = summarizeBatch({
-      action: 'Updated issues',
-      ok: summary.ok,
-      total: items.length,
-      okIdentifiers: okIds,
-      failures,
-    });
-
-    // Compose: summary → diffs → tips (diffs should come before tips)
-    const nextStep = archivedRequested
-      ? 'Tip: Use list_issues with includeArchived: true to verify archived issues.'
-      : 'Tip: Use list_issues to verify changes.';
-
-    const textParts = [summaryLine];
-    if (diffLines.length > 0) {
-      textParts.push(diffLines.join('\n'));
-    }
-    textParts.push(nextStep);
-
-    const text = textParts.join('\n\n');
-
-    const parts: Array<{ type: 'text'; text: string }> = [{ type: 'text', text }];
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structured) });
-    }
-
-    return { content: parts, structuredContent: structured };
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: structured,
+    };
   },
 });

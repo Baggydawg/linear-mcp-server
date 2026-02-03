@@ -92,8 +92,8 @@ describe('list_comments tool', () => {
       expect(result.isError).toBeFalsy();
 
       const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.items).toBeDefined();
-      expect(Array.isArray(structured.items)).toBe(true);
+      // TOON format uses count instead of items array
+      expect(typeof structured.count).toBe('number');
     });
 
     it('respects limit parameter', async () => {
@@ -103,9 +103,7 @@ describe('list_comments tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.limit).toBe(5);
+      // TOON format doesn't expose limit in structured content
     });
 
     it('supports pagination with cursor', async () => {
@@ -115,49 +113,33 @@ describe('list_comments tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.cursor).toBe('test-cursor');
+      // TOON format doesn't expose cursor in structured content
     });
   });
 
   describe('output shape', () => {
-    it('matches ListCommentsOutputSchema', async () => {
+    it('matches TOON output format', async () => {
       const result = await listCommentsTool.handler(
         { issueId: 'issue-001' },
         baseContext,
       );
 
       const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-
-      for (const item of items) {
-        expect(item.id).toBeDefined();
-        expect(item.createdAt).toBeDefined();
-        expect(typeof item.id).toBe('string');
-      }
+      // TOON format uses count instead of items array
+      expect(typeof structured.count).toBe('number');
+      expect(structured._format).toBe('toon');
+      expect(structured._version).toBe('1');
     });
 
-    it('includes comment metadata (body, user, dates)', async () => {
+    it('includes comment metadata in text content', async () => {
       const result = await listCommentsTool.handler(
         { issueId: 'issue-001' },
         baseContext,
       );
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-
-      expect(items.length).toBeGreaterThan(0);
-
-      const firstComment = items[0];
-      // Body content
-      expect(firstComment.body).toBeDefined();
-      expect(typeof firstComment.body).toBe('string');
-      // User info
-      expect(firstComment.user).toBeDefined();
-      // Timestamps
-      expect(firstComment.createdAt).toBeDefined();
-      expect(typeof firstComment.createdAt).toBe('string');
+      const textContent = result.content[0].text;
+      // TOON format includes comments section
+      expect(textContent).toContain('comments[');
     });
 
     it('includes pagination info', async () => {
@@ -167,7 +149,8 @@ describe('list_comments tool', () => {
       );
 
       const structured = result.structuredContent as Record<string, unknown>;
-      expect('nextCursor' in structured || 'cursor' in structured).toBe(true);
+      // TOON format uses hasMore instead of cursor
+      expect(typeof structured.hasMore).toBe('boolean');
     });
   });
 
@@ -180,14 +163,13 @@ describe('list_comments tool', () => {
 
       expect(result.isError).toBeFalsy();
 
-      // Verify comments are actually returned
+      // Verify comments are returned (TOON format)
       const structured = result.structuredContent as Record<string, unknown>;
-      const items = structured.items as Array<Record<string, unknown>>;
-      expect(items.length).toBeGreaterThan(0);
+      expect(typeof structured.count).toBe('number');
 
-      // Verify text output mentions comment count
+      // Verify text output is in TOON format
       const textContent = result.content[0].text;
-      expect(textContent).toContain('Comments');
+      expect(textContent).toContain('comments[');
       expect(textContent).toMatch(/\d+/); // Contains count
     });
   });
@@ -284,10 +266,9 @@ describe('add_comments tool', () => {
 
       expect(result.isError).toBeFalsy();
 
+      // TOON format structured content
       const structured = result.structuredContent as Record<string, unknown>;
-      const summary = structured.summary as { ok: number; failed: number };
-
-      expect(summary.ok).toBe(1);
+      expect(structured._format).toBe('toon');
       expect(mockClient.createComment).toHaveBeenCalledTimes(1);
     });
 
@@ -322,11 +303,6 @@ describe('add_comments tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      const summary = structured.summary as { ok: number; failed: number };
-
-      expect(summary.ok).toBe(3);
       expect(mockClient.createComment).toHaveBeenCalledTimes(3);
     });
 
@@ -345,7 +321,7 @@ describe('add_comments tool', () => {
       expect(mockClient.createComment).toHaveBeenCalled();
     });
 
-    it('returns comment IDs', async () => {
+    it('returns TOON output for comment adds', async () => {
       const result = await addCommentsTool.handler(
         {
           items: [{ issueId: 'issue-001', body: 'Test' }],
@@ -354,15 +330,13 @@ describe('add_comments tool', () => {
       );
 
       const structured = result.structuredContent as Record<string, unknown>;
-      const results = structured.results as Array<Record<string, unknown>>;
-
-      expect(results[0].ok).toBe(true);
-      expect(results[0].id).toBeDefined();
+      expect(structured._format).toBe('toon');
+      expect(structured.action).toBe('add_comments');
     });
   });
 
   describe('output shape', () => {
-    it('matches AddCommentsOutputSchema', async () => {
+    it('matches TOON output format', async () => {
       const result = await addCommentsTool.handler(
         {
           items: [{ issueId: 'issue-001', body: 'Test' }],
@@ -372,15 +346,10 @@ describe('add_comments tool', () => {
 
       const structured = result.structuredContent as Record<string, unknown>;
 
-      expect(structured.results).toBeDefined();
-      expect(structured.summary).toBeDefined();
-
-      const results = structured.results as Array<Record<string, unknown>>;
-      expect(Array.isArray(results)).toBe(true);
-
-      const summary = structured.summary as Record<string, unknown>;
-      expect(typeof summary.ok).toBe('number');
-      expect(typeof summary.failed).toBe('number');
+      // TOON format
+      expect(structured._format).toBe('toon');
+      expect(structured._version).toBe('1');
+      expect(structured.action).toBe('add_comments');
     });
   });
 
@@ -447,10 +416,10 @@ describe('add_comments tool', () => {
 
       expect(result.isError).toBeFalsy();
 
+      // TOON format
       const structured = result.structuredContent as Record<string, unknown>;
-      const summary = structured.summary as { ok: number; failed: number };
-
-      expect(summary.ok).toBe(3);
+      expect(structured._format).toBe('toon');
+      expect(mockClient.createComment).toHaveBeenCalledTimes(3);
     });
   });
 });
@@ -553,9 +522,9 @@ describe('update_comments tool', () => {
         body: 'Updated comment body',
       });
 
+      // TOON format
       const structured = result.structuredContent as Record<string, unknown>;
-      const summary = structured.summary as { ok: number; failed: number };
-      expect(summary.ok).toBe(1);
+      expect(structured._format).toBe('toon');
     });
 
     it('batch updates multiple comments', async () => {
@@ -572,12 +541,12 @@ describe('update_comments tool', () => {
       expect(result.isError).toBeFalsy();
       expect(mockClient.updateComment).toHaveBeenCalledTimes(2);
 
+      // TOON format
       const structured = result.structuredContent as Record<string, unknown>;
-      const summary = structured.summary as { ok: number; failed: number };
-      expect(summary.ok).toBe(2);
+      expect(structured._format).toBe('toon');
     });
 
-    it('suggests verifying with list_comments', async () => {
+    it('returns TOON output format', async () => {
       const result = await updateCommentsTool.handler(
         {
           items: [{ id: 'comment-001', body: 'Updated' }],
@@ -586,7 +555,8 @@ describe('update_comments tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-      expect(result.content[0].text).toContain('list_comments');
+      const textContent = result.content[0].text;
+      expect(textContent).toContain('update_comments');
     });
   });
 });
@@ -596,30 +566,13 @@ describe('update_comments tool', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('list_comments TOON output', () => {
-  // Store original config value
-  let originalToonEnabled: boolean;
-
-  beforeEach(async () => {
-    // Import config dynamically to get fresh value
-    const { config } = await import('../../src/config/env.js');
-    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+  beforeEach(() => {
     // Create mock client with comments
     mockClient = createMockLinearClient({ comments: defaultMockComments });
     resetMockCalls(mockClient);
   });
 
-  afterEach(async () => {
-    // Reset config
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
-  });
-
-  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format', async () => {
     const result = await listCommentsTool.handler(
       { issueId: 'issue-001' },
       baseContext,
@@ -642,10 +595,6 @@ describe('list_comments TOON output', () => {
   });
 
   it('returns TOON with comment schema fields', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     const result = await listCommentsTool.handler(
       { issueId: 'issue-001' },
       baseContext,
@@ -660,10 +609,6 @@ describe('list_comments TOON output', () => {
   });
 
   it('includes issue identifier in meta', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     const result = await listCommentsTool.handler(
       { issueId: 'issue-001' },
       baseContext,
@@ -677,10 +622,6 @@ describe('list_comments TOON output', () => {
   });
 
   it('handles empty comments in TOON format', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     // Create mock client with no comments (issue-002 has no comments in the mock)
     mockClient = createMockLinearClient({ comments: [] });
     resetMockCalls(mockClient);
@@ -700,31 +641,6 @@ describe('list_comments TOON output', () => {
     const structured = result.structuredContent as Record<string, unknown>;
     expect(structured.count).toBe(0);
   });
-
-  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = false;
-
-    const result = await listCommentsTool.handler(
-      { issueId: 'issue-001' },
-      baseContext,
-    );
-
-    expect(result.isError).toBeFalsy();
-    const textContent = result.content[0].text;
-
-    // Legacy format should contain "Comments:" summary
-    expect(textContent).toContain('Comments:');
-
-    // Structured content should have items array (legacy format)
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.items).toBeDefined();
-    expect(Array.isArray(structured.items)).toBe(true);
-
-    // Should NOT have TOON format indicator
-    expect(structured._format).toBeUndefined();
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -732,27 +648,12 @@ describe('list_comments TOON output', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('add_comments TOON output', () => {
-  // Store original config value
-  let originalToonEnabled: boolean;
-
-  beforeEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+  beforeEach(() => {
     mockClient = createMockLinearClient();
     resetMockCalls(mockClient);
   });
 
-  afterEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
-  });
-
-  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format', async () => {
     const result = await addCommentsTool.handler(
       {
         items: [{ issueId: 'issue-001', body: 'Test comment' }],
@@ -777,10 +678,6 @@ describe('add_comments TOON output', () => {
   });
 
   it('includes results section with index, status, issue fields', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     const result = await addCommentsTool.handler(
       {
         items: [
@@ -800,10 +697,6 @@ describe('add_comments TOON output', () => {
   });
 
   it('includes comments section for successful adds', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     const result = await addCommentsTool.handler(
       {
         items: [{ issueId: 'issue-001', body: 'Test comment body' }],
@@ -818,30 +711,6 @@ describe('add_comments TOON output', () => {
     expect(textContent).toContain('comments[');
     expect(textContent).toContain('{issue,body,createdAt}');
   });
-
-  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = false;
-
-    const result = await addCommentsTool.handler(
-      {
-        items: [{ issueId: 'issue-001', body: 'Test comment' }],
-      },
-      baseContext,
-    );
-
-    expect(result.isError).toBeFalsy();
-    const textContent = result.content[0].text;
-
-    // Legacy format should contain "Added comments" summary
-    expect(textContent).toContain('Added comments');
-
-    // Structured content should have results array (legacy format)
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.results).toBeDefined();
-    expect(structured._format).toBeUndefined();
-  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -849,27 +718,12 @@ describe('add_comments TOON output', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('update_comments TOON output', () => {
-  // Store original config value
-  let originalToonEnabled: boolean;
-
-  beforeEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+  beforeEach(() => {
     mockClient = createMockLinearClient();
     resetMockCalls(mockClient);
   });
 
-  afterEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
-  });
-
-  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format', async () => {
     const result = await updateCommentsTool.handler(
       {
         items: [{ id: 'comment-001', body: 'Updated comment' }],
@@ -894,10 +748,6 @@ describe('update_comments TOON output', () => {
   });
 
   it('includes results section with index, status, id fields', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     const result = await updateCommentsTool.handler(
       {
         items: [
@@ -914,29 +764,5 @@ describe('update_comments TOON output', () => {
     // Should have results schema
     expect(textContent).toContain('results[');
     expect(textContent).toContain('{index,status,id,error,code,hint}');
-  });
-
-  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = false;
-
-    const result = await updateCommentsTool.handler(
-      {
-        items: [{ id: 'comment-001', body: 'Updated comment' }],
-      },
-      baseContext,
-    );
-
-    expect(result.isError).toBeFalsy();
-    const textContent = result.content[0].text;
-
-    // Legacy format should contain "Updated comments" summary
-    expect(textContent).toContain('Updated comments');
-
-    // Structured content should have results array (legacy format)
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.results).toBeDefined();
-    expect(structured._format).toBeUndefined();
   });
 });

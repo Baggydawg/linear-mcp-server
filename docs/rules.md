@@ -16,9 +16,7 @@ MCP responses always include `content[]`. We treat the first text block as the a
 
 - **Human-readable summary (`content[0].text`)**: Short, scannable feedback using `summarizeList` / `summarizeBatch`. It should answer: *did it work, how many items, what should I look at next?*
 - **Structured output (`structuredContent`)**: Schema-validated data for chaining, UIs, and deterministic follow-up calls.
-- **Built-in guidance**: Prefer `meta.nextSteps` and `meta.relatedTools` on successful responses. For zero-result lists, include `meta.hints` (e.g., “verify teamId”, “try broader keywords”) so the agent can reframe the query instead of guessing.
-
-Tip: We avoid dumping raw JSON into the human channel by default. When debugging integrations, `LINEAR_MCP_INCLUDE_JSON_IN_CONTENT` can include it explicitly.
+- **Built-in guidance**: Prefer `meta.nextSteps` and `meta.relatedTools` on successful responses. For zero-result lists, include `meta.hints` (e.g., "verify teamId", "try broader keywords") so the agent can reframe the query instead of guessing.
 
 ## 3. Curated Surface Area (Less API, More Intent)
 

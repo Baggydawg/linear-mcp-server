@@ -92,7 +92,7 @@ Integration tests require a "Tests" team in Linear and `PROVIDER_API_KEY` in `.e
 
 ## TOON Output Format
 
-When `TOON_OUTPUT_ENABLED=true`, tools output TOON (Token-Oriented Object Notation) - a token-efficient CSV-like format that replaces human-readable prose summaries. TOON provides unambiguous parsing and consistent round-trip data handling between Claude and the Linear API.
+Tools output TOON (Token-Oriented Object Notation) - a token-efficient CSV-like format designed for AI agents. TOON provides unambiguous parsing and consistent round-trip data handling between Claude and the Linear API.
 
 ### Two-Tier Strategy
 
@@ -163,15 +163,6 @@ _gaps[4]{type,count,issues}:
   stale,2,"SQT-163,SQT-168"
   priority_mismatch,1,"SQT-174"
 ```
-
-### Enabling TOON
-
-Set environment variable:
-```bash
-TOON_OUTPUT_ENABLED=true
-```
-
-When `false` (default), tools use legacy human-readable format.
 
 ### Registry and Session
 

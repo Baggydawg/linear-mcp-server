@@ -138,9 +138,9 @@
       "expectedError": "Required"
     },
     {
-      "name": "invalid_priority",
-      "input": { "items": [{ "id": "issue-001", "priority": "INVALID_VALUE" }] },
-      "expectedError": "Invalid"
+      "name": "invalid_archived_type",
+      "input": { "items": [{ "id": "issue-001", "archived": "yes" }] },
+      "expectedError": "Expected boolean"
     }
   ]
 }

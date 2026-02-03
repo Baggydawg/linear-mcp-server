@@ -1,20 +1,14 @@
 /**
  * List Cycles tool - fetch cycles for a team.
  *
- * Supports TOON output format:
- * - When TOON_OUTPUT_ENABLED=true, returns TOON format
- * - When TOON_OUTPUT_ENABLED=false (default), returns legacy human-readable format
- *
+ * Returns TOON output format.
  * Cycles use natural key (number) - no short keys needed.
  */
 
 import { LinearDocument } from '@linear/sdk';
 import { z } from 'zod';
-import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
-import { ListCyclesOutputSchema } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import { previewLinesFromItems, summarizeList } from '../../../utils/messages.js';
 import {
   CYCLE_SCHEMA,
   encodeResponse,
@@ -171,17 +165,6 @@ export const listCyclesTool = defineTool({
       orderBy,
     });
 
-    const items = conn.nodes.map((c) => ({
-      id: c.id,
-      name: (c as unknown as { name?: string })?.name ?? undefined,
-      number: (c as unknown as { number?: number })?.number ?? undefined,
-      startsAt: c.startsAt?.toString() ?? undefined,
-      endsAt: c.endsAt?.toString() ?? undefined,
-      completedAt: c.completedAt?.toString() ?? undefined,
-      teamId: args.teamId,
-      status: (c as unknown as { status?: string })?.status ?? undefined,
-    }));
-
     const pageInfo = conn.pageInfo;
     const hasMore = pageInfo?.hasNextPage ?? false;
     const nextCursor = hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
@@ -189,110 +172,33 @@ export const listCyclesTool = defineTool({
     // Get team key for TOON output
     const teamKey = (team as unknown as { key?: string }).key ?? args.teamId;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (config.TOON_OUTPUT_ENABLED) {
-      // Convert items to RawCycleData for TOON processing
-      const rawCycles: RawCycleData[] = conn.nodes.map((c) => ({
-        id: c.id,
-        name: (c as unknown as { name?: string })?.name,
-        number: (c as unknown as { number?: number })?.number,
-        startsAt: c.startsAt,
-        endsAt: c.endsAt,
-        completedAt: c.completedAt,
-        progress: (c as unknown as { progress?: number })?.progress,
-      }));
+    // Convert items to RawCycleData for TOON processing
+    const rawCycles: RawCycleData[] = conn.nodes.map((c) => ({
+      id: c.id,
+      name: (c as unknown as { name?: string })?.name,
+      number: (c as unknown as { number?: number })?.number,
+      startsAt: c.startsAt,
+      endsAt: c.endsAt,
+      completedAt: c.completedAt,
+      progress: (c as unknown as { progress?: number })?.progress,
+    }));
 
-      // Build TOON response
-      const toonResponse = buildCyclesToonResponse(rawCycles, teamKey);
+    // Build TOON response
+    const toonResponse = buildCyclesToonResponse(rawCycles, teamKey);
 
-      // Encode TOON output
-      const toonOutput = encodeResponse(rawCycles, toonResponse);
+    // Encode TOON output
+    const toonOutput = encodeResponse(rawCycles, toonResponse);
 
-      return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _format: 'toon',
-          _version: '1',
-          team: teamKey,
-          count: rawCycles.length,
-          hasMore,
-          nextCursor,
-        },
-      };
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // Build query echo
-    const query = {
-      teamId: args.teamId,
-      includeArchived: args.includeArchived,
-      orderBy: args.orderBy,
-      limit: first,
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: {
+        _format: 'toon',
+        _version: '1',
+        team: teamKey,
+        count: rawCycles.length,
+        hasMore,
+        nextCursor,
+      },
     };
-
-    // Build pagination
-    const pagination = {
-      hasMore,
-      nextCursor,
-      itemsReturned: items.length,
-      limit: first,
-    };
-
-    // Build meta
-    const meta = {
-      nextSteps: [
-        ...(hasMore ? [`Call again with cursor="${nextCursor}" for more.`] : []),
-        'Use cycle number/name to coordinate planning.',
-        'Use list_issues with team filter to gather work for cycles.',
-      ],
-      relatedTools: ['list_issues', 'update_issues'],
-    };
-
-    const structured = ListCyclesOutputSchema.parse({
-      query,
-      items,
-      pagination,
-      meta,
-      // Legacy
-      cursor: args.cursor,
-      nextCursor,
-      limit: first,
-    });
-
-    const preview = previewLinesFromItems(
-      items as unknown as Record<string, unknown>[],
-      (c) =>
-        `${String(
-          (c.name as string) ?? (c.number as number | undefined) ?? 'Cycle',
-        )} (${c.id}) ${
-          (c.startsAt as string | undefined)
-            ? `— ${String(c.startsAt)} → ${String(c.endsAt ?? '')}`
-            : ''
-        }`.trim(),
-    );
-
-    const message = summarizeList({
-      subject: 'Cycles',
-      count: items.length,
-      limit: first,
-      nextCursor,
-      previewLines: preview,
-      nextSteps: meta.nextSteps,
-    });
-
-    const parts: Array<{ type: 'text'; text: string }> = [
-      { type: 'text', text: message },
-    ];
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structured) });
-    }
-
-    return { content: parts, structuredContent: structured };
   },
 });

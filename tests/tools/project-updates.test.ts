@@ -1,9 +1,9 @@
 /**
  * Tests for project update tools (list, create, update).
- * Verifies: project update listing, creation, updates, output shapes.
+ * Verifies: project update listing, creation, updates, TOON output shapes.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createProjectUpdateTool,
   listProjectUpdatesTool,
@@ -22,7 +22,6 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let mockClient: MockLinearClient;
-let originalToonEnabled: boolean;
 
 const baseContext: ToolContext = {
   sessionId: 'test-session',
@@ -34,22 +33,9 @@ vi.mock('../../src/services/linear/client.js', () => ({
   getLinearClient: vi.fn(() => Promise.resolve(mockClient)),
 }));
 
-beforeEach(async () => {
-  // Force TOON off for non-TOON tests (legacy format)
-  const { config } = await import('../../src/config/env.js');
-  originalToonEnabled = config.TOON_OUTPUT_ENABLED;
-  // @ts-expect-error - modifying config for test
-  config.TOON_OUTPUT_ENABLED = false;
-
+beforeEach(() => {
   mockClient = createMockLinearClient();
   resetMockCalls(mockClient);
-});
-
-afterEach(async () => {
-  // Restore config
-  const { config } = await import('../../src/config/env.js');
-  // @ts-expect-error - modifying config for test
-  config.TOON_OUTPUT_ENABLED = originalToonEnabled;
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -70,7 +56,7 @@ describe('list_project_updates tool', () => {
   });
 
   describe('handler behavior', () => {
-    it('lists updates for a project', async () => {
+    it('lists updates for a project in TOON format', async () => {
       const result = await listProjectUpdatesTool.handler(
         { project: 'project-001' },
         baseContext,
@@ -79,12 +65,12 @@ describe('list_project_updates tool', () => {
       expect(result.isError).toBeFalsy();
 
       const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.items).toBeDefined();
-      expect(Array.isArray(structured.items)).toBe(true);
+      expect(structured._format).toBe('toon');
+      expect(typeof structured.count).toBe('number');
     });
 
     it('resolves project short key to UUID', async () => {
-      // Test with a UUID directly (short key resolution requires TOON mode and registry)
+      // Test with a UUID directly (short key resolution requires registry)
       const result = await listProjectUpdatesTool.handler(
         { project: 'project-001' },
         baseContext,
@@ -112,8 +98,7 @@ describe('list_project_updates tool', () => {
       expect(result.isError).toBeFalsy();
 
       const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.items).toBeDefined();
-      expect((structured.items as unknown[]).length).toBe(0);
+      expect(structured.count).toBe(0);
     });
 
     it('supports pagination with cursor', async () => {
@@ -130,9 +115,6 @@ describe('list_project_updates tool', () => {
           after: 'test-cursor',
         }),
       );
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.cursor).toBe('test-cursor');
     });
 
     it('respects limit parameter', async () => {
@@ -149,9 +131,6 @@ describe('list_project_updates tool', () => {
           first: 5,
         }),
       );
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.limit).toBe(5);
     });
   });
 });
@@ -245,7 +224,7 @@ describe('create_project_update tool', () => {
     });
 
     it('resolves project short key', async () => {
-      // Test with UUID directly (short key resolution requires TOON mode and registry)
+      // Test with UUID directly (short key resolution requires registry)
       const result = await createProjectUpdateTool.handler(
         { project: 'project-001', body: 'Test update' },
         baseContext,
@@ -255,7 +234,7 @@ describe('create_project_update tool', () => {
       expect(mockClient.createProjectUpdate).toHaveBeenCalledTimes(1);
     });
 
-    it('returns created update with url', async () => {
+    it('returns created update in TOON format', async () => {
       const result = await createProjectUpdateTool.handler(
         { project: 'project-001', body: 'Test update' },
         baseContext,
@@ -264,16 +243,12 @@ describe('create_project_update tool', () => {
       expect(result.isError).toBeFalsy();
 
       const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.success).toBe(true);
+      expect(structured._format).toBe('toon');
+      expect(structured.action).toBe('create_project_update');
       expect(structured.id).toBeDefined();
     });
 
     it('returns error for unknown project short key', async () => {
-      // Enable TOON mode to test short key resolution
-      const { config } = await import('../../src/config/env.js');
-      // @ts-expect-error - modifying config for test
-      config.TOON_OUTPUT_ENABLED = true;
-
       mockClient = createMockLinearClient();
       resetMockCalls(mockClient);
 
@@ -422,7 +397,7 @@ describe('project updates common workflows', () => {
     );
 
     const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.items).toBeDefined();
+    expect(structured._format).toBe('toon');
   });
 
   it('post weekly update: create update with health', async () => {
@@ -473,11 +448,7 @@ describe('project updates common workflows', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('list_project_updates TOON output', () => {
-  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format with schema headers', async () => {
     mockClient = createMockLinearClient({ projectUpdates: defaultMockProjectUpdates });
     resetMockCalls(mockClient);
 
@@ -500,42 +471,10 @@ describe('list_project_updates TOON output', () => {
     expect(structured._version).toBe('1');
     expect(typeof structured.count).toBe('number');
   });
-
-  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = false;
-
-    mockClient = createMockLinearClient({ projectUpdates: defaultMockProjectUpdates });
-    resetMockCalls(mockClient);
-
-    const result = await listProjectUpdatesTool.handler(
-      { project: 'project-001' },
-      baseContext,
-    );
-
-    expect(result.isError).toBeFalsy();
-    const textContent = result.content[0].text;
-
-    // Legacy format should contain "Project Updates:" summary
-    expect(textContent).toContain('Project Updates:');
-
-    // Structured content should have items array (legacy format)
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.items).toBeDefined();
-    expect(Array.isArray(structured.items)).toBe(true);
-
-    // Should NOT have TOON format indicator
-    expect(structured._format).toBeUndefined();
-  });
 });
 
 describe('create_project_update TOON output', () => {
-  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format with action indicator', async () => {
     mockClient = createMockLinearClient();
     resetMockCalls(mockClient);
 
@@ -558,41 +497,10 @@ describe('create_project_update TOON output', () => {
     expect(structured._version).toBe('1');
     expect(structured.action).toBe('create_project_update');
   });
-
-  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = false;
-
-    mockClient = createMockLinearClient();
-    resetMockCalls(mockClient);
-
-    const result = await createProjectUpdateTool.handler(
-      { project: 'project-001', body: 'Test update content.' },
-      baseContext,
-    );
-
-    expect(result.isError).toBeFalsy();
-    const textContent = result.content[0].text;
-
-    // Legacy format should contain "Created project update"
-    expect(textContent).toContain('Created project update');
-
-    // Structured content should have success flag (legacy format)
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.success).toBe(true);
-
-    // Should NOT have TOON format indicator
-    expect(structured._format).toBeUndefined();
-  });
 });
 
 describe('update_project_update TOON output', () => {
-  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format with action indicator', async () => {
     mockClient = createMockLinearClient();
     resetMockCalls(mockClient);
 
@@ -614,32 +522,5 @@ describe('update_project_update TOON output', () => {
     expect(structured._format).toBe('toon');
     expect(structured._version).toBe('1');
     expect(structured.action).toBe('update_project_update');
-  });
-
-  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = false;
-
-    mockClient = createMockLinearClient();
-    resetMockCalls(mockClient);
-
-    const result = await updateProjectUpdateTool.handler(
-      { id: 'project-update-001', body: 'Updated content.' },
-      baseContext,
-    );
-
-    expect(result.isError).toBeFalsy();
-    const textContent = result.content[0].text;
-
-    // Legacy format should contain "Updated project update"
-    expect(textContent).toContain('Updated project update');
-
-    // Structured content should have success flag (legacy format)
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.success).toBe(true);
-
-    // Should NOT have TOON format indicator
-    expect(structured._format).toBeUndefined();
   });
 });

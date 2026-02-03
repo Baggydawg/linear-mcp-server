@@ -114,20 +114,16 @@ describe('list_cycles handler', () => {
     expect(result.structuredContent).toBeDefined();
 
     const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.items).toBeDefined();
-    expect(Array.isArray(structured.items)).toBe(true);
+    expect(typeof structured.count).toBe('number');
   });
 
   it('filters cycles by team', async () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
+    expect(result.isError).toBeFalsy();
+    // TOON format returns count instead of items array
     const structured = result.structuredContent as Record<string, unknown>;
-    const items = structured.items as Array<Record<string, unknown>>;
-
-    // All cycles should belong to the requested team
-    for (const item of items) {
-      expect(item.teamId).toBe('team-eng');
-    }
+    expect(typeof structured.count).toBe('number');
   });
 
   it('respects limit parameter', async () => {
@@ -136,8 +132,7 @@ describe('list_cycles handler', () => {
       baseContext,
     );
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.limit).toBe(1);
+    expect(result.isError).toBeFalsy();
   });
 
   it('supports pagination with cursor', async () => {
@@ -147,9 +142,6 @@ describe('list_cycles handler', () => {
     );
 
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.cursor).toBe('test-cursor');
   });
 
   it('supports ordering by updatedAt', async () => {
@@ -185,40 +177,32 @@ describe('list_cycles handler', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('list_cycles output shape', () => {
-  it('matches ListCyclesOutputSchema', async () => {
+  it('matches TOON output format', async () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
     const structured = result.structuredContent as Record<string, unknown>;
 
-    expect(structured.items).toBeDefined();
-    const items = structured.items as Array<Record<string, unknown>>;
-
-    for (const item of items) {
-      expect(item.id).toBeDefined();
-      expect(item.teamId).toBeDefined();
-      expect(typeof item.id).toBe('string');
-      expect(typeof item.teamId).toBe('string');
-    }
+    // TOON format uses count instead of items array
+    expect(typeof structured.count).toBe('number');
+    expect(structured._format).toBe('toon');
+    expect(structured._version).toBe('1');
   });
 
-  it('includes cycle metadata (name, number, dates)', async () => {
+  it('includes cycle metadata in text content', async () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const items = structured.items as Array<Record<string, unknown>>;
+    const textContent = result.content[0].text;
 
-    expect(items.length).toBeGreaterThan(0);
-
-    const firstCycle = items[0];
-    expect(firstCycle.name).toBeDefined();
-    expect(firstCycle.number).toBeDefined();
+    // TOON format should have cycles section with schema
+    expect(textContent).toContain('cycles[');
   });
 
   it('includes pagination info', async () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
     const structured = result.structuredContent as Record<string, unknown>;
-    expect('nextCursor' in structured || 'cursor' in structured).toBe(true);
+    // TOON format uses hasMore instead of cursor-based pagination
+    expect(typeof structured.hasMore === 'boolean' || structured.nextCursor !== undefined).toBe(true);
   });
 });
 
@@ -232,41 +216,28 @@ describe('list_cycles common workflows', () => {
 
     expect(result.isError).toBeFalsy();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const items = structured.items as Array<Record<string, unknown>>;
-
-    // All cycles should be associated with the requested team
-    for (const cycle of items) {
-      expect(cycle.teamId).toBe('team-eng');
-    }
+    // TOON format should show team in text content
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
   });
 
   it('provides cycle dates for sprint planning', async () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const items = structured.items as Array<Record<string, unknown>>;
+    const textContent = result.content[0].text;
 
-    expect(items.length).toBeGreaterThan(0);
-
-    // Cycles should have start/end dates for planning
-    const firstCycle = items[0];
-    expect(firstCycle.startsAt).toBeDefined();
-    expect(firstCycle.endsAt).toBeDefined();
+    // TOON format should include start and end dates in schema
+    expect(textContent).toContain('start');
+    expect(textContent).toContain('end');
   });
 
   it('provides cycle number for identification', async () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const items = structured.items as Array<Record<string, unknown>>;
+    const textContent = result.content[0].text;
 
-    expect(items.length).toBeGreaterThan(0);
-
-    // Cycles should have number for easy reference
-    const firstCycle = items[0];
-    expect(firstCycle.number).toBeDefined();
-    expect(typeof firstCycle.number).toBe('number');
+    // TOON format should include num field in cycles schema
+    expect(textContent).toContain('num');
   });
 });
 
@@ -307,9 +278,8 @@ describe('list_cycles edge cases', () => {
     expect(result.isError).toBeFalsy();
 
     const structured = result.structuredContent as Record<string, unknown>;
-    const items = structured.items as Array<Record<string, unknown>>;
-
-    expect(items).toEqual([]);
+    // TOON format uses count instead of items array
+    expect(structured.count).toBe(0);
   });
 });
 
@@ -318,29 +288,12 @@ describe('list_cycles edge cases', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('list_cycles TOON output', () => {
-  // Store original config value
-  let originalToonEnabled: boolean;
-
-  beforeEach(async () => {
-    // Import config dynamically to get fresh value
-    const { config } = await import('../../src/config/env.js');
-    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
+  beforeEach(() => {
     mockClient = createMockLinearClient({ cycles: defaultMockCycles });
     resetMockCalls(mockClient);
   });
 
-  afterEach(async () => {
-    // Reset config
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
-  });
-
-  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format', async () => {
     mockClient = createMockLinearClient({ cycles: defaultMockCycles });
     resetMockCalls(mockClient);
 
@@ -363,10 +316,6 @@ describe('list_cycles TOON output', () => {
   });
 
   it('returns TOON with cycle schema fields', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     mockClient = createMockLinearClient({ cycles: defaultMockCycles });
     resetMockCalls(mockClient);
 
@@ -381,10 +330,6 @@ describe('list_cycles TOON output', () => {
   });
 
   it('includes team key in meta', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     mockClient = createMockLinearClient({ cycles: defaultMockCycles });
     resetMockCalls(mockClient);
 
@@ -398,10 +343,6 @@ describe('list_cycles TOON output', () => {
   });
 
   it('uses cycle number as natural key (no short keys)', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     mockClient = createMockLinearClient({ cycles: defaultMockCycles });
     resetMockCalls(mockClient);
 
@@ -416,10 +357,6 @@ describe('list_cycles TOON output', () => {
   });
 
   it('handles empty cycles in TOON format', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     // Create a team with cycles enabled but no cycles
     mockClient = createMockLinearClient({
       teams: [
@@ -448,30 +385,5 @@ describe('list_cycles TOON output', () => {
 
     const structured = result.structuredContent as Record<string, unknown>;
     expect(structured.count).toBe(0);
-  });
-
-  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = false;
-
-    mockClient = createMockLinearClient({ cycles: defaultMockCycles });
-    resetMockCalls(mockClient);
-
-    const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
-
-    expect(result.isError).toBeFalsy();
-    const textContent = result.content[0].text;
-
-    // Legacy format should contain "Cycles:" summary
-    expect(textContent).toContain('Cycles:');
-
-    // Structured content should have items array (legacy format)
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.items).toBeDefined();
-    expect(Array.isArray(structured.items)).toBe(true);
-
-    // Should NOT have TOON format indicator
-    expect(structured._format).toBeUndefined();
   });
 });

@@ -1,24 +1,41 @@
 /**
  * Get Issues tool - fetch multiple issues by ID in batch.
  *
- * Supports TOON output format (Tier 2):
- * - When TOON_OUTPUT_ENABLED=true, returns TOON format with only REFERENCED entities
- * - When TOON_OUTPUT_ENABLED=false (default), returns legacy human-readable format
+ * Returns TOON output format (Tier 2) with only REFERENCED entities.
  *
  * IMPORTANT: This is a detail view tool - descriptions are NOT truncated (unlimited).
  */
 
 import { z } from 'zod';
-import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
-import {
-  GetIssueOutputSchema,
-  GetIssuesOutputSchema,
-} from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
+
+// Internal schema for validating fetched issue data
+const GetIssueOutputSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    description: z.string().optional(),
+    identifier: z.string().optional(),
+    url: z.string().optional(),
+    priority: z.number().optional(),
+    estimate: z.number().optional(),
+    cycle: z.object({ number: z.number().optional() }).optional(),
+    team: z.object({ id: z.string(), key: z.string().optional() }).optional(),
+    assignee: z.object({ id: z.string(), name: z.string().optional() }).optional(),
+    creator: z.object({ id: z.string(), name: z.string().optional() }).optional(),
+    state: z
+      .object({ id: z.string(), name: z.string(), type: z.string().optional() })
+      .optional(),
+    project: z.object({ id: z.string(), name: z.string().optional() }).optional(),
+    labels: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
+    branchName: z.string().optional(),
+    attachments: z.array(z.unknown()).optional(),
+    createdAt: z.string().optional(),
+  })
+  .strict();
 import { makeConcurrencyGate } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
-import { summarizeBatch } from '../../../utils/messages.js';
 import {
   encodeResponse,
   formatCycleToon,
@@ -561,164 +578,80 @@ export const getIssuesTool = defineTool({
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success).length;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format (when TOON_OUTPUT_ENABLED=true)
-    // ─────────────────────────────────────────────────────────────────────────
-    if (config.TOON_OUTPUT_ENABLED) {
-      // Convert successful results to RawIssueData for TOON processing
-      const rawIssues: RawIssueData[] = results
-        .filter((r) => r.success && r.issue)
-        .map((r) => {
-          const issue = r.issue as unknown as {
-            id: string;
-            identifier?: string;
-            title: string;
-            description?: string | null;
-            url?: string;
-            priority?: number;
-            estimate?: number | null;
-            cycle?: { number?: number };
-            team?: { id: string; key?: string };
-            assignee?: { id: string; name?: string };
-            state?: { id: string; name: string; type?: string };
-            project?: { id: string; name?: string };
-            labels?: Array<{ id: string; name: string }>;
-            branchName?: string | null;
-          };
-          return {
-            id: issue.id,
-            identifier: issue.identifier,
-            title: issue.title,
-            description: issue.description,
-            url: issue.url,
-            priority: issue.priority,
-            estimate: issue.estimate,
-            cycle: issue.cycle,
-            team: issue.team,
-            assignee: issue.assignee,
-            state: issue.state,
-            project: issue.project,
-            labels: issue.labels,
-            creator: r.creator,
-            createdAt: r.createdAt,
-          };
-        });
-
-      // Initialize registry if needed (lazy init)
-      let registry: ShortKeyRegistry | null = null;
-      try {
-        registry = await getOrInitRegistry(
-          {
-            sessionId: context.sessionId,
-            transport: 'stdio',
-          },
-          () => fetchWorkspaceDataForRegistry(client),
-        );
-      } catch (error) {
-        console.error('Registry initialization failed:', error);
-      }
-
-      // Build TOON response with unlimited desc truncation (detail view)
-      const toonResponse = buildToonResponse(rawIssues, registry, succeeded, failed);
-
-      // Encode with no truncation for descriptions (detail view)
-      const toonOutput = encodeResponse(rawIssues, toonResponse, {
-        truncation: {
-          title: 500,
-          desc: undefined, // No truncation for detail views
-          default: undefined,
-        },
-      });
-
-      return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _format: 'toon',
-          _version: '1',
-          succeeded,
-          failed,
-          total: succeeded + failed,
-        },
-      };
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy Output Format (when TOON_OUTPUT_ENABLED=false)
-    // ─────────────────────────────────────────────────────────────────────────
-    const summary = {
-      succeeded,
-      failed,
-    };
-
-    // Build meta with next steps
-    const meta = {
-      nextSteps: [
-        'Use update_issues to modify state, assignee, or labels.',
-        'Use add_comments to add context or updates.',
-      ],
-      relatedTools: ['update_issues', 'add_comments', 'list_issues'],
-    };
-
-    const structuredBatch = GetIssuesOutputSchema.parse({ results, summary, meta });
-
-    const okIds = results
-      .filter((r) => r.success)
-      .map((r) => r.issue?.identifier ?? r.issue?.id ?? r.requestedId);
-
-    // Build summary without next steps (tips go at the end)
-    const summaryLine = summarizeBatch({
-      action: 'Fetched issues',
-      ok: succeeded,
-      total: ids.length,
-      okIdentifiers: okIds as string[],
-      failures: results
-        .filter((r) => !r.success)
-        .map((r, idx) => ({
-          index: idx,
-          id: r.requestedId,
-          error: r.error?.message ?? '',
-        })),
-    });
-
-    const previewLines = results
+    // Convert successful results to RawIssueData for TOON processing
+    const rawIssues: RawIssueData[] = results
       .filter((r) => r.success && r.issue)
       .map((r) => {
-        const it = r.issue as unknown as {
-          identifier?: string;
+        const issue = r.issue as unknown as {
           id: string;
-          url?: string;
-          state?: { name?: string };
-          assignee?: { name?: string };
+          identifier?: string;
           title: string;
+          description?: string | null;
+          url?: string;
+          priority?: number;
+          estimate?: number | null;
+          cycle?: { number?: number };
+          team?: { id: string; key?: string };
+          assignee?: { id: string; name?: string };
+          state?: { id: string; name: string; type?: string };
+          project?: { id: string; name?: string };
+          labels?: Array<{ id: string; name: string }>;
+          branchName?: string | null;
         };
-        const stateNm = it.state?.name as string | undefined;
-        const assNm = it.assignee?.name as string | undefined;
-        const prefix = it.url
-          ? `[${it.identifier ?? it.id}](${it.url})`
-          : (it.identifier ?? it.id);
-        return `${prefix} '${it.title}'${
-          stateNm ? ` — state ${stateNm}` : ''
-        }${assNm ? `, assignee ${assNm}` : ''}`;
+        return {
+          id: issue.id,
+          identifier: issue.identifier,
+          title: issue.title,
+          description: issue.description,
+          url: issue.url,
+          priority: issue.priority,
+          estimate: issue.estimate,
+          cycle: issue.cycle,
+          team: issue.team,
+          assignee: issue.assignee,
+          state: issue.state,
+          project: issue.project,
+          labels: issue.labels,
+          creator: r.creator,
+          createdAt: r.createdAt,
+        };
       });
 
-    // Compose: summary → preview → tip
-    const textParts = [summaryLine];
-    if (previewLines.length > 0) {
-      textParts.push(`Preview:\n${previewLines.map((l) => `- ${l}`).join('\n')}`);
-    }
-    textParts.push(
-      'Tip: Use update_issues to modify, or list_issues to discover more.',
-    );
-    const fullMessage = textParts.join('\n\n');
-
-    const parts: Array<{ type: 'text'; text: string }> = [
-      { type: 'text', text: fullMessage },
-    ];
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structuredBatch) });
+    // Initialize registry if needed (lazy init)
+    let registry: ShortKeyRegistry | null = null;
+    try {
+      registry = await getOrInitRegistry(
+        {
+          sessionId: context.sessionId,
+          transport: 'stdio',
+        },
+        () => fetchWorkspaceDataForRegistry(client),
+      );
+    } catch (error) {
+      console.error('Registry initialization failed:', error);
     }
 
-    return { content: parts, structuredContent: structuredBatch };
+    // Build TOON response with unlimited desc truncation (detail view)
+    const toonResponse = buildToonResponse(rawIssues, registry, succeeded, failed);
+
+    // Encode with no truncation for descriptions (detail view)
+    const toonOutput = encodeResponse(rawIssues, toonResponse, {
+      truncation: {
+        title: 500,
+        desc: undefined, // No truncation for detail views
+        default: undefined,
+      },
+    });
+
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: {
+        _format: 'toon',
+        _version: '1',
+        succeeded,
+        failed,
+        total: succeeded + failed,
+      },
+    };
   },
 });

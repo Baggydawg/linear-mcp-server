@@ -435,12 +435,7 @@ describe('update_issues error handling', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('update_issues short key resolution', () => {
-  let originalToonEnabled: boolean;
-
-  beforeEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
-
+  beforeEach(() => {
     // Create a mock registry with short key mappings
     const mockRegistry: ShortKeyRegistry = {
       users: new Map([
@@ -483,10 +478,7 @@ describe('update_issues short key resolution', () => {
     resetMockCalls(mockClient);
   });
 
-  afterEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+  afterEach(() => {
     clearRegistry('test-session');
   });
 
@@ -615,12 +607,7 @@ describe('update_issues short key resolution', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('update_issues TOON output', () => {
-  let originalToonEnabled: boolean;
-
-  beforeEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    originalToonEnabled = config.TOON_OUTPUT_ENABLED;
-
+  beforeEach(() => {
     // Create a mock registry for TOON output
     const mockRegistry: ShortKeyRegistry = {
       users: new Map([
@@ -654,18 +641,11 @@ describe('update_issues TOON output', () => {
     resetMockCalls(mockClient);
   });
 
-  afterEach(async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = originalToonEnabled;
+  afterEach(() => {
     clearRegistry('test-session');
   });
 
-  it('returns TOON format when TOON_OUTPUT_ENABLED=true', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format', async () => {
     const result = await updateIssuesTool.handler(
       { items: [{ id: 'issue-001', title: 'Updated title' }] },
       baseContext,
@@ -682,10 +662,6 @@ describe('update_issues TOON output', () => {
   });
 
   it('includes meta with action and counts', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     const result = await updateIssuesTool.handler(
       { items: [{ id: 'issue-001', state: 's3' }] },
       baseContext,
@@ -698,10 +674,6 @@ describe('update_issues TOON output', () => {
   });
 
   it('includes results section with status and identifier', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     const result = await updateIssuesTool.handler(
       { items: [{ id: 'issue-001', state: 's3' }] },
       baseContext,
@@ -717,10 +689,6 @@ describe('update_issues TOON output', () => {
   });
 
   it('includes changes section when actual changes are detected', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
     // Note: The changes section is only added when computeFieldChanges detects
     // actual differences between before/after snapshots. Since our mock returns
     // the same state before and after, no changes will be detected.
@@ -740,31 +708,7 @@ describe('update_issues TOON output', () => {
     // In unit tests without mock state changes, we just verify the structure
   });
 
-  it('returns legacy format when TOON_OUTPUT_ENABLED=false', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = false;
-
-    const result = await updateIssuesTool.handler(
-      { items: [{ id: 'issue-001', title: 'Legacy test' }] },
-      baseContext,
-    );
-
-    expect(result.isError).toBeFalsy();
-    const textContent = result.content[0].text;
-
-    // Legacy format should contain summary text
-    expect(textContent).toContain('Updated issues');
-
-    // Should NOT have TOON format indicators
-    expect(textContent).not.toContain('_meta{');
-  });
-
-  it('returns legacy format when no registry is available', async () => {
-    const { config } = await import('../../src/config/env.js');
-    // @ts-expect-error - modifying config for test
-    config.TOON_OUTPUT_ENABLED = true;
-
+  it('returns TOON format even when no registry is available', async () => {
     // Clear the registry to simulate workspace_metadata not being called
     clearRegistry('test-session');
 
@@ -776,8 +720,8 @@ describe('update_issues TOON output', () => {
     expect(result.isError).toBeFalsy();
     const textContent = result.content[0].text;
 
-    // Without registry, should fall back to legacy format
-    expect(textContent).toContain('Updated issues');
-    expect(textContent).not.toContain('_meta{');
+    // TOON format is always used now
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('update_issues');
   });
 });

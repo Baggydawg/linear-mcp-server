@@ -122,13 +122,63 @@
       "expectedError": "Required"
     },
     {
-      "name": "invalid_priority",
+      "name": "too_many_items",
       "input": {
         "items": [
-          { "teamId": "team-eng", "title": "Test", "priority": "INVALID_VALUE" }
+          { "teamId": "team-1", "title": "Issue 1" },
+          { "teamId": "team-2", "title": "Issue 2" },
+          { "teamId": "team-3", "title": "Issue 3" },
+          { "teamId": "team-4", "title": "Issue 4" },
+          { "teamId": "team-5", "title": "Issue 5" },
+          { "teamId": "team-6", "title": "Issue 6" },
+          { "teamId": "team-7", "title": "Issue 7" },
+          { "teamId": "team-8", "title": "Issue 8" },
+          { "teamId": "team-9", "title": "Issue 9" },
+          { "teamId": "team-10", "title": "Issue 10" },
+          { "teamId": "team-11", "title": "Issue 11" },
+          { "teamId": "team-12", "title": "Issue 12" },
+          { "teamId": "team-13", "title": "Issue 13" },
+          { "teamId": "team-14", "title": "Issue 14" },
+          { "teamId": "team-15", "title": "Issue 15" },
+          { "teamId": "team-16", "title": "Issue 16" },
+          { "teamId": "team-17", "title": "Issue 17" },
+          { "teamId": "team-18", "title": "Issue 18" },
+          { "teamId": "team-19", "title": "Issue 19" },
+          { "teamId": "team-20", "title": "Issue 20" },
+          { "teamId": "team-21", "title": "Issue 21" },
+          { "teamId": "team-22", "title": "Issue 22" },
+          { "teamId": "team-23", "title": "Issue 23" },
+          { "teamId": "team-24", "title": "Issue 24" },
+          { "teamId": "team-25", "title": "Issue 25" },
+          { "teamId": "team-26", "title": "Issue 26" },
+          { "teamId": "team-27", "title": "Issue 27" },
+          { "teamId": "team-28", "title": "Issue 28" },
+          { "teamId": "team-29", "title": "Issue 29" },
+          { "teamId": "team-30", "title": "Issue 30" },
+          { "teamId": "team-31", "title": "Issue 31" },
+          { "teamId": "team-32", "title": "Issue 32" },
+          { "teamId": "team-33", "title": "Issue 33" },
+          { "teamId": "team-34", "title": "Issue 34" },
+          { "teamId": "team-35", "title": "Issue 35" },
+          { "teamId": "team-36", "title": "Issue 36" },
+          { "teamId": "team-37", "title": "Issue 37" },
+          { "teamId": "team-38", "title": "Issue 38" },
+          { "teamId": "team-39", "title": "Issue 39" },
+          { "teamId": "team-40", "title": "Issue 40" },
+          { "teamId": "team-41", "title": "Issue 41" },
+          { "teamId": "team-42", "title": "Issue 42" },
+          { "teamId": "team-43", "title": "Issue 43" },
+          { "teamId": "team-44", "title": "Issue 44" },
+          { "teamId": "team-45", "title": "Issue 45" },
+          { "teamId": "team-46", "title": "Issue 46" },
+          { "teamId": "team-47", "title": "Issue 47" },
+          { "teamId": "team-48", "title": "Issue 48" },
+          { "teamId": "team-49", "title": "Issue 49" },
+          { "teamId": "team-50", "title": "Issue 50" },
+          { "teamId": "team-51", "title": "Issue 51" }
         ]
       },
-      "expectedError": "Invalid"
+      "expectedError": "Array must contain at most 50 element"
     }
   ]
 }

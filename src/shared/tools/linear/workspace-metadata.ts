@@ -15,9 +15,8 @@ import {
   loadUserProfiles,
   type UserProfilesConfig,
 } from '../../config/user-profiles.js';
-import { AccountOutputSchema } from '../../../schemas/outputs.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import { previewLinesFromItems, summarizeList } from '../../../utils/messages.js';
+// Note: config is still imported for USER_PROFILES_* settings
 import {
   buildRegistry,
   CYCLE_LOOKUP_SCHEMA,
@@ -359,17 +358,12 @@ export const workspaceMetadataTool = defineTool({
   },
 
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
-    const include = args.include ?? [
-      'profile',
-      'teams',
-      'workflow_states',
-      'labels',
-      'projects',
-    ];
     const teamIdsFilter = new Set(args.teamIds ?? []);
     // forceRefresh is accepted as input but currently unused
     // Will be used in the future to force registry rebuild even if one exists
     const _forceRefresh = args.forceRefresh ?? false;
+    // Note: 'include' parameter is accepted for backwards compatibility but ignored
+    // TOON format always returns all entity types
 
     const client = await getLinearClient(context);
 
@@ -386,35 +380,27 @@ export const workspaceMetadataTool = defineTool({
       cycles: [],
     };
 
-    // Fetch viewer/profile
-    if (include.includes('profile') || config.TOON_OUTPUT_ENABLED) {
-      const viewer = await client.viewer;
-      workspaceData.viewer = {
-        id: viewer.id,
-        name: viewer.name ?? undefined,
-        email: viewer.email ?? undefined,
-        displayName: viewer.displayName ?? undefined,
-        timezone: viewer.timezone ?? undefined,
-      };
+    // Fetch viewer/profile (always needed for registry)
+    const viewer = await client.viewer;
+    workspaceData.viewer = {
+      id: viewer.id,
+      name: viewer.name ?? undefined,
+      email: viewer.email ?? undefined,
+      displayName: viewer.displayName ?? undefined,
+      timezone: viewer.timezone ?? undefined,
+    };
 
-      // Fetch organization name for TOON _meta section
-      try {
-        const org = await viewer.organization;
-        workspaceData.organizationName = org?.name ?? undefined;
-      } catch {
-        // Organization fetch failed, leave organizationName undefined
-      }
+    // Fetch organization name for TOON _meta section
+    try {
+      const org = await viewer.organization;
+      workspaceData.organizationName = org?.name ?? undefined;
+    } catch {
+      // Organization fetch failed, leave organizationName undefined
     }
 
-    // Fetch teams
+    // Fetch teams (always needed for registry)
     let teams: TeamLike[] = [];
-    if (
-      include.includes('teams') ||
-      include.includes('workflow_states') ||
-      include.includes('labels') ||
-      include.includes('projects') ||
-      config.TOON_OUTPUT_ENABLED
-    ) {
+    {
       if (teamIdsFilter.size) {
         const ids = Array.from(teamIdsFilter);
         const fetched: TeamLike[] = [];
@@ -446,7 +432,7 @@ export const workspaceMetadataTool = defineTool({
     }
 
     // Fetch users (always fetch for TOON to build registry)
-    if (config.TOON_OUTPUT_ENABLED) {
+    {
       // Load custom user profiles from config file or env var
       const userProfilesConfig: UserProfilesConfig = loadUserProfiles({
         envJson: config.USER_PROFILES_JSON,
@@ -477,440 +463,150 @@ export const workspaceMetadataTool = defineTool({
       });
     }
 
-    // Fetch workflow states
-    let statesByTeamComputed: Record<
-      string,
-      Array<{ id: string; name: string; type?: string; createdAt?: Date | string }>
-    > = {};
-    if (include.includes('workflow_states') || config.TOON_OUTPUT_ENABLED) {
-      const statesByTeam: Record<
-        string,
-        Array<{ id: string; name: string; type?: string; createdAt?: Date | string }>
-      > = {};
-      for (const team of teams) {
-        const states = await team.states();
-        statesByTeam[team.id] = states.nodes.map((s) => ({
+    // Fetch workflow states (always fetch for TOON registry)
+    for (const team of teams) {
+      const states = await team.states();
+      for (const s of states.nodes) {
+        workspaceData.states.push({
           id: s.id,
           name: s.name,
           type: s.type,
           createdAt: s.createdAt,
-        }));
-
-        // Add to workspaceData for TOON
-        for (const state of statesByTeam[team.id]) {
-          workspaceData.states.push({
-            ...state,
-            teamId: team.id,
-          });
-        }
+          teamId: team.id,
+        });
       }
-      statesByTeamComputed = statesByTeam;
     }
 
-    // Fetch labels
-    let labelsByTeamComputed: Record<
-      string,
-      Array<{ id: string; name: string; color?: string; description?: string }>
-    > = {};
-    if (include.includes('labels') || config.TOON_OUTPUT_ENABLED) {
-      const labelLimit = args.label_limit ?? 50;
-      const labelsByTeam: Record<
-        string,
-        Array<{
-          id: string;
-          name: string;
-          color?: string;
-          description?: string;
-        }>
-      > = {};
-      for (const team of teams) {
-        const labels = await team.labels({ first: labelLimit });
-        labelsByTeam[team.id] = labels.nodes.map((l) => ({
+    // Fetch labels (always fetch for TOON registry)
+    const labelLimit = args.label_limit ?? 50;
+    for (const team of teams) {
+      const labels = await team.labels({ first: labelLimit });
+      for (const l of labels.nodes) {
+        workspaceData.labels.push({
           id: l.id,
           name: l.name,
           color: l.color ?? undefined,
-          description: l.description ?? undefined,
-        }));
-
-        // Add to workspaceData for TOON
-        for (const label of labelsByTeam[team.id]) {
-          workspaceData.labels.push({
-            ...label,
-            teamId: team.id,
-          });
-        }
-      }
-      labelsByTeamComputed = labelsByTeam;
-    }
-
-    // Fetch projects
-    let projectsLocal: Array<Record<string, unknown>> = [];
-    if (include.includes('projects') || config.TOON_OUTPUT_ENABLED) {
-      const limit = args.project_limit ?? 10;
-      const projects: Array<Record<string, unknown>> = [];
-      for (const team of teams) {
-        const conn = await team.projects({ first: limit });
-        for (const p of conn.nodes) {
-          // Legacy format: only fields allowed by AccountOutputSchema
-          projects.push({
-            id: p.id,
-            name: p.name,
-            state: p.state,
-            leadId: p.lead?.id ?? undefined,
-            teamId: team.id,
-            targetDate: p.targetDate ?? undefined,
-            createdAt: p.createdAt?.toString(),
-          });
-
-          // Add to workspaceData for TOON (includes extra fields)
-          workspaceData.projects.push({
-            id: p.id,
-            name: p.name,
-            state: p.state,
-            priority: p.priority,
-            progress: p.progress,
-            leadId: p.lead?.id ?? undefined,
-            targetDate: p.targetDate ?? undefined,
-            createdAt: p.createdAt,
-          });
-        }
-      }
-      projectsLocal = projects;
-    }
-
-    // Fetch cycles (for TOON output)
-    if (config.TOON_OUTPUT_ENABLED) {
-      const now = new Date();
-      for (const team of teams) {
-        if (team.cyclesEnabled) {
-          try {
-            // Fetch current and upcoming cycles
-            const cyclesConn = await team.cycles({ first: 5 });
-            for (const cycle of cyclesConn.nodes) {
-              const startsAt = cycle.startsAt ? new Date(cycle.startsAt) : undefined;
-              const endsAt = cycle.endsAt ? new Date(cycle.endsAt) : undefined;
-              const isActive = startsAt && endsAt && now >= startsAt && now <= endsAt;
-              const isUpcoming = startsAt && startsAt > now;
-
-              // Include current and upcoming cycles
-              if (isActive || isUpcoming) {
-                workspaceData.cycles.push({
-                  id: cycle.id,
-                  number: cycle.number,
-                  name: cycle.name ?? undefined,
-                  startsAt: cycle.startsAt,
-                  endsAt: cycle.endsAt,
-                  active: isActive ?? false,
-                  progress: cycle.progress,
-                  teamId: team.id,
-                });
-              }
-            }
-          } catch {
-            // Cycles not enabled or error fetching
-          }
-        }
+          teamId: team.id,
+        });
       }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Build and store registry (for TOON output)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    let registry = {
-      usersByUuid: new Map<string, string>(),
-      projectsByUuid: new Map<string, string>(),
-      statesByUuid: new Map<string, string>(),
-    };
-
-    if (config.TOON_OUTPUT_ENABLED) {
-      // Prepare registry build data with full metadata
-      const registryData: RegistryBuildData = {
-        users: workspaceData.users.map((u) => ({
-          id: u.id,
-          createdAt: u.createdAt ?? new Date(0),
-          name: u.name ?? '',
-          displayName: u.displayName ?? '',
-          email: u.email ?? '',
-          active: u.active ?? true,
-          role: u.role,
-          skills: u.skills,
-          focusArea: u.focusArea,
-        })),
-        states: workspaceData.states.map((s) => ({
-          id: s.id,
-          createdAt: s.createdAt ?? new Date(0),
-          name: s.name,
-          type: s.type ?? '',
-        })),
-        projects: workspaceData.projects.map((p) => ({
+    // Fetch projects (always fetch for TOON registry)
+    const projectLimit = args.project_limit ?? 10;
+    for (const team of teams) {
+      const conn = await team.projects({ first: projectLimit });
+      for (const p of conn.nodes) {
+        workspaceData.projects.push({
           id: p.id,
-          createdAt: p.createdAt ?? new Date(0),
           name: p.name,
-          state: p.state ?? '',
-        })),
-        workspaceId: workspaceData.viewer?.id ?? 'unknown',
-      };
-
-      // Build the registry
-      const builtRegistry = buildRegistry(registryData);
-
-      // Store the registry for this session
-      storeRegistry(context.sessionId, builtRegistry);
-
-      // Keep reference for TOON encoding
-      registry = {
-        usersByUuid: builtRegistry.usersByUuid,
-        projectsByUuid: builtRegistry.projectsByUuid,
-        statesByUuid: builtRegistry.statesByUuid,
-      };
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Return TOON or legacy format based on flag
-    // ─────────────────────────────────────────────────────────────────────────
-
-    if (config.TOON_OUTPUT_ENABLED) {
-      // Build TOON response
-      const toonResponse = buildToonResponse(workspaceData, registry);
-      const toonOutput = encodeResponse(workspaceData, toonResponse);
-
-      return {
-        content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _toon: true,
-          _format: 'workspace_metadata_tier1',
-          teams: workspaceData.teams.length,
-          users: workspaceData.users.length,
-          states: workspaceData.states.length,
-          labels: workspaceData.labels.length,
-          projects: workspaceData.projects.length,
-          cycles: workspaceData.cycles.length,
-        },
-      };
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Legacy format (TOON_OUTPUT_ENABLED=false)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    const result: Record<string, unknown> = {};
-
-    if (include.includes('profile') && workspaceData.viewer) {
-      result.viewer = {
-        id: workspaceData.viewer.id,
-        name: workspaceData.viewer.name ?? undefined,
-        email: workspaceData.viewer.email ?? undefined,
-        displayName: workspaceData.viewer.displayName ?? undefined,
-        timezone: workspaceData.viewer.timezone ?? undefined,
-      };
-    }
-
-    if (include.includes('teams')) {
-      result.teams = teams.map((t) => ({
-        id: t.id,
-        key: t.key ?? undefined,
-        name: t.name,
-        description: t.description ?? undefined,
-        defaultIssueEstimate: t.defaultIssueEstimate ?? undefined,
-        cyclesEnabled: t.cyclesEnabled,
-        issueEstimationAllowZero: t.issueEstimationAllowZero,
-        issueEstimationExtended: t.issueEstimationExtended,
-        issueEstimationType: t.issueEstimationType,
-      }));
-    }
-
-    if (include.includes('workflow_states')) {
-      result.workflowStatesByTeam = Object.fromEntries(
-        Object.entries(statesByTeamComputed).map(([teamId, states]) => [
-          teamId,
-          states.map((s) => ({ id: s.id, name: s.name, type: s.type })),
-        ]),
-      );
-    }
-
-    if (include.includes('labels')) {
-      result.labelsByTeam = labelsByTeamComputed;
-    }
-
-    if (include.includes('favorites')) {
-      try {
-        const favConn = (await client.favorites({ first: 100 })) as unknown as {
-          nodes: Array<{
-            id: string;
-            type?: string;
-            url?: string;
-            projectId?: string;
-            issueId?: string;
-          }>;
-        };
-        result.favorites = favConn.nodes.map((f) => ({
-          id: f.id,
-          type: f.type,
-          url: f.url,
-          projectId: f.projectId,
-          issueId: f.issueId,
-        }));
-      } catch {
-        // ignore favorites errors; not essential
+          state: p.state,
+          priority: p.priority,
+          progress: p.progress,
+          leadId: p.lead?.id ?? undefined,
+          targetDate: p.targetDate ?? undefined,
+          createdAt: p.createdAt,
+        });
       }
     }
 
-    if (include.includes('projects')) {
-      result.projects = projectsLocal;
-    }
+    // Fetch cycles (always fetch for TOON registry)
+    const now = new Date();
+    for (const team of teams) {
+      if (team.cyclesEnabled) {
+        try {
+          // Fetch current and upcoming cycles
+          const cyclesConn = await team.cycles({ first: 5 });
+          for (const cycle of cyclesConn.nodes) {
+            const startsAt = cycle.startsAt ? new Date(cycle.startsAt) : undefined;
+            const endsAt = cycle.endsAt ? new Date(cycle.endsAt) : undefined;
+            const isActive = startsAt && endsAt && now >= startsAt && now <= endsAt;
+            const isUpcoming = startsAt && startsAt > now;
 
-    const summary = {
-      teamCount: teams.length,
-      stateCount: Object.values(statesByTeamComputed).reduce(
-        (acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0),
-        0,
-      ),
-      labelCount: Object.values(labelsByTeamComputed).reduce(
-        (acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0),
-        0,
-      ),
-      projectCount: projectsLocal.length,
-    };
-    result.summary = summary;
-
-    // Build quickLookup for easy access
-    const quickLookup: Record<string, unknown> = {};
-    if (result.viewer) {
-      const viewer = result.viewer as Record<string, unknown>;
-      quickLookup.viewerId = viewer.id;
-      quickLookup.viewerName = viewer.name;
-      quickLookup.viewerEmail = viewer.email;
-    }
-    if (teams.length > 0) {
-      quickLookup.teamIds = teams.map((t) => t.id);
-      quickLookup.teamByKey = Object.fromEntries(
-        teams.filter((t) => t.key).map((t) => [t.key, t.id]),
-      );
-      quickLookup.teamByName = Object.fromEntries(teams.map((t) => [t.name, t.id]));
-    }
-    if (Object.keys(statesByTeamComputed).length > 0) {
-      // Flatten all states into a single lookup by name
-      const stateIdByName: Record<string, string> = {};
-      for (const states of Object.values(statesByTeamComputed)) {
-        for (const s of states) {
-          stateIdByName[s.name] = s.id;
+            // Include current and upcoming cycles
+            if (isActive || isUpcoming) {
+              workspaceData.cycles.push({
+                id: cycle.id,
+                number: cycle.number,
+                name: cycle.name ?? undefined,
+                startsAt: cycle.startsAt,
+                endsAt: cycle.endsAt,
+                active: isActive ?? false,
+                progress: cycle.progress,
+                teamId: team.id,
+              });
+            }
+          }
+        } catch {
+          // Cycles not enabled or error fetching
         }
       }
-      quickLookup.stateIdByName = stateIdByName;
     }
-    if (Object.keys(labelsByTeamComputed).length > 0) {
-      // Flatten all labels into a single lookup by name
-      const labelIdByName: Record<string, string> = {};
-      for (const labels of Object.values(labelsByTeamComputed)) {
-        for (const l of labels) {
-          labelIdByName[l.name] = l.id;
-        }
-      }
-      quickLookup.labelIdByName = labelIdByName;
-    }
-    if (result.projects && Array.isArray(result.projects)) {
-      quickLookup.projectIdByName = Object.fromEntries(
-        (result.projects as Array<{ name: string; id: string }>).map((p) => [
-          p.name,
-          p.id,
-        ]),
-      );
-    }
-    result.quickLookup = quickLookup;
 
-    // Build meta
-    const meta = {
-      nextSteps: [
-        'Use quickLookup for fast ID resolution.',
-        'Use team IDs with list_issues to fetch issues.',
-        'Use stateIdByName to update issue states.',
-        'Use labelIdByName for label operations.',
-      ],
-      relatedTools: ['list_issues', 'create_issues', 'update_issues', 'list_projects'],
+    // ─────────────────────────────────────────────────────────────────────────
+    // Build and store registry
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Prepare registry build data with full metadata
+    const registryData: RegistryBuildData = {
+      users: workspaceData.users.map((u) => ({
+        id: u.id,
+        createdAt: u.createdAt ?? new Date(0),
+        name: u.name ?? '',
+        displayName: u.displayName ?? '',
+        email: u.email ?? '',
+        active: u.active ?? true,
+        role: u.role,
+        skills: u.skills,
+        focusArea: u.focusArea,
+      })),
+      states: workspaceData.states.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt ?? new Date(0),
+        name: s.name,
+        type: s.type ?? '',
+      })),
+      projects: workspaceData.projects.map((p) => ({
+        id: p.id,
+        createdAt: p.createdAt ?? new Date(0),
+        name: p.name,
+        state: p.state ?? '',
+      })),
+      workspaceId: workspaceData.viewer?.id ?? 'unknown',
     };
-    result.meta = meta;
 
-    const structured = AccountOutputSchema.parse(result);
-    const parts: Array<{ type: 'text'; text: string }> = [];
+    // Build the registry
+    const builtRegistry = buildRegistry(registryData);
 
-    const viewerBit = structured.viewer
-      ? `${structured.viewer.displayName ?? structured.viewer.name ?? structured.viewer.id}`
-      : `not requested (include 'profile' to fetch viewer)`;
-    const viewerIdBit = structured.viewer?.id
-      ? ` (viewer.id: ${structured.viewer.id})`
-      : '';
+    // Store the registry for this session
+    storeRegistry(context.sessionId, builtRegistry);
 
-    const teamPreview: string[] = Array.isArray(structured.teams)
-      ? previewLinesFromItems(
-          structured.teams as unknown as Record<string, unknown>[],
-          (t) => {
-            const id = String(t.id ?? '');
-            const key = t.key as string | undefined;
-            const name = t.name as string | undefined;
-            return `${key ? `${key} — ` : ''}${name ?? id} (${id})`;
-          },
-        )
-      : [];
+    // Keep reference for TOON encoding
+    const registry = {
+      usersByUuid: builtRegistry.usersByUuid,
+      projectsByUuid: builtRegistry.projectsByUuid,
+      statesByUuid: builtRegistry.statesByUuid,
+    };
 
-    const summaryLines: string[] = [];
-    summaryLines.push(
-      summarizeList({
-        subject: 'Teams',
-        count: teams.length,
-        previewLines: teamPreview,
-        nextSteps: ['Use team ids to list issues or workflow states (list_issues).'],
-      }),
-    );
+    // ─────────────────────────────────────────────────────────────────────────
+    // Return TOON format
+    // ─────────────────────────────────────────────────────────────────────────
 
-    if (
-      include.includes('workflow_states') &&
-      Object.keys(statesByTeamComputed).length > 0
-    ) {
-      const statePreviewLines: string[] = [];
-      for (const [teamId, states] of Object.entries(statesByTeamComputed)) {
-        const team = teams.find((t) => t.id === teamId);
-        const teamLabel = team?.key ?? team?.name ?? teamId;
-        const statesList = states
-          .map((s) => `${s.name} [${s.type}] → ${s.id}`)
-          .join(', ');
-        statePreviewLines.push(`${teamLabel}: ${statesList}`);
-      }
-      summaryLines.push(
-        summarizeList({
-          subject: 'Workflow States',
-          count: summary.stateCount,
-          previewLines: statePreviewLines,
-        }),
-      );
-    }
+    // Build TOON response
+    const toonResponse = buildToonResponse(workspaceData, registry);
+    const toonOutput = encodeResponse(workspaceData, toonResponse);
 
-    if (
-      include.includes('projects') &&
-      Array.isArray(structured.projects) &&
-      structured.projects.length > 0
-    ) {
-      const projectPreviewLines = (
-        structured.projects as Array<{ id: string; name: string; state?: string }>
-      ).map((p) => `${p.name} [${p.state ?? 'unknown'}] → ${p.id}`);
-      summaryLines.push(
-        summarizeList({
-          subject: 'Projects',
-          count: structured.projects.length,
-          previewLines: projectPreviewLines,
-        }),
-      );
-    }
-
-    parts.push({
-      type: 'text',
-      text: `Loaded workspace bootstrap for ${viewerBit}${viewerIdBit}. ${summaryLines.join(' ')}`,
-    });
-
-    if (config.LINEAR_MCP_INCLUDE_JSON_IN_CONTENT) {
-      parts.push({ type: 'text', text: JSON.stringify(structured) });
-    }
-
-    return { content: parts, structuredContent: structured };
+    return {
+      content: [{ type: 'text', text: toonOutput }],
+      structuredContent: {
+        _toon: true,
+        _format: 'workspace_metadata_tier1',
+        teams: workspaceData.teams.length,
+        users: workspaceData.users.length,
+        states: workspaceData.states.length,
+        labels: workspaceData.labels.length,
+        projects: workspaceData.projects.length,
+        cycles: workspaceData.cycles.length,
+      },
+    };
   },
 });
