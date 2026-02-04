@@ -818,6 +818,8 @@ export const createIssuesTool = defineTool({
 
     // Build structured content for MCP response
     const structured = {
+      _format: 'toon',
+      _version: '1',
       results: results.map((r) => ({
         index: r.index,
         ok: r.ok,

@@ -563,8 +563,7 @@ src/
 │   └── linear/
 │       └── client.ts       # LinearClient wrapper with auth
 ├── schemas/
-│   ├── inputs.ts           # Zod input schemas
-│   └── outputs.ts          # Zod output schemas
+│   └── inputs.ts           # Zod input schemas
 ├── config/
 │   └── metadata.ts         # Server & tool descriptions
 ├── index.ts                # Node.js entry
