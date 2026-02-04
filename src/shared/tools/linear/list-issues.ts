@@ -938,13 +938,6 @@ export const listIssuesTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        count: rawIssues.length,
-        hasMore,
-        nextCursor,
-      },
     };
   },
 });

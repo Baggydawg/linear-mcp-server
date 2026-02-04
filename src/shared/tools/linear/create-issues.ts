@@ -836,7 +836,6 @@ export const createIssuesTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: structured,
     };
   },
 });

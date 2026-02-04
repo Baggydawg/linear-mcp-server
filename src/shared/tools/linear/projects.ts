@@ -292,8 +292,8 @@ export const listProjectsTool = defineTool({
     });
 
     const pageInfo = conn.pageInfo;
-    const hasMore = pageInfo?.hasNextPage ?? false;
-    const nextCursor = hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
+    const _hasMore = pageInfo?.hasNextPage ?? false;
+    const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
 
     // Convert items to RawProjectData for TOON processing
     const rawProjects: RawProjectData[] = conn.nodes.map((p) => ({
@@ -336,13 +336,6 @@ export const listProjectsTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        count: rawProjects.length,
-        hasMore,
-        nextCursor,
-      },
     };
   },
 });
@@ -589,14 +582,6 @@ export const createProjectsTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        action: 'create_projects',
-        succeeded,
-        failed,
-        total: args.items.length,
-      },
     };
   },
 });
@@ -930,14 +915,6 @@ export const updateProjectsTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        action: 'update_projects',
-        succeeded,
-        failed,
-        total: args.items.length,
-      },
     };
   },
 });

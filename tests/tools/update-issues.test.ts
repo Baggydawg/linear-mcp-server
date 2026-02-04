@@ -93,11 +93,6 @@ describe('update_issues handler', () => {
     );
 
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
-
-    expect(summary.ok).toBe(1);
     expect(mockClient.updateIssue).toHaveBeenCalledWith(
       'issue-001',
       expect.objectContaining({ title: 'Updated title' }),
@@ -145,11 +140,6 @@ describe('update_issues handler', () => {
     );
 
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
-
-    expect(summary.ok).toBe(3);
     expect(mockClient.updateIssue).toHaveBeenCalledTimes(3);
   });
 
@@ -307,28 +297,15 @@ describe('update_issues label operations', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('update_issues output shape', () => {
-  it('matches UpdateIssuesOutputSchema', async () => {
+  it('success responses have no structuredContent', async () => {
     const result = await updateIssuesTool.handler(
       { items: [{ id: 'issue-001', title: 'Test' }] },
       baseContext,
     );
 
-    const structured = result.structuredContent as Record<string, unknown>;
-
-    expect(structured.results).toBeDefined();
-    expect(structured.summary).toBeDefined();
-
-    const results = structured.results as Array<Record<string, unknown>>;
-    expect(Array.isArray(results)).toBe(true);
-
-    for (const r of results) {
-      expect(typeof r.index).toBe('number');
-      expect(typeof r.ok).toBe('boolean');
-    }
-
-    const summary = structured.summary as Record<string, unknown>;
-    expect(typeof summary.ok).toBe('number');
-    expect(typeof summary.failed).toBe('number');
+    expect(result.isError).toBeFalsy();
+    // Success responses no longer include structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 });
 
@@ -347,15 +324,10 @@ describe('update_issues error handling', () => {
       baseContext,
     );
 
+    // Batch continues but item fails - error details now in text content
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-
-    expect(results[0].success).toBe(false);
-    expect((results[0].error as Record<string, unknown>).message).toContain(
-      'Issue not found',
-    );
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content[0].text).toContain('fail');
   });
 
   it('returns error with code, message, and suggestions for non-existent issue IDs', async () => {
@@ -371,37 +343,9 @@ describe('update_issues error handling', () => {
 
     // Batch operation should not mark entire result as error
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-    const summary = structured.summary as { ok: number; failed: number };
-
-    // Verify the batch tracked the failure
-    expect(summary.failed).toBe(1);
-    expect(summary.ok).toBe(0);
-
-    // Verify the individual result has error details
-    expect(results[0].success).toBe(false);
-
-    const error = results[0].error as {
-      code?: string;
-      message: string;
-      suggestions?: string[];
-    };
-
-    // Verify error has the expected fields
-    expect(error.message).toBeDefined();
-    expect(typeof error.message).toBe('string');
-    expect(error.message.length).toBeGreaterThan(0);
-
-    // Code and suggestions may or may not be present depending on error type,
-    // but if they exist they should be properly typed
-    if (error.code !== undefined) {
-      expect(typeof error.code).toBe('string');
-    }
-    if (error.suggestions !== undefined) {
-      expect(Array.isArray(error.suggestions)).toBe(true);
-    }
+    expect(result.structuredContent).toBeUndefined();
+    // Error details are now in text content
+    expect(result.content[0].text).toContain('fail');
   });
 
   it('continues batch on partial failure', async () => {
@@ -422,11 +366,9 @@ describe('update_issues error handling', () => {
       baseContext,
     );
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
-
-    expect(summary.ok).toBe(1);
-    expect(summary.failed).toBe(1);
+    // Batch continues despite partial failures
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toBeUndefined();
   });
 });
 
@@ -587,18 +529,10 @@ describe('update_issues short key resolution', () => {
       baseContext,
     );
 
-    expect(result.isError).toBeFalsy(); // Batch continues
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
-
-    expect(summary.failed).toBe(1);
-
-    const results = structured.results as Array<Record<string, unknown>>;
-    expect(results[0].success).toBe(false);
-    expect((results[0].error as { message: string }).message).toContain(
-      "Unknown state key 's99'",
-    );
+    // Batch continues but item fails - error details now in text content
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content[0].text).toContain('s99');
   });
 });
 

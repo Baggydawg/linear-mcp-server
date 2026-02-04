@@ -92,15 +92,6 @@ describe('create_issues handler', () => {
     );
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toBeDefined();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.results).toBeDefined();
-    expect(structured.summary).toBeDefined();
-
-    const summary = structured.summary as { ok: number; failed: number };
-    expect(summary.ok).toBe(1);
-    expect(summary.failed).toBe(0);
 
     // Verify createIssue was called
     expect(mockClient.createIssue).toHaveBeenCalledTimes(1);
@@ -159,11 +150,6 @@ describe('create_issues handler', () => {
     );
 
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
-
-    expect(summary.ok).toBe(3);
     expect(mockClient.createIssue).toHaveBeenCalledTimes(3);
   });
 
@@ -233,18 +219,10 @@ describe('create_issues handler', () => {
       baseContext,
     );
 
-    expect(result.isError).toBeFalsy(); // Batch continues
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-    const summary = structured.summary as { ok: number; failed: number };
-
-    expect(summary.failed).toBe(1);
-    expect(results[0].success).toBe(false);
-    expect((results[0].error as Record<string, unknown>).message).toContain(
-      'No user found',
-    );
-    expect((results[0].error as Record<string, unknown>).code).toBe('USER_NOT_FOUND');
+    // Batch continues but item fails - error details now in text content
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content[0].text).toContain('No user found');
   });
 
   it('dry run validates without creating', async () => {
@@ -310,13 +288,9 @@ describe('create_issues handler', () => {
       baseContext,
     );
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-
-    expect(results.length).toBe(1);
-    expect(results[0].ok).toBe(true);
-    expect(results[0].id).toBeDefined();
-    expect(results[0].identifier).toBeDefined();
+    expect(result.isError).toBeFalsy();
+    // Success responses no longer include structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 });
 
@@ -325,31 +299,15 @@ describe('create_issues handler', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('create_issues output shape', () => {
-  it('matches CreateIssuesOutputSchema', async () => {
+  it('success responses have no structuredContent', async () => {
     const result = await createIssuesTool.handler(
       { items: [{ teamId: 'team-eng', title: 'Schema test' }] },
       baseContext,
     );
 
-    const structured = result.structuredContent as Record<string, unknown>;
-
-    // Required fields
-    expect(structured.results).toBeDefined();
-    expect(structured.summary).toBeDefined();
-
-    // Results array
-    const results = structured.results as Array<Record<string, unknown>>;
-    expect(Array.isArray(results)).toBe(true);
-
-    for (const r of results) {
-      expect(typeof r.index).toBe('number');
-      expect(typeof r.ok).toBe('boolean');
-    }
-
-    // Summary
-    const summary = structured.summary as Record<string, unknown>;
-    expect(typeof summary.ok).toBe('number');
-    expect(typeof summary.failed).toBe('number');
+    expect(result.isError).toBeFalsy();
+    // Success responses no longer include structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 });
 
@@ -372,19 +330,11 @@ describe('create_issues error handling', () => {
       baseContext,
     );
 
-    // Should not throw, but report error in results
+    // Should not throw, but report error in text content
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    const results = structured.results as Array<Record<string, unknown>>;
-
-    expect(results[0].success).toBe(false);
-    expect((results[0].error as Record<string, unknown>).message).toContain(
-      'API rate limit',
-    );
-    expect((results[0].error as Record<string, unknown>).code).toBe(
-      'LINEAR_CREATE_ERROR',
-    );
+    expect(result.structuredContent).toBeUndefined();
+    // Error details are now in text content
+    expect(result.content[0].text).toContain('fail');
   });
 
   it('continues batch on partial failure', async () => {
@@ -406,15 +356,9 @@ describe('create_issues error handling', () => {
       baseContext,
     );
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
-
-    expect(summary.ok).toBe(1);
-    expect(summary.failed).toBe(1);
-
-    const results = structured.results as Array<Record<string, unknown>>;
-    expect(results[0].ok).toBe(false);
-    expect(results[1].ok).toBe(true);
+    // Batch continues despite partial failures
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toBeUndefined();
   });
 });
 
@@ -576,18 +520,10 @@ describe('create_issues short key resolution', () => {
       baseContext,
     );
 
-    expect(result.isError).toBeFalsy(); // Batch continues
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
-
-    expect(summary.failed).toBe(1);
-
-    const results = structured.results as Array<Record<string, unknown>>;
-    expect(results[0].success).toBe(false);
-    expect((results[0].error as Record<string, unknown>).code).toBe(
-      'USER_RESOLUTION_FAILED',
-    );
+    // Batch continues but item fails - error details now in text content
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content[0].text).toContain('u99');
   });
 });
 

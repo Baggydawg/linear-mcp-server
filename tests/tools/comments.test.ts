@@ -90,10 +90,6 @@ describe('list_comments tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      // TOON format uses count instead of items array
-      expect(typeof structured.count).toBe('number');
     });
 
     it('respects limit parameter', async () => {
@@ -118,39 +114,16 @@ describe('list_comments tool', () => {
   });
 
   describe('output shape', () => {
-    it('matches TOON output format', async () => {
-      const result = await listCommentsTool.handler(
-        { issueId: 'issue-001' },
-        baseContext,
-      );
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      // TOON format uses count instead of items array
-      expect(typeof structured.count).toBe('number');
-      expect(structured._format).toBe('toon');
-      expect(structured._version).toBe('1');
-    });
-
     it('includes comment metadata in text content', async () => {
       const result = await listCommentsTool.handler(
         { issueId: 'issue-001' },
         baseContext,
       );
 
+      expect(result.isError).toBeFalsy();
       const textContent = result.content[0].text;
       // TOON format includes comments section
       expect(textContent).toContain('comments[');
-    });
-
-    it('includes pagination info', async () => {
-      const result = await listCommentsTool.handler(
-        { issueId: 'issue-001' },
-        baseContext,
-      );
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      // TOON format uses hasMore instead of cursor
-      expect(typeof structured.hasMore).toBe('boolean');
     });
   });
 
@@ -162,10 +135,6 @@ describe('list_comments tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      // Verify comments are returned (TOON format)
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(typeof structured.count).toBe('number');
 
       // Verify text output is in TOON format
       const textContent = result.content[0].text;
@@ -265,10 +234,6 @@ describe('add_comments tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      // TOON format structured content
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
       expect(mockClient.createComment).toHaveBeenCalledTimes(1);
     });
 
@@ -329,27 +294,9 @@ describe('add_comments tool', () => {
         baseContext,
       );
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
-      expect(structured.action).toBe('add_comments');
-    });
-  });
-
-  describe('output shape', () => {
-    it('matches TOON output format', async () => {
-      const result = await addCommentsTool.handler(
-        {
-          items: [{ issueId: 'issue-001', body: 'Test' }],
-        },
-        baseContext,
-      );
-
-      const structured = result.structuredContent as Record<string, unknown>;
-
-      // TOON format
-      expect(structured._format).toBe('toon');
-      expect(structured._version).toBe('1');
-      expect(structured.action).toBe('add_comments');
+      expect(result.isError).toBeFalsy();
+      const textContent = result.content[0].text;
+      expect(textContent).toContain('add_comments');
     });
   });
 
@@ -415,10 +362,6 @@ describe('add_comments tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      // TOON format
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
       expect(mockClient.createComment).toHaveBeenCalledTimes(3);
     });
   });
@@ -521,10 +464,6 @@ describe('update_comments tool', () => {
       expect(mockClient.updateComment).toHaveBeenCalledWith('comment-001', {
         body: 'Updated comment body',
       });
-
-      // TOON format
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
     });
 
     it('batch updates multiple comments', async () => {
@@ -540,10 +479,6 @@ describe('update_comments tool', () => {
 
       expect(result.isError).toBeFalsy();
       expect(mockClient.updateComment).toHaveBeenCalledTimes(2);
-
-      // TOON format
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
     });
 
     it('returns TOON output format', async () => {
@@ -572,7 +507,7 @@ describe('list_comments TOON output', () => {
     resetMockCalls(mockClient);
   });
 
-  it('returns TOON format', async () => {
+  it('returns TOON format in text content', async () => {
     const result = await listCommentsTool.handler(
       { issueId: 'issue-001' },
       baseContext,
@@ -586,12 +521,6 @@ describe('list_comments TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('comments[');
-
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(typeof structured.count).toBe('number');
   });
 
   it('returns TOON with comment schema fields', async () => {
@@ -635,11 +564,8 @@ describe('list_comments TOON output', () => {
     expect(result.isError).toBeFalsy();
     const textContent = result.content[0].text;
 
-    // Should have meta section with count 0
+    // Should have meta section
     expect(textContent).toContain('_meta{');
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
   });
 });
 
@@ -653,7 +579,7 @@ describe('add_comments TOON output', () => {
     resetMockCalls(mockClient);
   });
 
-  it('returns TOON format', async () => {
+  it('returns TOON format in text content', async () => {
     const result = await addCommentsTool.handler(
       {
         items: [{ issueId: 'issue-001', body: 'Test comment' }],
@@ -669,12 +595,6 @@ describe('add_comments TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('add_comments');
-
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(structured.action).toBe('add_comments');
   });
 
   it('includes results section with index, status, issue fields', async () => {
@@ -723,7 +643,7 @@ describe('update_comments TOON output', () => {
     resetMockCalls(mockClient);
   });
 
-  it('returns TOON format', async () => {
+  it('returns TOON format in text content', async () => {
     const result = await updateCommentsTool.handler(
       {
         items: [{ id: 'comment-001', body: 'Updated comment' }],
@@ -739,12 +659,6 @@ describe('update_comments TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('update_comments');
-
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(structured.action).toBe('update_comments');
   });
 
   it('includes results section with index, status, id fields', async () => {

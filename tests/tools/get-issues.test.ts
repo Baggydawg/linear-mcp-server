@@ -84,12 +84,8 @@ describe('get_issues handler', () => {
     const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toBeDefined();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses succeeded/failed counts
-    expect(structured.succeeded).toBe(1);
-    expect(structured.failed).toBe(0);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
     // Verify issue() was called
     expect(mockClient.issue).toHaveBeenCalledWith('issue-001');
@@ -99,10 +95,8 @@ describe('get_issues handler', () => {
     const result = await getIssuesTool.handler({ ids: ['ENG-123'] }, baseContext);
 
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses succeeded/failed counts
-    expect(structured.succeeded).toBe(1);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
     // Verify issue() was called with identifier
     expect(mockClient.issue).toHaveBeenCalledWith('ENG-123');
@@ -115,10 +109,8 @@ describe('get_issues handler', () => {
     );
 
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses total count
-    expect(structured.total).toBe(3);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
     expect(mockClient.issue).toHaveBeenCalledTimes(3);
   });
 
@@ -132,16 +124,21 @@ describe('get_issues handler', () => {
     expect(textContent).toContain('Fix authentication bug'); // issue title
   });
 
-  it('includes succeeded/failed counts', async () => {
+  it('includes succeeded/failed counts in text content', async () => {
     const result = await getIssuesTool.handler(
       { ids: ['issue-001', 'issue-002'] },
       baseContext,
     );
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses top-level succeeded/failed
-    expect(structured.succeeded).toBe(2);
-    expect(structured.failed).toBe(0);
+    expect(result.isError).toBeFalsy();
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
+
+    // Counts are in text content (_meta section)
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('succeeded');
+    expect(textContent).toContain('failed');
   });
 });
 
@@ -153,14 +150,13 @@ describe('get_issues output shape', () => {
   it('matches TOON output format', async () => {
     const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
-    // TOON format has these fields
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(typeof structured.succeeded).toBe('number');
-    expect(typeof structured.failed).toBe('number');
-    expect(typeof structured.total).toBe('number');
+    // TOON format is returned in text content
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('issues[');
   });
 
   it('text content contains expected fields', async () => {
@@ -187,11 +183,12 @@ describe('get_issues error handling', () => {
     const result = await getIssuesTool.handler({ ids: ['nonexistent'] }, baseContext);
 
     expect(result.isError).toBeFalsy();
+    // Success responses (including partial failures) no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses top-level failed count
-    expect(structured.failed).toBe(1);
-    expect(structured.succeeded).toBe(0);
+    // Failed count is in text content
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('failed');
   });
 
   it('continues batch on partial failure', async () => {
@@ -216,10 +213,13 @@ describe('get_issues error handling', () => {
       baseContext,
     );
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses top-level succeeded/failed counts
-    expect(structured.succeeded).toBe(1);
-    expect(structured.failed).toBe(1);
+    // Success responses (including partial failures) no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
+
+    // Counts are in text content
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('succeeded');
+    expect(textContent).toContain('failed');
   });
 
   it('handles API error gracefully', async () => {
@@ -230,11 +230,12 @@ describe('get_issues error handling', () => {
     const result = await getIssuesTool.handler({ ids: ['issue-001'] }, baseContext);
 
     expect(result.isError).toBeFalsy();
+    // Success responses (including partial failures) no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses top-level failed count
-    expect(structured.failed).toBe(1);
-    expect(structured.succeeded).toBe(0);
+    // Failed count is in text content
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('failed');
   });
 });
 
@@ -258,12 +259,8 @@ describe('get_issues TOON output', () => {
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('issues[');
 
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(typeof structured.succeeded).toBe('number');
-    expect(typeof structured.failed).toBe('number');
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it('returns TOON with lookup tables (Tier 2 - referenced only)', async () => {
@@ -322,10 +319,7 @@ describe('get_issues TOON output', () => {
     expect(textContent).toContain('failed');
     expect(textContent).toContain('total');
 
-    // Structured content should have counts
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.succeeded).toBe(2);
-    expect(structured.failed).toBe(0);
-    expect(structured.total).toBe(2);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 });

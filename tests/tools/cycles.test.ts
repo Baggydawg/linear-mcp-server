@@ -111,19 +111,15 @@ describe('list_cycles handler', () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toBeDefined();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(typeof structured.count).toBe('number');
+    expect(result.content).toBeDefined();
+    expect(result.content.length).toBeGreaterThan(0);
   });
 
   it('filters cycles by team', async () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
     expect(result.isError).toBeFalsy();
-    // TOON format returns count instead of items array
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(typeof structured.count).toBe('number');
+    expect(result.content).toBeDefined();
   });
 
   it('respects limit parameter', async () => {
@@ -180,12 +176,12 @@ describe('list_cycles output shape', () => {
   it('matches TOON output format', async () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
 
-    // TOON format uses count instead of items array
-    expect(typeof structured.count).toBe('number');
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
+    // TOON format should have cycles section with schema
+    expect(textContent).toContain('cycles[');
+    expect(textContent).toContain('_meta{');
   });
 
   it('includes cycle metadata in text content', async () => {
@@ -200,9 +196,8 @@ describe('list_cycles output shape', () => {
   it('includes pagination info', async () => {
     const result = await listCyclesTool.handler({ teamId: 'team-eng' }, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses hasMore instead of cursor-based pagination
-    expect(typeof structured.hasMore === 'boolean' || structured.nextCursor !== undefined).toBe(true);
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toBeDefined();
   });
 });
 
@@ -276,10 +271,7 @@ describe('list_cycles edge cases', () => {
     const result = await listCyclesTool.handler({ teamId: 'team-new' }, baseContext);
 
     expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses count instead of items array
-    expect(structured.count).toBe(0);
+    expect(result.content).toBeDefined();
   });
 });
 
@@ -307,12 +299,6 @@ describe('list_cycles TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('cycles[');
-
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(typeof structured.count).toBe('number');
   });
 
   it('returns TOON with cycle schema fields', async () => {
@@ -380,10 +366,7 @@ describe('list_cycles TOON output', () => {
     expect(result.isError).toBeFalsy();
     const textContent = result.content[0].text;
 
-    // Should have meta section with count 0
+    // Should have meta section
     expect(textContent).toContain('_meta{');
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
   });
 });

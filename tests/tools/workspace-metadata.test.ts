@@ -94,27 +94,29 @@ describe('workspace_metadata handler', () => {
     const result = await workspaceMetadataTool.handler({}, baseContext);
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toBeDefined();
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format markers
-    expect(structured._toon).toBe(true);
-    expect(structured._format).toBe('workspace_metadata_tier1');
+    // TOON format is returned in text content
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('_teams[');
   });
 
   it('returns counts for all entity types', async () => {
     const result = await workspaceMetadataTool.handler({}, baseContext);
 
     expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as Record<string, unknown>;
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
-    // TOON format uses counts
-    expect(typeof structured.teams).toBe('number');
-    expect(typeof structured.users).toBe('number');
-    expect(typeof structured.states).toBe('number');
-    expect(typeof structured.labels).toBe('number');
-    expect(typeof structured.projects).toBe('number');
-    expect(typeof structured.cycles).toBe('number');
+    // Counts are embedded in text content section headers
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_teams[');
+    expect(textContent).toContain('_users[');
+    expect(textContent).toContain('_states[');
+    expect(textContent).toContain('_labels[');
+    expect(textContent).toContain('_projects[');
   });
 
   it('returns TOON text content with section headers', async () => {
@@ -149,25 +151,25 @@ describe('workspace_metadata handler', () => {
   it('includes all users in TOON output (Tier 1)', async () => {
     const result = await workspaceMetadataTool.handler({}, baseContext);
     const text = result.content[0].text;
-    const structured = result.structuredContent as Record<string, unknown>;
 
-    // Tier 1 should include ALL users
-    expect(structured.users as number).toBeGreaterThan(0);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
     // User short keys should be in output
     expect(text).toContain('u0');
+    expect(text).toContain('_users[');
   });
 
   it('includes all states in TOON output (Tier 1)', async () => {
     const result = await workspaceMetadataTool.handler({}, baseContext);
     const text = result.content[0].text;
-    const structured = result.structuredContent as Record<string, unknown>;
 
-    // Tier 1 should include ALL states
-    expect(structured.states as number).toBeGreaterThan(0);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
     // State short keys should be in output
     expect(text).toContain('s0');
+    expect(text).toContain('_states[');
 
     // State names should be present
     expect(text).toContain('Backlog');
@@ -179,10 +181,12 @@ describe('workspace_metadata handler', () => {
   it('includes all labels in TOON output (Tier 1)', async () => {
     const result = await workspaceMetadataTool.handler({}, baseContext);
     const text = result.content[0].text;
-    const structured = result.structuredContent as Record<string, unknown>;
 
-    // Tier 1 should include ALL labels
-    expect(structured.labels as number).toBeGreaterThan(0);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
+
+    // Labels section should be present
+    expect(text).toContain('_labels[');
 
     // Label names should be present (labels use name as key, not short key)
     expect(text).toContain('Bug');
@@ -235,14 +239,17 @@ describe('workspace_metadata handler', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('workspace_metadata output schema compliance', () => {
-  it('structuredContent has TOON format markers', async () => {
+  it('returns TOON format in text content', async () => {
     const result = await workspaceMetadataTool.handler({}, baseContext);
 
-    expect(result.structuredContent).toBeDefined();
-    const structured = result.structuredContent as Record<string, unknown>;
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
-    // TOON format
-    expect(structured._toon).toBe(true);
-    expect(structured._format).toBe('workspace_metadata_tier1');
+    // TOON format is in text content
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('_teams[');
+    expect(textContent).toContain('_users[');
+    expect(textContent).toContain('_states[');
   });
 });

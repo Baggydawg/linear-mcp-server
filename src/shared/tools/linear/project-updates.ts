@@ -417,14 +417,6 @@ export const listProjectUpdatesTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        project: projectKey,
-        count: rawUpdates.length,
-        hasMore,
-        nextCursor,
-      },
     };
   },
 });
@@ -549,14 +541,6 @@ export const createProjectUpdateTool = defineTool({
 
       return {
         content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _format: 'toon',
-          _version: '1',
-          action: 'create_project_update',
-          succeeded: 1,
-          id: projectUpdate?.id,
-          url: projectUpdate?.url,
-        },
       };
     } catch (error) {
       await logger.error('create_project_update', {
@@ -680,13 +664,6 @@ export const updateProjectUpdateTool = defineTool({
 
       return {
         content: [{ type: 'text', text: toonOutput }],
-        structuredContent: {
-          _format: 'toon',
-          _version: '1',
-          action: 'update_project_update',
-          succeeded: 1,
-          id: args.id,
-        },
       };
     } catch (error) {
       await logger.error('update_project_update', {

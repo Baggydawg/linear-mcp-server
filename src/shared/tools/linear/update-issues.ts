@@ -1115,7 +1115,6 @@ export const updateIssuesTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: structured,
     };
   },
 });

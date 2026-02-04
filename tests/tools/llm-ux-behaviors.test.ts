@@ -87,14 +87,18 @@ describe('Context Bloat Prevention', () => {
       expect(textContent).toContain('true');
     });
 
-    it('provides nextCursor in structuredContent for pagination', async () => {
+    it('provides cursor in pagination section for next page', async () => {
       mockClient = createMockLinearClient({ issues: generateManyIssues(50) });
 
       const result = await listIssuesTool.handler({ limit: 10 }, baseContext);
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.nextCursor).toBeDefined();
-      expect(typeof structured.nextCursor).toBe('string');
+      // structuredContent was removed - pagination info is in TOON text
+      expect(result.structuredContent).toBeUndefined();
+
+      // Cursor is in _pagination section of TOON output
+      const textContent = result.content[0].text;
+      expect(textContent).toContain('_pagination');
+      expect(textContent).toContain('cursor');
     });
 
     it('includes cursor in pagination section of TOON output', async () => {
@@ -116,9 +120,8 @@ describe('Context Bloat Prevention', () => {
       const textContent = result.content[0].text;
       expect(textContent).toMatch(/issues\[\d+\]/);
 
-      // Structured content should have count
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(typeof structured.count).toBe('number');
+      // structuredContent was removed - count is in TOON text header
+      expect(result.structuredContent).toBeUndefined();
     });
   });
 
@@ -133,13 +136,17 @@ describe('Context Bloat Prevention', () => {
       expect(textContent).not.toContain('more available');
     });
 
-    it('nextCursor is undefined when no more pages', async () => {
+    it('does NOT include pagination section when no more pages', async () => {
       mockClient = createMockLinearClient({ issues: generateManyIssues(5) });
 
       const result = await listIssuesTool.handler({ limit: 25 }, baseContext);
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.nextCursor).toBeUndefined();
+      // structuredContent was removed - pagination info would be in TOON text
+      expect(result.structuredContent).toBeUndefined();
+
+      // When there are no more pages, _pagination section is omitted entirely
+      const textContent = result.content[0].text;
+      expect(textContent).not.toContain('_pagination');
     });
   });
 
@@ -175,10 +182,12 @@ describe('Navigating Completed/Cancelled Issues', () => {
       const filter = call.variables?.filter as Record<string, unknown>;
       expect(filter.state).toEqual({ type: { eq: 'completed' } });
 
-      // In TOON format, issues are in text output, check count
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(typeof structured.count).toBe('number');
-      expect(structured.count as number).toBeGreaterThan(0);
+      // structuredContent was removed - count is in TOON text header
+      expect(result.structuredContent).toBeUndefined();
+
+      // TOON format shows count in issues header
+      const textContent = result.content[0].text;
+      expect(textContent).toMatch(/issues\[\d+\]/);
     });
 
     it('returns ONLY cancelled issues when filtering by state.type.eq=canceled', async () => {
@@ -189,9 +198,12 @@ describe('Navigating Completed/Cancelled Issues', () => {
 
       expect(result.isError).toBeFalsy();
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(typeof structured.count).toBe('number');
-      expect(structured.count as number).toBeGreaterThan(0);
+      // structuredContent was removed - count is in TOON text header
+      expect(result.structuredContent).toBeUndefined();
+
+      // TOON format shows count in issues header
+      const textContent = result.content[0].text;
+      expect(textContent).toMatch(/issues\[\d+\]/);
     });
 
     it('EXCLUDES completed issues when filtering by state.type.neq=completed', async () => {
@@ -202,9 +214,12 @@ describe('Navigating Completed/Cancelled Issues', () => {
 
       expect(result.isError).toBeFalsy();
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(typeof structured.count).toBe('number');
-      expect(structured.count as number).toBeGreaterThan(0);
+      // structuredContent was removed - count is in TOON text header
+      expect(result.structuredContent).toBeUndefined();
+
+      // TOON format shows count in issues header
+      const textContent = result.content[0].text;
+      expect(textContent).toMatch(/issues\[\d+\]/);
     });
 
     it('returns ONLY in-progress issues when filtering by state.type.eq=started', async () => {
@@ -215,9 +230,12 @@ describe('Navigating Completed/Cancelled Issues', () => {
 
       expect(result.isError).toBeFalsy();
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(typeof structured.count).toBe('number');
-      expect(structured.count as number).toBeGreaterThan(0);
+      // structuredContent was removed - count is in TOON text header
+      expect(result.structuredContent).toBeUndefined();
+
+      // TOON format shows count in issues header
+      const textContent = result.content[0].text;
+      expect(textContent).toMatch(/issues\[\d+\]/);
     });
   });
 
@@ -357,8 +375,8 @@ describe('Workflow Chaining Guidance', () => {
       const textContent = result.content[0].text;
       expect(textContent).toContain('_teams[');
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(typeof structured.teams).toBe('number');
+      // structuredContent was removed - count is in TOON text header
+      expect(result.structuredContent).toBeUndefined();
     });
 
     it('provides workflow state short keys for state filtering (TOON format)', async () => {
@@ -369,8 +387,8 @@ describe('Workflow Chaining Guidance', () => {
       expect(textContent).toContain('_states[');
       expect(textContent).toContain('s0');
 
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(typeof structured.states).toBe('number');
+      // structuredContent was removed - count is in TOON text header
+      expect(result.structuredContent).toBeUndefined();
     });
 
     it('viewer info enables self-assignment (TOON format)', async () => {
@@ -394,9 +412,14 @@ describe('Workflow Chaining Guidance', () => {
     it('returns state short keys for understanding current state', async () => {
       const result = await listIssuesTool.handler({}, baseContext);
 
+      // structuredContent was removed - TOON format is in text content
+      expect(result.structuredContent).toBeUndefined();
+
       // TOON format includes state short keys in issue rows
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
+      const textContent = result.content[0].text;
+      expect(textContent).toContain('issues[');
+      // State short keys like s0, s1 appear in the text
+      expect(textContent).toMatch(/s\d+/);
     });
   });
 });
@@ -413,8 +436,14 @@ describe('Zero Results Handling', () => {
 
     expect(result.isError).toBeFalsy();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
+    // structuredContent was removed - count is in TOON _meta section
+    expect(result.structuredContent).toBeUndefined();
+
+    // TOON _meta shows count as 0
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
+    expect(textContent).toContain('count');
+    expect(textContent).toContain('list_issues,0,');
   });
 
   it('shows count as 0 in TOON text output', async () => {
@@ -422,14 +451,14 @@ describe('Zero Results Handling', () => {
 
     const result = await listIssuesTool.handler({}, baseContext);
 
-    // TOON format shows count in structured content
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
+    // structuredContent was removed - count is in TOON text
+    expect(result.structuredContent).toBeUndefined();
 
-    // Text content shows metadata
+    // Text content shows metadata with count 0
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('list_issues');
+    expect(textContent).toContain('list_issues,0,');
   });
 
   it('handles state filter with zero results gracefully', async () => {
@@ -442,9 +471,12 @@ describe('Zero Results Handling', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // TOON format shows count as 0
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
+    // structuredContent was removed - count is in TOON _meta section
+    expect(result.structuredContent).toBeUndefined();
+
+    // TOON _meta shows count as 0
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('list_issues,0,');
   });
 
   it('handles assignee filter with zero results gracefully', async () => {
@@ -454,9 +486,12 @@ describe('Zero Results Handling', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // TOON format shows count as 0
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
+    // structuredContent was removed - count is in TOON _meta section
+    expect(result.structuredContent).toBeUndefined();
+
+    // TOON _meta shows count as 0
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('list_issues,0,');
   });
 
   it('handles keyword filter with zero results gracefully', async () => {
@@ -469,9 +504,12 @@ describe('Zero Results Handling', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // TOON format shows count as 0
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
+    // structuredContent was removed - count is in TOON _meta section
+    expect(result.structuredContent).toBeUndefined();
+
+    // TOON _meta shows count as 0
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('list_issues,0,');
   });
 });
 

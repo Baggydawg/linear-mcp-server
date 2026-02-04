@@ -597,16 +597,6 @@ export const workspaceMetadataTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _toon: true,
-        _format: 'workspace_metadata_tier1',
-        teams: workspaceData.teams.length,
-        users: workspaceData.users.length,
-        states: workspaceData.states.length,
-        labels: workspaceData.labels.length,
-        projects: workspaceData.projects.length,
-        cycles: workspaceData.cycles.length,
-      },
     };
   },
 });

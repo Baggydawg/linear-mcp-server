@@ -1120,16 +1120,6 @@ export const getSprintContextTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        team: teamKey,
-        cycle: cycle.number,
-        issueCount: issues.length,
-        commentCount: comments.length,
-        relationCount: relations.length,
-        gapCount: gaps.length,
-      },
     };
   },
 });

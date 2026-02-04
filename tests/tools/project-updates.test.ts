@@ -63,10 +63,8 @@ describe('list_project_updates tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
-      expect(typeof structured.count).toBe('number');
+      // Success responses no longer include structuredContent
+      expect(result.structuredContent).toBeUndefined();
     });
 
     it('resolves project short key to UUID', async () => {
@@ -96,9 +94,8 @@ describe('list_project_updates tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured.count).toBe(0);
+      // Success responses no longer include structuredContent
+      expect(result.structuredContent).toBeUndefined();
     });
 
     it('supports pagination with cursor', async () => {
@@ -241,11 +238,8 @@ describe('create_project_update tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
-      expect(structured.action).toBe('create_project_update');
-      expect(structured.id).toBeDefined();
+      // Success responses no longer include structuredContent
+      expect(result.structuredContent).toBeUndefined();
     });
 
     it('returns error for unknown project short key', async () => {
@@ -395,9 +389,6 @@ describe('project updates common workflows', () => {
         first: 5,
       }),
     );
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
   });
 
   it('post weekly update: create update with health', async () => {
@@ -465,11 +456,8 @@ describe('list_project_updates TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
 
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(typeof structured.count).toBe('number');
+    // Success responses no longer include structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 });
 
@@ -491,11 +479,8 @@ describe('create_project_update TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
 
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(structured.action).toBe('create_project_update');
+    // Success responses no longer include structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 });
 
@@ -517,10 +502,7 @@ describe('update_project_update TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
 
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(structured.action).toBe('update_project_update');
+    // Success responses no longer include structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 });

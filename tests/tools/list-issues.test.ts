@@ -94,12 +94,8 @@ describe('list_issues handler', () => {
     const result = await listIssuesTool.handler({}, baseContext);
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toBeDefined();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses count instead of items array
-    expect(typeof structured.count).toBe('number');
-    expect((structured.count as number) >= 0).toBe(true);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it('respects limit parameter', async () => {
@@ -258,21 +254,22 @@ describe('list_issues output shape', () => {
   it('matches TOON output format', async () => {
     const result = await listIssuesTool.handler({}, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
-    // TOON format uses count instead of items array
-    expect(typeof structured.count).toBe('number');
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
+    // TOON format is returned in text content
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('issues[');
   });
 
   it('includes pagination info', async () => {
     const result = await listIssuesTool.handler({ limit: 2 }, baseContext);
 
-    const structured = result.structuredContent as Record<string, unknown>;
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
-    // TOON format uses hasMore instead of cursor-based pagination
-    expect(typeof structured.hasMore).toBe('boolean');
+    // Pagination info is in text content
+    expect(result.content[0].text).toContain('_meta{');
   });
 
   it('returns text content with issue preview', async () => {
@@ -304,9 +301,13 @@ describe('list_issues edge cases', () => {
     const result = await listIssuesTool.handler({}, baseContext);
 
     expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as Record<string, unknown>;
-    // TOON format uses count instead of items array
-    expect(structured.count).toBe(0);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
+
+    // Empty results are indicated in text content - count shows 0
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('count');
+    expect(textContent).toContain(',0,');
   });
 
   it('handles complex nested filter', async () => {
@@ -350,11 +351,8 @@ describe('list_issues TOON output', () => {
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('issues[');
 
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(typeof structured.count).toBe('number');
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it('returns TOON with state lookup table (Tier 2 - referenced only)', async () => {
@@ -415,9 +413,8 @@ describe('list_issues TOON output', () => {
     // Meta section should show count 0
     expect(textContent).toContain('count');
 
-    // Structured content should indicate count 0
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it('includes pagination info when hasMore is true', async () => {
@@ -425,10 +422,12 @@ describe('list_issues TOON output', () => {
     const result = await listIssuesTool.handler({ limit: 2 }, baseContext);
 
     expect(result.isError).toBeFalsy();
-    const structured = result.structuredContent as Record<string, unknown>;
+    // Success responses no longer have structuredContent
+    expect(result.structuredContent).toBeUndefined();
 
-    // Check if hasMore is set correctly
-    expect(typeof structured.hasMore).toBe('boolean');
+    // Pagination info is in text content (_meta section)
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_meta{');
   });
 
   it('includes comments section in TOON output', async () => {

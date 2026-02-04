@@ -166,8 +166,8 @@ export const listCyclesTool = defineTool({
     });
 
     const pageInfo = conn.pageInfo;
-    const hasMore = pageInfo?.hasNextPage ?? false;
-    const nextCursor = hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
+    const _hasMore = pageInfo?.hasNextPage ?? false;
+    const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
 
     // Get team key for TOON output
     const teamKey = (team as unknown as { key?: string }).key ?? args.teamId;
@@ -191,14 +191,6 @@ export const listCyclesTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        team: teamKey,
-        count: rawCycles.length,
-        hasMore,
-        nextCursor,
-      },
     };
   },
 });

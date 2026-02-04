@@ -645,13 +645,6 @@ export const getIssuesTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        succeeded,
-        failed,
-        total: succeeded + failed,
-      },
     };
   },
 });

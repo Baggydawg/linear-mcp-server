@@ -60,10 +60,6 @@ describe('list_projects tool', () => {
       const result = await listProjectsTool.handler({}, baseContext);
 
       expect(result.isError).toBeFalsy();
-
-      // TOON format uses count instead of items array
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(typeof structured.count).toBe('number');
     });
 
     it('supports filtering by project state', async () => {
@@ -145,19 +141,10 @@ describe('list_projects tool', () => {
   });
 
   describe('output shape', () => {
-    it('matches TOON output format', async () => {
-      const result = await listProjectsTool.handler({}, baseContext);
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      // TOON format
-      expect(typeof structured.count).toBe('number');
-      expect(structured._format).toBe('toon');
-      expect(structured._version).toBe('1');
-    });
-
     it('includes project metadata in text content', async () => {
       const result = await listProjectsTool.handler({}, baseContext);
 
+      expect(result.isError).toBeFalsy();
       const textContent = result.content[0].text;
       expect(textContent).toContain('projects[');
     });
@@ -224,10 +211,6 @@ describe('create_projects tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      // TOON format
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
       expect(mockClient.createProject).toHaveBeenCalledTimes(1);
     });
 
@@ -268,22 +251,7 @@ describe('create_projects tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      // TOON format
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
       expect(mockClient.createProject).toHaveBeenCalledTimes(3);
-    });
-
-    it('returns TOON output for created projects', async () => {
-      const result = await createProjectsTool.handler(
-        { items: [{ name: 'Test Project' }] },
-        baseContext,
-      );
-
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
-      expect(structured.action).toBe('create_projects');
     });
   });
 });
@@ -396,10 +364,6 @@ describe('update_projects tool', () => {
       );
 
       expect(result.isError).toBeFalsy();
-
-      // TOON format
-      const structured = result.structuredContent as Record<string, unknown>;
-      expect(structured._format).toBe('toon');
       expect(mockClient.updateProject).toHaveBeenCalledTimes(2);
     });
 
@@ -433,10 +397,6 @@ describe('projects common workflows', () => {
         filter: { state: { in: ['started', 'planned'] } },
       }),
     );
-
-    // Results should include project data (TOON format)
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(typeof structured.count).toBe('number');
   });
 
   it('milestone tracking: get single project by ID', async () => {
@@ -446,10 +406,6 @@ describe('projects common workflows', () => {
     );
 
     expect(result.isError).toBeFalsy();
-
-    // TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(typeof structured.count).toBe('number');
   });
 
   it('project creation with team assignment', async () => {
@@ -491,7 +447,7 @@ describe('list_projects TOON output', () => {
     resetMockCalls(mockClient);
   });
 
-  it('returns TOON format', async () => {
+  it('returns TOON format in text content', async () => {
     const result = await listProjectsTool.handler({}, baseContext);
 
     expect(result.isError).toBeFalsy();
@@ -502,12 +458,6 @@ describe('list_projects TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('projects[');
-
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(typeof structured.count).toBe('number');
   });
 
   it('returns TOON with project schema fields', async () => {
@@ -542,11 +492,8 @@ describe('list_projects TOON output', () => {
     expect(result.isError).toBeFalsy();
     const textContent = result.content[0].text;
 
-    // Should have meta section with count 0
+    // Should have meta section
     expect(textContent).toContain('_meta{');
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
   });
 });
 
@@ -556,7 +503,7 @@ describe('create_projects TOON output', () => {
     resetMockCalls(mockClient);
   });
 
-  it('returns TOON format', async () => {
+  it('returns TOON format in text content', async () => {
     const result = await createProjectsTool.handler(
       {
         items: [{ name: 'New Project' }],
@@ -572,12 +519,6 @@ describe('create_projects TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('create_projects');
-
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(structured.action).toBe('create_projects');
   });
 
   it('includes results section with index, status, key fields', async () => {
@@ -619,7 +560,7 @@ describe('update_projects TOON output', () => {
     resetMockCalls(mockClient);
   });
 
-  it('returns TOON format', async () => {
+  it('returns TOON format in text content', async () => {
     const result = await updateProjectsTool.handler(
       {
         items: [{ id: 'project-001', state: 'started' }],
@@ -635,12 +576,6 @@ describe('update_projects TOON output', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('update_projects');
-
-    // Structured content should indicate TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-    expect(structured._version).toBe('1');
-    expect(structured.action).toBe('update_projects');
   });
 
   it('includes results section with index, status, key fields', async () => {

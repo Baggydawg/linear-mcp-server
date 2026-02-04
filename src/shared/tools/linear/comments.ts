@@ -302,8 +302,8 @@ export const listCommentsTool = defineTool({
     const conn = await issue.comments({ first, after });
 
     const pageInfo = conn.pageInfo;
-    const hasMore = pageInfo?.hasNextPage ?? false;
-    const nextCursor = hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
+    const _hasMore = pageInfo?.hasNextPage ?? false;
+    const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
 
     // Get issue identifier for TOON output
     const issueIdentifier =
@@ -350,14 +350,6 @@ export const listCommentsTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        issue: issueIdentifier,
-        count: rawComments.length,
-        hasMore,
-        nextCursor,
-      },
     };
   },
 });
@@ -545,14 +537,6 @@ export const addCommentsTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        action: 'add_comments',
-        succeeded,
-        failed,
-        total: args.items.length,
-      },
     };
   },
 });
@@ -696,14 +680,6 @@ export const updateCommentsTool = defineTool({
 
     return {
       content: [{ type: 'text', text: toonOutput }],
-      structuredContent: {
-        _format: 'toon',
-        _version: '1',
-        action: 'update_comments',
-        succeeded,
-        failed,
-        total: args.items.length,
-      },
     };
   },
 });

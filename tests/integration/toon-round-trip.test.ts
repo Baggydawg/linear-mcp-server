@@ -119,10 +119,8 @@ describe('TOON Full Workflow Integration', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // Verify TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._toon).toBe(true);
-    expect(structured._format).toBe('workspace_metadata_tier1');
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
 
     // Verify text content has TOON format
     const textContent = result.content[0].text;
@@ -153,9 +151,8 @@ describe('TOON Full Workflow Integration', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // Verify TOON format
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
 
     // Verify text content has TOON format with issue data
     const textContent = result.content[0].text;
@@ -226,14 +223,12 @@ describe('TOON Full Workflow Integration', () => {
 
     expect(updateResult.isError).toBeFalsy();
 
-    // Verify TOON output
-    const structured = updateResult.structuredContent as Record<string, unknown>;
-    // Check for successful update
-    const summary = structured.summary as { ok: number; failed: number } | undefined;
-    if (summary) {
-      expect(summary.ok).toBe(1);
-      expect(summary.failed).toBe(0);
-    }
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(updateResult.structuredContent).toBeUndefined();
+
+    // Verify TOON text output contains success information
+    const textContent = updateResult.content[0].text;
+    expect(textContent).toContain('_meta{');
 
     // Verify the short key was resolved correctly
     const state3Uuid = resolveShortKey(registry, 'state', 's3');
@@ -470,15 +465,14 @@ describe('TOON Tier 1 vs Tier 2 Output', () => {
 
     expect(result.isError).toBeFalsy();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-
-    // Tier 1 should have entity counts
-    // Note: users is the actual count, states may be aggregated across teams
-    expect(structured.users).toBeGreaterThanOrEqual(defaultMockUsers.length);
-    expect(structured.states).toBeGreaterThanOrEqual(defaultMockStates.length);
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
 
     // Text should contain all short keys from u0 to uN
     const textContent = result.content[0].text;
+
+    // Verify Tier 1 includes all users section
+    expect(textContent).toContain('_users[');
     for (let i = 0; i < defaultMockUsers.length; i++) {
       expect(textContent).toContain(`u${i}`);
     }
@@ -493,15 +487,13 @@ describe('TOON Tier 1 vs Tier 2 Output', () => {
 
     expect(result.isError).toBeFalsy();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
-
-    // Verify count is present
-    expect(typeof structured.count).toBe('number');
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
 
     // The TOON output should contain states section with only referenced states
     const textContent = result.content[0].text;
     expect(textContent).toContain('_states[');
+    expect(textContent).toContain('issues[');
   });
 
   it('short keys are consistent between Tier 1 and Tier 2', async () => {
@@ -557,17 +549,13 @@ describe('TOON Error Handling', () => {
     // Should not throw but report error in results
     expect(result.isError).toBeFalsy();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
 
-    expect(summary.failed).toBe(1);
-
-    const results = structured.results as Array<Record<string, unknown>>;
-    expect(results[0].success).toBe(false);
-
-    // Error should contain helpful information
-    const error = results[0].error as Record<string, unknown>;
-    expect(error.message).toContain('u99');
+    // Verify text output shows the failure
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('u99');
+    expect(textContent).toContain('fail');
   });
 
   it('invalid state short key returns clear validation error', async () => {
@@ -589,14 +577,13 @@ describe('TOON Error Handling', () => {
 
     expect(result.isError).toBeFalsy();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
 
-    expect(summary.failed).toBe(1);
-
-    const results = structured.results as Array<Record<string, unknown>>;
-    const error = results[0].error as Record<string, unknown>;
-    expect(error.message).toContain('s999');
+    // Verify text output shows the failure
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('s999');
+    expect(textContent).toContain('fail');
   });
 
   it('tools work gracefully without registry (still uses TOON format)', async () => {
@@ -622,10 +609,8 @@ describe('TOON Error Handling', () => {
     const textContent = result.content[0].text;
     expect(textContent).toContain('_meta{');
 
-    // update_issues uses summary/results in structuredContent
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.summary).toBeDefined();
-    expect(structured.results).toBeDefined();
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
   });
 
   it('create_issues returns error for invalid project short key', async () => {
@@ -648,14 +633,13 @@ describe('TOON Error Handling', () => {
 
     expect(result.isError).toBeFalsy();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
 
-    expect(summary.failed).toBe(1);
-
-    const results = structured.results as Array<Record<string, unknown>>;
-    const error = results[0].error as Record<string, unknown>;
-    expect(error.message).toContain('pr999');
+    // Verify text output shows the failure
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('pr999');
+    expect(textContent).toContain('fail');
   });
 
   it('batch operations continue on partial short key resolution failure', async () => {
@@ -676,12 +660,13 @@ describe('TOON Error Handling', () => {
 
     expect(result.isError).toBeFalsy();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
 
-    // 1 failed, 2 succeeded
-    expect(summary.failed).toBe(1);
-    expect(summary.ok).toBe(2);
+    // Verify text output shows mixed results (1 failed, 2 succeeded)
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('u999'); // Failed short key
+    expect(textContent).toContain('fail');
 
     // Verify the successful calls were made
     expect(mockClient.updateIssue).toHaveBeenCalledTimes(2);
@@ -741,9 +726,13 @@ describe('TOON Multi-Tool Workflow', () => {
     );
     expect(verifyResult.isError).toBeFalsy();
 
-    // TOON format should show the issue
-    const structured = verifyResult.structuredContent as Record<string, unknown>;
-    expect(structured._format).toBe('toon');
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(verifyResult.structuredContent).toBeUndefined();
+
+    // TOON format should show the issue in text content
+    const verifyText = verifyResult.content[0].text;
+    expect(verifyText).toContain('issues[');
+    expect(verifyText).toContain('ENG-123');
   });
 
   it('simulates bulk create workflow with short keys', async () => {
@@ -765,11 +754,13 @@ describe('TOON Multi-Tool Workflow', () => {
 
     expect(createResult.isError).toBeFalsy();
 
-    const structured = createResult.structuredContent as Record<string, unknown>;
-    const summary = structured.summary as { ok: number; failed: number };
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(createResult.structuredContent).toBeUndefined();
 
-    expect(summary.ok).toBe(3);
-    expect(summary.failed).toBe(0);
+    // Verify text output shows successful creation (succeeded,failed,total format)
+    const textContent = createResult.content[0].text;
+    expect(textContent).toContain('succeeded,failed,total');
+    expect(textContent).toContain('3,0,3');
 
     // Verify all issues were created with resolved UUIDs
     expect(mockClient.createIssue).toHaveBeenCalledTimes(3);
@@ -804,8 +795,13 @@ describe('TOON Edge Cases', () => {
 
     expect(result.isError).toBeFalsy();
 
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.count).toBe(0);
+    // structuredContent is undefined for success cases (only used for errors)
+    expect(result.structuredContent).toBeUndefined();
+
+    // Verify text output shows empty issues list (count: 0)
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('count');
+    expect(textContent).toContain(',0,');
   });
 
   it('handles update with both UUID and short key fields', async () => {
