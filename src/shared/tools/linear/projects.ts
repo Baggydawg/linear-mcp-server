@@ -259,7 +259,7 @@ const ListProjectsInputSchema = z.object({
       'GraphQL-style ProjectFilter. Structure: { field: { comparator: value } }. ' +
         "Examples: { id: { eq: 'PROJECT_UUID' } } for single project, " +
         "{ state: { eq: 'started' } }, " +
-        "{ team: { id: { eq: 'TEAM_UUID' } } }, " +
+        "{ accessibleTeams: { id: { eq: 'TEAM_UUID' } } }, " +
         "{ lead: { id: { eq: 'USER_UUID' } } }, " +
         "{ targetDate: { lt: '2025-01-01', gt: '2024-01-01' } }.",
     ),
@@ -286,10 +286,11 @@ export const listProjectsTool = defineTool({
     let filter = args.filter as Record<string, unknown> | undefined;
 
     // Apply team filter if DEFAULT_TEAM configured and no team filter in args
-    if (!filter?.team && config.DEFAULT_TEAM) {
+    // Note: ProjectFilter uses 'accessibleTeams' (TeamCollectionFilter), not 'team'
+    if (!filter?.accessibleTeams && config.DEFAULT_TEAM) {
       const resolved = await resolveTeamId(client, config.DEFAULT_TEAM);
       if (resolved.success) {
-        filter = { ...filter, team: { id: { eq: resolved.value } } };
+        filter = { ...filter, accessibleTeams: { id: { eq: resolved.value } } };
       }
     }
 

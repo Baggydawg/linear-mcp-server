@@ -95,18 +95,18 @@ describe('list_projects tool', () => {
       );
     });
 
-    it('supports filtering by team', async () => {
+    it('supports filtering by team via accessibleTeams', async () => {
       const result = await listProjectsTool.handler(
-        { filter: { team: { id: { eq: 'team-eng' } } } },
+        { filter: { accessibleTeams: { id: { eq: 'team-eng' } } } },
         baseContext,
       );
 
       expect(result.isError).toBeFalsy();
 
-      // Verify team filter was passed
+      // Verify accessibleTeams filter was passed (ProjectFilter uses accessibleTeams, not team)
       expect(mockClient.projects).toHaveBeenCalledWith(
         expect.objectContaining({
-          filter: { team: { id: { eq: 'team-eng' } } },
+          filter: { accessibleTeams: { id: { eq: 'team-eng' } } },
         }),
       );
     });

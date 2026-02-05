@@ -166,7 +166,7 @@ export const ListProjectsInputSchema = PaginationInput.extend({
     .record(z.any())
     .optional()
     .describe(
-      "GraphQL-style ProjectFilter. Examples: { id: { eq: 'PROJECT_ID' } }, { state: { eq: 'started' } }, { team: { id: { eq: 'TEAM_ID' } } }, { lead: { id: { eq: 'USER_ID' } } }, { targetDate: { lt: 'ISO', gt: 'ISO' } }. For a single project, set filter.id.eq and limit=1.",
+      "GraphQL-style ProjectFilter. Examples: { id: { eq: 'PROJECT_ID' } }, { state: { eq: 'started' } }, { accessibleTeams: { id: { eq: 'TEAM_ID' } } }, { lead: { id: { eq: 'USER_ID' } } }, { targetDate: { lt: 'ISO', gt: 'ISO' } }. For a single project, set filter.id.eq and limit=1.",
     ),
   includeArchived: z
     .boolean()
