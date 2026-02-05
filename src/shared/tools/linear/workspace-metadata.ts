@@ -370,16 +370,21 @@ export const workspaceMetadataTool = defineTool({
 
     const client = await getLinearClient(context);
 
-    // Handle explicit teamIds OR fall back to DEFAULT_TEAM with proper UUID resolution
+    // ─────────────────────────────────────────────────────────────────────────
+    // Resolve DEFAULT_TEAM to UUID for filtering
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let defaultTeamUuid: string | undefined;
     let teamIdsFilter = new Set<string>();
 
     if (args.teamIds && args.teamIds.length > 0) {
-      // User provided explicit team IDs - use them as-is
+      // User provided explicit team IDs - use them for filtering
       teamIdsFilter = new Set(args.teamIds);
     } else if (config.DEFAULT_TEAM) {
       // Fall back to DEFAULT_TEAM, resolving key to UUID if needed
       const resolved = await resolveTeamId(client, config.DEFAULT_TEAM);
       if (resolved.success) {
+        defaultTeamUuid = resolved.value;
         teamIdsFilter.add(resolved.value);
       } else {
         // Log warning but continue - will fetch all teams
@@ -420,29 +425,28 @@ export const workspaceMetadataTool = defineTool({
       // Organization fetch failed, leave organizationName undefined
     }
 
-    // Fetch teams (always needed for registry)
-    let teams: TeamLike[] = [];
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fetch ALL teams (registry needs all, TOON output may be filtered)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let allTeams: TeamLike[] = [];
+    let filteredTeams: TeamLike[] = [];
     {
-      if (teamIdsFilter.size) {
-        const ids = Array.from(teamIdsFilter);
-        const fetched: TeamLike[] = [];
-        for (const id of ids) {
-          try {
-            const t = (await client.team(id)) as unknown as TeamLike;
-            fetched.push(t);
-          } catch {
-            // Non-fatal: continue collecting other teams
-          }
-        }
-        teams = fetched;
+      // Always fetch all teams for the registry
+      const teamConn = (await client.teams({ first: 100 })) as unknown as {
+        nodes: TeamLike[];
+      };
+      allTeams = teamConn.nodes as TeamLike[];
+
+      // Filter teams for TOON output display
+      if (teamIdsFilter.size > 0) {
+        filteredTeams = allTeams.filter((t) => teamIdsFilter.has(t.id));
       } else {
-        const teamConn = (await client.teams({ first: 100 })) as unknown as {
-          nodes: TeamLike[];
-        };
-        teams = teamConn.nodes as TeamLike[];
+        filteredTeams = allTeams;
       }
 
-      workspaceData.teams = teams.map((t) => ({
+      // workspaceData.teams is for TOON output - use filtered teams
+      workspaceData.teams = filteredTeams.map((t) => ({
         id: t.id,
         key: t.key ?? undefined,
         name: t.name,
@@ -453,7 +457,21 @@ export const workspaceMetadataTool = defineTool({
       }));
     }
 
-    // Fetch users (team members if scoped, all users otherwise)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fetch ALL users (registry needs all, TOON output may be filtered)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    let allWorkspaceUsers: Array<{
+      id: string;
+      name?: string;
+      displayName?: string;
+      email?: string;
+      active?: boolean;
+      role?: string;
+      skills?: string[];
+      focusArea?: string;
+      createdAt?: Date | string;
+    }> = [];
     {
       // Load custom user profiles from config file or env var
       const userProfilesConfig: UserProfilesConfig = loadUserProfiles({
@@ -461,30 +479,13 @@ export const workspaceMetadataTool = defineTool({
         filePath: config.USER_PROFILES_FILE,
       });
 
-      // Fetch users - use team.members() if team-scoped, otherwise client.users()
-      let allUsers: UserLike[] = [];
+      // Always fetch ALL workspace users for the registry
+      const usersConn = (await client.users({ first: 200 })) as unknown as {
+        nodes: UserLike[];
+      };
 
-      if (teams.length > 0 && teamIdsFilter.size > 0) {
-        // Team-scoped: fetch members from each team
-        for (const team of teams) {
-          const membersConn = await team.members({ first: 200 });
-          for (const member of membersConn.nodes) {
-            // Deduplicate by id (user might be in multiple teams)
-            if (!allUsers.some((u) => u.id === member.id)) {
-              allUsers.push(member);
-            }
-          }
-        }
-      } else {
-        // Not team-scoped: fetch all workspace users
-        const usersConn = (await client.users({ first: 200 })) as unknown as {
-          nodes: UserLike[];
-        };
-        allUsers = usersConn.nodes;
-      }
-
-      workspaceData.users = allUsers.map((u) => {
-        // Look up custom profile by email
+      // Transform all users with profile data
+      allWorkspaceUsers = usersConn.nodes.map((u) => {
         const profile = getUserProfile(userProfilesConfig, u.email ?? undefined);
         const formattedRole = formatProfileForToon(profile);
 
@@ -494,21 +495,46 @@ export const workspaceMetadataTool = defineTool({
           displayName: u.displayName ?? undefined,
           email: u.email ?? undefined,
           active: u.active,
-          // Use custom profile role, fall back to Linear's admin/guest/member
           role: formattedRole || (u.admin ? 'Admin' : u.guest ? 'Guest' : 'Member'),
-          // Include profile metadata for registry
           skills: profile.skills,
           focusArea: profile.focusArea,
           createdAt: u.createdAt,
         };
       });
+
+      // For TOON output: filter to team members if team-scoped
+      if (filteredTeams.length > 0 && teamIdsFilter.size > 0) {
+        // Get team members for filtered teams
+        const teamMemberIds = new Set<string>();
+        for (const team of filteredTeams) {
+          const membersConn = await team.members({ first: 200 });
+          for (const member of membersConn.nodes) {
+            teamMemberIds.add(member.id);
+          }
+        }
+        // Filter to only team members for TOON output
+        workspaceData.users = allWorkspaceUsers.filter((u) => teamMemberIds.has(u.id));
+      } else {
+        // No filter - show all users
+        workspaceData.users = allWorkspaceUsers;
+      }
     }
 
-    // Fetch workflow states (always fetch for TOON registry)
-    for (const team of teams) {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fetch states from ALL teams (registry needs all for cross-team resolution)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const allTeamsStates: Array<{
+      id: string;
+      name: string;
+      type?: string;
+      teamId: string;
+      createdAt?: Date | string;
+    }> = [];
+    for (const team of allTeams) {
       const states = await team.states();
       for (const s of states.nodes) {
-        workspaceData.states.push({
+        allTeamsStates.push({
           id: s.id,
           name: s.name,
           type: s.type,
@@ -518,9 +544,19 @@ export const workspaceMetadataTool = defineTool({
       }
     }
 
-    // Fetch labels (always fetch for TOON registry)
+    // For TOON output: only show states from filtered teams
+    if (teamIdsFilter.size > 0) {
+      workspaceData.states = allTeamsStates.filter((s) => teamIdsFilter.has(s.teamId));
+    } else {
+      workspaceData.states = allTeamsStates;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fetch labels from filtered teams (labels are team-scoped, no cross-team needed)
+    // ─────────────────────────────────────────────────────────────────────────
+
     const labelLimit = args.label_limit ?? 50;
-    for (const team of teams) {
+    for (const team of filteredTeams) {
       const labels = await team.labels({ first: labelLimit });
       for (const l of labels.nodes) {
         workspaceData.labels.push({
@@ -532,9 +568,12 @@ export const workspaceMetadataTool = defineTool({
       }
     }
 
-    // Fetch projects (always fetch for TOON registry)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fetch projects from filtered teams
+    // ─────────────────────────────────────────────────────────────────────────
+
     const projectLimit = args.project_limit ?? 10;
-    for (const team of teams) {
+    for (const team of filteredTeams) {
       const conn = await team.projects({ first: projectLimit });
       for (const p of conn.nodes) {
         workspaceData.projects.push({
@@ -550,9 +589,12 @@ export const workspaceMetadataTool = defineTool({
       }
     }
 
-    // Fetch cycles (always fetch for TOON registry)
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fetch cycles from filtered teams
+    // ─────────────────────────────────────────────────────────────────────────
+
     const now = new Date();
-    for (const team of teams) {
+    for (const team of filteredTeams) {
       if (team.cyclesEnabled) {
         try {
           // Fetch current and upcoming cycles
@@ -587,9 +629,10 @@ export const workspaceMetadataTool = defineTool({
     // Build and store registry
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Prepare registry build data with full metadata
+    // Prepare registry build data with ALL workspace data for cross-team resolution
     const registryData: RegistryBuildData = {
-      users: workspaceData.users.map((u) => ({
+      // ALL workspace users (not filtered)
+      users: allWorkspaceUsers.map((u) => ({
         id: u.id,
         createdAt: u.createdAt ?? new Date(0),
         name: u.name ?? '',
@@ -600,21 +643,29 @@ export const workspaceMetadataTool = defineTool({
         skills: u.skills,
         focusArea: u.focusArea,
       })),
-      states: workspaceData.states.map((s) => ({
+      // ALL teams' states (not filtered)
+      states: allTeamsStates.map((s) => ({
         id: s.id,
         createdAt: s.createdAt ?? new Date(0),
         name: s.name,
         type: s.type ?? '',
-        teamId: s.teamId, // Needed for registry filtering
+        teamId: s.teamId, // Required for team-prefixed keys
       })),
+      // Projects from filtered teams (projects are not team-prefixed)
       projects: workspaceData.projects.map((p) => ({
         id: p.id,
         createdAt: p.createdAt ?? new Date(0),
         name: p.name,
         state: p.state ?? '',
       })),
+      // ALL teams for multi-team key resolution
+      teams: allTeams.map((t) => ({
+        id: t.id,
+        key: t.key ?? t.name,
+      })),
+      // Default team UUID for clean keys (s0, s1...) vs prefixed (sqm:s0)
+      defaultTeamId: defaultTeamUuid,
       workspaceId: workspaceData.viewer?.id ?? 'unknown',
-      teamId: teams.length === 1 ? teams[0].id : undefined, // Single team = filter states
     };
 
     // Build the registry

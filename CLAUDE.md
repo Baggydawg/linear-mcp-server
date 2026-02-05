@@ -131,6 +131,44 @@ Natural keys are used where available (no translation needed):
 - Cycles: `5` (cycle number)
 - Labels: `Bug` (label name)
 
+### Multi-Team Short Keys
+
+When `DEFAULT_TEAM` is set, that team's entities get clean (unprefixed) keys. Other teams use prefixed keys:
+
+| Entity | Default Team | Other Teams | Notes |
+|--------|--------------|-------------|-------|
+| Users | `u0, u1` | `u0, u1` | Global - no prefix |
+| Projects | `pr0, pr1` | `pr0, pr1` | Global - no prefix |
+| States | `s0, s1` | `sqm:s0, sqm:s1` | Team-scoped |
+| Labels | `Bug, Feature` | `sqm:Bugs` | Team-scoped; use names not numbers |
+| Workspace Labels | `Idea` | `Idea` | Global - no prefix |
+| Grouped Labels | `Type/Bug` | `sqm:Herramientas/Airtable` | Slash preserved |
+
+**Flexible Input:** Default team prefix is accepted: `sqt:s0` resolves same as `s0` when DEFAULT_TEAM=SQT.
+
+### Cross-Team Workflow Example
+
+1. Query SQT issues: states show `s0`, `s1`; labels show `Bug`, `Feature`
+2. Query SQM issues: states show `sqm:s0`; labels show `sqm:Bugs`
+3. Update SQM issue: use `sqm:s2` for state, `sqm:Audiencias` for label
+4. Workspace labels work everywhere: `Idea` applies to any team
+
+### Cross-Team Validation
+
+Write tools validate that states/labels belong to the target issue's team:
+- Applying SQT's state `s0` to an SQM issue will fail with a helpful error
+- Error includes suggestion: "State 's0' belongs to SQT. For SQM issues, use 'sqm:s0' or check workspace_metadata for SQM states."
+- Workspace labels (no team) can be applied to any issue
+
+### When DEFAULT_TEAM Not Set
+
+If `DEFAULT_TEAM` is not configured:
+- All team-scoped entities use prefixed keys (no "home" team)
+- States: `sqt:s0`, `sqm:s0`, `eng:s0` (all prefixed)
+- Labels: `sqt:Bug`, `sqm:Bugs` (all prefixed)
+- Users and projects remain global: `u0`, `pr0`
+- Workspace labels remain unprefixed: `Idea`, `Board`
+
 ### TOON Format Example
 
 ```

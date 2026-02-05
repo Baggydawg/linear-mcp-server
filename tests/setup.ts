@@ -7,6 +7,9 @@ import { vi } from 'vitest';
 
 // Mock environment variables for tests
 process.env.LINEAR_ACCESS_TOKEN = 'test-token-xxx';
+// Clear DEFAULT_TEAM so tests don't rely on local .env configuration
+// Tests that need DEFAULT_TEAM should mock the config module directly
+delete process.env.DEFAULT_TEAM;
 
 // Mock the Linear client module before any imports
 vi.mock('../src/services/linear/client.js', async () => {

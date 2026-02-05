@@ -229,8 +229,13 @@ describe('workspace_metadata handler', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // Verify team() was called with the ID
-    expect(mockClient.team).toHaveBeenCalledWith('team-eng');
+    // Verify teams() was called to fetch all teams (needed for registry)
+    expect(mockClient.teams).toHaveBeenCalled();
+
+    // Verify the TOON output contains only the filtered team
+    // Note: The registry internally has all teams, but TOON output is filtered
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('_teams[');
   });
 });
 

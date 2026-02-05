@@ -353,10 +353,10 @@ async function fetchWorkspaceDataForRegistry(
 
   // Fetch workflow states via teams with full metadata
   const teamsConn = await client.teams({ first: 100 });
-  const teams = teamsConn.nodes ?? [];
+  const teamsNodes = teamsConn.nodes ?? [];
   const states: RegistryBuildData['states'] = [];
 
-  for (const team of teams) {
+  for (const team of teamsNodes) {
     const statesConn = await (
       team as unknown as {
         states: () => Promise<{
@@ -393,7 +393,27 @@ async function fetchWorkspaceDataForRegistry(
   const viewerOrg = viewer as unknown as { organization?: { id?: string } };
   const workspaceId = viewerOrg?.organization?.id ?? 'unknown';
 
-  return { users, states, projects, workspaceId };
+  // Build teams array for multi-team support
+  const teams = teamsNodes.map((t) => ({
+    id: t.id,
+    key: (t as unknown as { key?: string }).key ?? t.id,
+  }));
+
+  // Resolve defaultTeamId from config.DEFAULT_TEAM
+  // Note: config is not imported here, so we need to import it
+  const { config } = await import('../../../config/env.js');
+  let defaultTeamId: string | undefined;
+  if (config.DEFAULT_TEAM) {
+    const defaultTeamKey = config.DEFAULT_TEAM.toLowerCase();
+    const matchedTeam = teamsNodes.find(
+      (t) =>
+        (t as unknown as { key?: string }).key?.toLowerCase() === defaultTeamKey ||
+        t.id === config.DEFAULT_TEAM,
+    );
+    defaultTeamId = matchedTeam?.id;
+  }
+
+  return { users, states, projects, workspaceId, teams, defaultTeamId };
 }
 
 /**

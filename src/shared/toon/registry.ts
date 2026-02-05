@@ -51,6 +51,7 @@ export interface UserMetadata {
 export interface StateMetadata {
   name: string;
   type: string;
+  teamId: string;  // Required for getShortKey() to determine team prefix
 }
 
 /**
@@ -132,8 +133,12 @@ export interface RegistryBuildData {
   projects: RegistryProjectEntity[];
   /** Workspace ID for scoping */
   workspaceId: string;
-  /** Optional team filter for scoping */
+  /** Optional team filter for scoping (legacy single-team mode) */
   teamId?: string;
+  /** All teams in workspace (for multi-team mode) */
+  teams?: Array<{ id: string; key: string }>;
+  /** Default team UUID - states for this team get clean keys (s0, s1...) */
+  defaultTeamId?: string;
 }
 
 /**
@@ -195,6 +200,16 @@ export interface ShortKeyRegistry {
 
   /** Transport type (affects TTL strategy) */
   transport?: TransportType;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Multi-Team Support
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Map of team UUID -> team key (e.g., "abc-123" -> "sqm") */
+  teamKeys: Map<string, string>;
+
+  /** Default team UUID (for clean keys) */
+  defaultTeamId?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,6 +222,87 @@ const KEY_PREFIXES: Record<ShortKeyEntityType, string> = {
   state: 's',
   project: 'pr',
 };
+
+/**
+ * Get the team prefix for a given team ID.
+ * Returns empty string for default team or if no team context.
+ * Returns lowercase team key with colon for non-default teams (e.g., "sqm:").
+ */
+export function getTeamPrefix(
+  teamId: string,
+  defaultTeamId?: string,
+  teamKeys?: Map<string, string>,
+): string {
+  // No prefix if this is the default team or no default team is set
+  if (!defaultTeamId || teamId === defaultTeamId) return '';
+  // Look up the team key and return lowercase with colon
+  const teamKey = teamKeys?.get(teamId);
+  return teamKey ? `${teamKey.toLowerCase()}:` : '';
+}
+
+/**
+ * Parse a short key into its components.
+ * Examples:
+ * - "sqm:s0" -> { teamPrefix: "sqm", type: "state", index: 0 }
+ * - "u0" -> { teamPrefix: undefined, type: "user", index: 0 }
+ * - "pr10" -> { teamPrefix: undefined, type: "project", index: 10 }
+ * - "eng:u5" -> { teamPrefix: "eng", type: "user", index: 5 }
+ * Returns undefined for invalid formats.
+ */
+export function parseShortKey(key: string): {
+  teamPrefix?: string;
+  type: 'user' | 'state' | 'project';
+  index: number;
+} | undefined {
+  // Check for team prefix (format: "team:key")
+  let teamPrefix: string | undefined;
+  let shortKey = key;
+
+  const colonIndex = key.indexOf(':');
+  if (colonIndex > 0) {
+    teamPrefix = key.slice(0, colonIndex).toLowerCase();
+    shortKey = key.slice(colonIndex + 1);
+  }
+
+  // Parse the short key pattern: u0, s0, pr0
+  const match = shortKey.match(/^(u|s|pr)(\d+)$/);
+  if (!match) return undefined;
+
+  const prefixMap: Record<string, 'user' | 'state' | 'project'> = {
+    u: 'user',
+    s: 'state',
+    pr: 'project',
+  };
+
+  return {
+    teamPrefix,
+    type: prefixMap[match[1]],
+    index: parseInt(match[2], 10),
+  };
+}
+
+/**
+ * Parse a label key into its components.
+ * Labels use names (not numeric keys).
+ * Examples:
+ * - "sqm:Bugs" -> { teamPrefix: "sqm", labelName: "Bugs" }
+ * - "sqm:Herramientas/Airtable" -> { teamPrefix: "sqm", labelName: "Herramientas/Airtable" }
+ * - "Bug" -> { teamPrefix: undefined, labelName: "Bug" }
+ * Note: Only the first colon is treated as a separator (label names can contain colons).
+ */
+export function parseLabelKey(key: string): {
+  teamPrefix?: string;
+  labelName: string;
+} {
+  const colonIndex = key.indexOf(':');
+  if (colonIndex > 0) {
+    return {
+      teamPrefix: key.slice(0, colonIndex).toLowerCase(),
+      labelName: key.slice(colonIndex + 1),
+    };
+  }
+  return { labelName: key };
+}
 
 /** TTL for HTTP transport (30 minutes) */
 const HTTP_TTL_MS = 30 * 60 * 1000;
@@ -239,6 +335,7 @@ export function createEmptyRegistry(
     generatedAt: new Date(),
     workspaceId,
     transport,
+    teamKeys: new Map(),
   };
 }
 
@@ -258,26 +355,69 @@ function sortByCreatedAt<T extends RegistryEntity>(entities: T[]): T[] {
 }
 
 /**
+ * Team context for building maps with team-prefixed keys.
+ */
+interface TeamContext {
+  /** Map of entity UUID -> team UUID */
+  entityTeamIds?: Map<string, string>;
+  /** Default team UUID (states for this team get clean keys) */
+  defaultTeamId?: string;
+  /** Map of team UUID -> team key (lowercase) */
+  teamKeys?: Map<string, string>;
+}
+
+/**
  * Build bidirectional maps for a single entity type.
  *
  * @param entities - Entities to map
  * @param prefix - Short key prefix (u, s, pr)
+ * @param teamContext - Optional team context for team-prefixed keys (states only)
  * @returns Tuple of [shortKey -> UUID, UUID -> shortKey] maps
  */
 function buildMapsForType(
   entities: RegistryEntity[],
   prefix: string,
+  teamContext?: TeamContext,
 ): [Map<string, string>, Map<string, string>] {
   const sorted = sortByCreatedAt(entities);
   const keyToUuid = new Map<string, string>();
   const uuidToKey = new Map<string, string>();
 
-  for (let i = 0; i < sorted.length; i++) {
-    const shortKey = `${prefix}${i}`;
-    const uuid = sorted[i].id;
+  // If no team context, use simple sequential numbering
+  if (!teamContext?.entityTeamIds || !teamContext.defaultTeamId) {
+    for (let i = 0; i < sorted.length; i++) {
+      const shortKey = `${prefix}${i}`;
+      const uuid = sorted[i].id;
 
-    keyToUuid.set(shortKey, uuid);
-    uuidToKey.set(uuid, shortKey);
+      keyToUuid.set(shortKey, uuid);
+      uuidToKey.set(uuid, shortKey);
+    }
+    return [keyToUuid, uuidToKey];
+  }
+
+  // Group entities by team for team-prefixed keys
+  const { entityTeamIds, defaultTeamId, teamKeys } = teamContext;
+  const entitiesByTeam = new Map<string, RegistryEntity[]>();
+
+  for (const entity of sorted) {
+    const teamId = entityTeamIds.get(entity.id) ?? '';
+    if (!entitiesByTeam.has(teamId)) {
+      entitiesByTeam.set(teamId, []);
+    }
+    entitiesByTeam.get(teamId)!.push(entity);
+  }
+
+  // Process each team's entities with per-team indexing
+  for (const [teamId, teamEntities] of entitiesByTeam) {
+    const teamPrefix = getTeamPrefix(teamId, defaultTeamId, teamKeys);
+
+    for (let i = 0; i < teamEntities.length; i++) {
+      const shortKey = `${teamPrefix}${prefix}${i}`;
+      const uuid = teamEntities[i].id;
+
+      keyToUuid.set(shortKey, uuid);
+      uuidToKey.set(uuid, shortKey);
+    }
   }
 
   return [keyToUuid, uuidToKey];
@@ -317,6 +457,7 @@ function buildStateMetadata(states: RegistryStateEntity[]): Map<string, StateMet
     metadata.set(state.id, {
       name: state.name,
       type: state.type,
+      teamId: state.teamId ?? '',  // Preserve teamId for prefix lookup
     });
   }
   return metadata;
@@ -345,9 +486,9 @@ function buildProjectMetadata(
  * Build a complete registry from workspace data.
  *
  * Entities are sorted by createdAt (ascending) and assigned sequential keys:
- * - Users: u0, u1, u2, ...
- * - States: s0, s1, s2, ...
- * - Projects: pr0, pr1, pr2, ...
+ * - Users: u0, u1, u2, ... (global, no team prefix)
+ * - States: s0, s1, s2, ... (default team) or sqm:s0, sqm:s1, ... (other teams)
+ * - Projects: pr0, pr1, pr2, ... (global, no team prefix)
  *
  * Also populates metadata maps for each entity type.
  *
@@ -355,17 +496,54 @@ function buildProjectMetadata(
  * @returns Complete ShortKeyRegistry
  */
 export function buildRegistry(data: RegistryBuildData): ShortKeyRegistry {
-  // Filter states by team if teamId provided
+  // Build teamKeys map from teams array
+  const teamKeys = new Map<string, string>();
+  if (data.teams) {
+    for (const team of data.teams) {
+      teamKeys.set(team.id, team.key.toLowerCase());
+    }
+  }
+
+  // Filter states by team if teamId provided (legacy single-team mode)
   const filteredStates = data.teamId
     ? data.states.filter((s) => s.teamId === data.teamId)
     : data.states;
 
+  // Users and projects are global (no team prefix)
   const [users, usersByUuid] = buildMapsForType(data.users, KEY_PREFIXES.user);
-  const [states, statesByUuid] = buildMapsForType(filteredStates, KEY_PREFIXES.state);
   const [projects, projectsByUuid] = buildMapsForType(
     data.projects,
     KEY_PREFIXES.project,
   );
+
+  // States get team-prefixed keys in multi-team mode
+  let states: Map<string, string>;
+  let statesByUuid: Map<string, string>;
+
+  if (data.defaultTeamId && data.teams && data.teams.length > 0) {
+    // Multi-team mode: build entityTeamIds map for states
+    const entityTeamIds = new Map<string, string>();
+    for (const state of filteredStates) {
+      if (state.teamId) {
+        entityTeamIds.set(state.id, state.teamId);
+      }
+    }
+
+    const teamContext: TeamContext = {
+      entityTeamIds,
+      defaultTeamId: data.defaultTeamId,
+      teamKeys,
+    };
+
+    [states, statesByUuid] = buildMapsForType(
+      filteredStates,
+      KEY_PREFIXES.state,
+      teamContext,
+    );
+  } else {
+    // Legacy mode: simple sequential keys
+    [states, statesByUuid] = buildMapsForType(filteredStates, KEY_PREFIXES.state);
+  }
 
   // Build metadata maps - IMPORTANT: use filteredStates for consistency
   const userMetadata = buildUserMetadata(data.users);
@@ -384,6 +562,8 @@ export function buildRegistry(data: RegistryBuildData): ShortKeyRegistry {
     projectMetadata,
     generatedAt: new Date(),
     workspaceId: data.workspaceId,
+    teamKeys,
+    defaultTeamId: data.defaultTeamId,
   };
 }
 
@@ -426,18 +606,35 @@ function getUuidToKeyMap(
 }
 
 /**
+ * Get the default team's key (lowercase) from the registry.
+ * Returns undefined if no default team is set.
+ */
+function getDefaultTeamKey(registry: ShortKeyRegistry): string | undefined {
+  if (!registry.defaultTeamId) return undefined;
+  return registry.teamKeys.get(registry.defaultTeamId);
+}
+
+/**
  * Get the short key for a UUID (for encoding Linear data -> TOON output).
+ *
+ * For states in multi-team mode:
+ * - Default team states get clean keys (s0, s1, ...)
+ * - Non-default team states get prefixed keys (sqm:s0, sqm:s1, ...)
  *
  * @param registry - The short key registry
  * @param type - Entity type (user, state, project)
  * @param uuid - The UUID to look up
- * @returns The short key (e.g., "u0", "s1", "pr2")
+ * @returns The short key (e.g., "u0", "s1", "sqm:s0", "pr2")
  * @throws ToonResolutionError if UUID not found in registry
  *
  * @example
  * ```typescript
  * const shortKey = getShortKey(registry, 'user', '186df438-...');
  * // Returns: 'u0'
+ *
+ * // For states, returns team-prefixed keys for non-default teams:
+ * const stateKey = getShortKey(registry, 'state', 'state-uuid-...');
+ * // Returns: 's0' (default team) or 'sqm:s0' (non-default team)
  * ```
  */
 export function getShortKey(
@@ -464,11 +661,65 @@ export function getShortKey(
 }
 
 /**
+ * Normalize a short key for lookup, handling flexible input for default team.
+ *
+ * For states in multi-team mode:
+ * - "sqt:s0" with DEFAULT_TEAM=SQT -> look up "s0" (normalized)
+ * - "sqm:s0" with DEFAULT_TEAM=SQT -> look up "sqm:s0" (non-default, keep prefix)
+ * - "s0" -> look up "s0" (no prefix)
+ *
+ * For users/projects (global entities):
+ * - "sqt:u0" with DEFAULT_TEAM=SQT -> look up "u0" (strip default team prefix)
+ * - "u0" -> look up "u0" (no prefix)
+ *
+ * @param registry - The short key registry
+ * @param type - Entity type
+ * @param shortKey - The short key to normalize
+ * @returns The normalized key for lookup
+ */
+function normalizeShortKeyForLookup(
+  registry: ShortKeyRegistry,
+  type: ShortKeyEntityType,
+  shortKey: string,
+): string {
+  const parsed = parseShortKey(shortKey);
+  if (!parsed) return shortKey; // Invalid format, let lookup fail
+
+  // No prefix - use as-is
+  if (!parsed.teamPrefix) return shortKey;
+
+  // Check if prefix matches default team
+  const defaultTeamKey = getDefaultTeamKey(registry);
+
+  // If prefix matches default team, normalize to clean key
+  if (defaultTeamKey && parsed.teamPrefix === defaultTeamKey) {
+    // Return clean key without prefix
+    const prefix = KEY_PREFIXES[parsed.type];
+    return `${prefix}${parsed.index}`;
+  }
+
+  // For users and projects (global entities), strip any team prefix
+  // since they don't have team-scoped keys
+  if (type === 'user' || type === 'project') {
+    const prefix = KEY_PREFIXES[parsed.type];
+    return `${prefix}${parsed.index}`;
+  }
+
+  // Non-default team prefix for states - keep the prefixed key
+  return shortKey.toLowerCase();
+}
+
+/**
  * Resolve a short key to its UUID (for decoding Claude input -> Linear API).
+ *
+ * Supports flexible input for the default team:
+ * - "s0" -> resolves to default team's first state
+ * - "sqt:s0" (with DEFAULT_TEAM=SQT) -> same result (flexible input)
+ * - "sqm:s0" -> resolves to SQM team's first state
  *
  * @param registry - The short key registry
  * @param type - Entity type (user, state, project)
- * @param shortKey - The short key to resolve (e.g., "u0", "s1", "pr2")
+ * @param shortKey - The short key to resolve (e.g., "u0", "s1", "sqm:s0", "pr2")
  * @returns The UUID for the entity
  * @throws ToonResolutionError if short key not found or invalid format
  *
@@ -476,6 +727,10 @@ export function getShortKey(
  * ```typescript
  * const uuid = resolveShortKey(registry, 'user', 'u1');
  * // Returns: 'abc12345-...'
+ *
+ * // With DEFAULT_TEAM=SQT, both resolve to same UUID:
+ * resolveShortKey(registry, 'state', 's0');     // SQT's first state
+ * resolveShortKey(registry, 'state', 'sqt:s0'); // Same result
  * ```
  */
 export function resolveShortKey(
@@ -484,7 +739,10 @@ export function resolveShortKey(
   shortKey: string,
 ): string {
   const map = getKeyToUuidMap(registry, type);
-  const uuid = map.get(shortKey);
+
+  // Normalize the key for lookup (handles flexible input)
+  const normalizedKey = normalizeShortKeyForLookup(registry, type, shortKey);
+  const uuid = map.get(normalizedKey);
 
   if (!uuid) {
     const availableKeys = Array.from(map.keys());
@@ -496,6 +754,10 @@ export function resolveShortKey(
 
 /**
  * Safely get a short key, returning undefined if not found (no throw).
+ *
+ * For states in multi-team mode:
+ * - Default team states get clean keys (s0, s1, ...)
+ * - Non-default team states get prefixed keys (sqm:s0, sqm:s1, ...)
  *
  * @param registry - The short key registry
  * @param type - Entity type
@@ -516,6 +778,8 @@ export function tryGetShortKey(
 /**
  * Safely resolve a short key, returning undefined if not found (no throw).
  *
+ * Supports flexible input for the default team (same as resolveShortKey).
+ *
  * @param registry - The short key registry
  * @param type - Entity type
  * @param shortKey - The short key to resolve
@@ -529,7 +793,10 @@ export function tryResolveShortKey(
   if (!shortKey) return undefined;
 
   const map = getKeyToUuidMap(registry, type);
-  return map.get(shortKey);
+
+  // Normalize the key for lookup (handles flexible input)
+  const normalizedKey = normalizeShortKeyForLookup(registry, type, shortKey);
+  return map.get(normalizedKey);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -778,8 +1045,14 @@ export async function getOrInitRegistry(
 
   // Check for in-flight initialization
   const inFlight = initPromises.get(sessionId);
-  if (inFlight && !forceRefresh) {
-    return inFlight;
+  if (inFlight) {
+    if (!forceRefresh) {
+      // Reuse existing promise
+      return inFlight;
+    }
+    // If forceRefresh, wait for in-flight to complete, then start fresh
+    // This prevents race conditions where multiple forceRefresh calls overlap
+    await inFlight.catch(() => {}); // Ignore errors from previous init
   }
 
   // Start new initialization

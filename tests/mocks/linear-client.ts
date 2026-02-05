@@ -162,13 +162,39 @@ export const defaultMockViewer: MockViewer = {
   createdAt: new Date('2024-01-01T00:00:00Z'),
 };
 
-export const defaultMockStates: MockWorkflowState[] = [
-  { id: 'state-backlog', name: 'Backlog', type: 'backlog' },
-  { id: 'state-todo', name: 'Todo', type: 'unstarted' },
-  { id: 'state-inprogress', name: 'In Progress', type: 'started' },
-  { id: 'state-done', name: 'Done', type: 'completed' },
-  { id: 'state-canceled', name: 'Canceled', type: 'canceled' },
+// ENG team states (used by issue-001, etc.)
+export const defaultMockStatesEng: MockWorkflowState[] = [
+  { id: 'state-eng-backlog', name: 'Backlog', type: 'backlog' },
+  { id: 'state-eng-todo', name: 'Todo', type: 'unstarted' },
+  { id: 'state-eng-inprogress', name: 'In Progress', type: 'started' },
+  { id: 'state-eng-done', name: 'Done', type: 'completed' },
+  { id: 'state-eng-canceled', name: 'Canceled', type: 'canceled' },
 ];
+
+// DES team states (separate IDs for team isolation)
+export const defaultMockStatesDes: MockWorkflowState[] = [
+  { id: 'state-des-backlog', name: 'Backlog', type: 'backlog' },
+  { id: 'state-des-todo', name: 'Todo', type: 'unstarted' },
+  { id: 'state-des-inprogress', name: 'In Progress', type: 'started' },
+  { id: 'state-des-done', name: 'Done', type: 'completed' },
+  { id: 'state-des-canceled', name: 'Canceled', type: 'canceled' },
+];
+
+// SQM team states (for multi-team testing - different state names to differentiate)
+export const defaultMockStatesSqm: MockWorkflowState[] = [
+  { id: 'state-sqm-pending', name: 'Pending', type: 'unstarted' },
+  { id: 'state-sqm-active', name: 'Active', type: 'started' },
+  { id: 'state-sqm-resolved', name: 'Resolved', type: 'completed' },
+];
+
+// SQM team labels (team-specific)
+export const defaultMockLabelsSqm: MockLabel[] = [
+  { id: 'label-sqm-urgent', name: 'Urgent', color: '#ff6600' },
+  { id: 'label-sqm-review', name: 'Needs Review', color: '#9900ff' },
+];
+
+// Legacy export for backward compatibility with tests that don't care about team isolation
+export const defaultMockStates = defaultMockStatesEng;
 
 export const defaultMockLabels: MockLabel[] = [
   { id: 'label-bug', name: 'Bug', color: '#ff0000' },
@@ -206,7 +232,7 @@ export const defaultMockTeams: MockTeam[] = [
     cyclesEnabled: true,
     issueEstimationAllowZero: false,
     issueEstimationType: 'fibonacci',
-    states: () => Promise.resolve({ nodes: defaultMockStates }),
+    states: () => Promise.resolve({ nodes: defaultMockStatesEng }),
     labels: () => Promise.resolve({ nodes: defaultMockLabels }),
     projects: () => Promise.resolve({ nodes: defaultMockProjects }),
     cycles: (args) => {
@@ -227,11 +253,25 @@ export const defaultMockTeams: MockTeam[] = [
     key: 'DES',
     name: 'Design',
     cyclesEnabled: false,
-    states: () => Promise.resolve({ nodes: defaultMockStates }),
+    states: () => Promise.resolve({ nodes: defaultMockStatesDes }),
     labels: () => Promise.resolve({ nodes: [] }),
     projects: () => Promise.resolve({ nodes: [] }),
     cycles: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
     members: () => Promise.resolve({ nodes: defaultMockUsers.slice(0, 1) }), // Only first user for design team
+  },
+  {
+    id: 'team-sqm',
+    key: 'SQM',
+    name: 'Support & QA',
+    description: 'Support and Quality Assurance team',
+    cyclesEnabled: true,
+    issueEstimationAllowZero: true,
+    issueEstimationType: 'linear',
+    states: () => Promise.resolve({ nodes: defaultMockStatesSqm }),
+    labels: () => Promise.resolve({ nodes: defaultMockLabelsSqm }),
+    projects: () => Promise.resolve({ nodes: [] }),
+    cycles: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
+    members: () => Promise.resolve({ nodes: defaultMockUsers.slice(1) }), // Users 2 and 3 for SQM team
   },
 ];
 
@@ -265,7 +305,7 @@ export const defaultMockIssues: MockIssue[] = [
     url: 'https://linear.app/team/issue/ENG-123',
     branchName: 'fix/auth-bug',
     state: Promise.resolve({
-      id: 'state-inprogress',
+      id: 'state-eng-inprogress',
       name: 'In Progress',
       type: 'started',
     }),
@@ -300,7 +340,7 @@ export const defaultMockIssues: MockIssue[] = [
     createdAt: new Date('2024-12-11T09:00:00Z'),
     updatedAt: new Date('2024-12-14T11:00:00Z'),
     url: 'https://linear.app/team/issue/ENG-124',
-    state: Promise.resolve({ id: 'state-todo', name: 'Todo', type: 'unstarted' }),
+    state: Promise.resolve({ id: 'state-eng-todo', name: 'Todo', type: 'unstarted' }),
     project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
     assignee: Promise.resolve(null),
     labels: () =>
@@ -317,7 +357,7 @@ export const defaultMockIssues: MockIssue[] = [
     priority: 3,
     createdAt: new Date('2024-12-12T08:00:00Z'),
     updatedAt: new Date('2024-12-12T08:00:00Z'),
-    state: Promise.resolve({ id: 'state-backlog', name: 'Backlog', type: 'backlog' }),
+    state: Promise.resolve({ id: 'state-eng-backlog', name: 'Backlog', type: 'backlog' }),
     project: Promise.resolve(null),
     assignee: Promise.resolve(null),
     labels: () =>
@@ -333,7 +373,7 @@ export const defaultMockIssues: MockIssue[] = [
     priority: 2,
     createdAt: new Date('2024-12-01T08:00:00Z'),
     updatedAt: new Date('2024-12-10T16:00:00Z'),
-    state: Promise.resolve({ id: 'state-done', name: 'Done', type: 'completed' }),
+    state: Promise.resolve({ id: 'state-eng-done', name: 'Done', type: 'completed' }),
     project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
     assignee: Promise.resolve({ id: 'user-002', name: 'Jane Doe' }),
     labels: () => Promise.resolve({ nodes: [{ id: 'label-bug', name: 'Bug' }] }),
@@ -349,7 +389,7 @@ export const defaultMockIssues: MockIssue[] = [
     createdAt: new Date('2024-11-20T08:00:00Z'),
     updatedAt: new Date('2024-12-05T12:00:00Z'),
     state: Promise.resolve({
-      id: 'state-cancelled',
+      id: 'state-des-canceled',
       name: 'Cancelled',
       type: 'canceled',
     }),

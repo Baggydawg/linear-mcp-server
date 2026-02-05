@@ -14,10 +14,13 @@ import {
   getRemainingTtl,
   getShortKey,
   getStoredRegistry,
+  getTeamPrefix,
   hasShortKey,
   hasUuid,
   isStale,
   listShortKeys,
+  parseLabelKey,
+  parseShortKey,
   type RegistryBuildData,
   type RegistryEntity,
   resolveShortKey,
@@ -397,6 +400,296 @@ describe('team filtering', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tests: Multi-Team State Keys
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('multi-team state keys', () => {
+  it('assigns clean keys to default team states', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'state-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-a-uuid',
+        },
+        {
+          id: 'state-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-a-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-a-uuid', key: 'SQT' },
+        { id: 'team-b-uuid', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-a-uuid',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Default team states get clean keys (no prefix)
+    expect(registry.states.get('s0')).toBe('state-1');
+    expect(registry.states.get('s1')).toBe('state-2');
+    expect(registry.statesByUuid.get('state-1')).toBe('s0');
+    expect(registry.statesByUuid.get('state-2')).toBe('s1');
+  });
+
+  it('assigns prefixed keys to non-default team states', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'state-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-a-uuid',
+        },
+        {
+          id: 'state-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-b-uuid',
+        },
+        {
+          id: 'state-3',
+          createdAt: new Date('2024-01-03'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-b-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-a-uuid', key: 'SQT' },
+        { id: 'team-b-uuid', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-a-uuid',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Default team (SQT) gets clean keys
+    expect(registry.states.get('s0')).toBe('state-1');
+    expect(registry.statesByUuid.get('state-1')).toBe('s0');
+
+    // Non-default team (SQM) gets prefixed keys
+    expect(registry.states.get('sqm:s0')).toBe('state-2');
+    expect(registry.states.get('sqm:s1')).toBe('state-3');
+    expect(registry.statesByUuid.get('state-2')).toBe('sqm:s0');
+    expect(registry.statesByUuid.get('state-3')).toBe('sqm:s1');
+  });
+
+  it('uses per-team indexing (each team starts at s0)', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'state-a1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-a-uuid',
+        },
+        {
+          id: 'state-b1',
+          createdAt: new Date('2024-01-02'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-b-uuid',
+        },
+        {
+          id: 'state-a2',
+          createdAt: new Date('2024-01-03'),
+          name: 'In Progress',
+          type: 'started',
+          teamId: 'team-a-uuid',
+        },
+        {
+          id: 'state-c1',
+          createdAt: new Date('2024-01-04'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-c-uuid',
+        },
+        {
+          id: 'state-b2',
+          createdAt: new Date('2024-01-05'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-b-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-a-uuid', key: 'SQT' },
+        { id: 'team-b-uuid', key: 'SQM' },
+        { id: 'team-c-uuid', key: 'DEV' },
+      ],
+      defaultTeamId: 'team-a-uuid',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Default team (SQT) - clean keys, indexed 0, 1
+    expect(registry.statesByUuid.get('state-a1')).toBe('s0');
+    expect(registry.statesByUuid.get('state-a2')).toBe('s1');
+
+    // Team SQM - prefixed keys, indexed 0, 1
+    expect(registry.statesByUuid.get('state-b1')).toBe('sqm:s0');
+    expect(registry.statesByUuid.get('state-b2')).toBe('sqm:s1');
+
+    // Team DEV - prefixed keys, indexed 0
+    expect(registry.statesByUuid.get('state-c1')).toBe('dev:s0');
+  });
+
+  it('stores teamKeys and defaultTeamId in registry', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-a-uuid', key: 'SQT' },
+        { id: 'team-b-uuid', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-a-uuid',
+    };
+
+    const registry = buildRegistry(data);
+
+    expect(registry.defaultTeamId).toBe('team-a-uuid');
+    expect(registry.teamKeys.get('team-a-uuid')).toBe('sqt');
+    expect(registry.teamKeys.get('team-b-uuid')).toBe('sqm');
+  });
+
+  it('falls back to simple keys when no teams provided', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'state-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-a-uuid',
+        },
+        {
+          id: 'state-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-b-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      // No teams or defaultTeamId
+    };
+
+    const registry = buildRegistry(data);
+
+    // Should use simple sequential keys (legacy behavior)
+    expect(registry.states.get('s0')).toBe('state-1');
+    expect(registry.states.get('s1')).toBe('state-2');
+    expect(registry.statesByUuid.get('state-1')).toBe('s0');
+    expect(registry.statesByUuid.get('state-2')).toBe('s1');
+  });
+
+  it('falls back to simple keys when no defaultTeamId provided', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'state-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-a-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [{ id: 'team-a-uuid', key: 'SQT' }],
+      // No defaultTeamId
+    };
+
+    const registry = buildRegistry(data);
+
+    // Should use simple sequential keys
+    expect(registry.states.get('s0')).toBe('state-1');
+  });
+
+  it('users and projects remain global (no team prefix)', () => {
+    const data: RegistryBuildData = {
+      users: [
+        {
+          id: 'user-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'User 1',
+          displayName: 'u1',
+          email: 'u1@test.com',
+          active: true,
+        },
+        {
+          id: 'user-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'User 2',
+          displayName: 'u2',
+          email: 'u2@test.com',
+          active: true,
+        },
+      ],
+      states: [],
+      projects: [
+        {
+          id: 'project-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Project 1',
+          state: 'started',
+        },
+        {
+          id: 'project-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Project 2',
+          state: 'planned',
+        },
+      ],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-a-uuid', key: 'SQT' },
+        { id: 'team-b-uuid', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-a-uuid',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Users should have simple global keys (no team prefix)
+    expect(registry.users.get('u0')).toBe('user-1');
+    expect(registry.users.get('u1')).toBe('user-2');
+    expect(registry.usersByUuid.get('user-1')).toBe('u0');
+    expect(registry.usersByUuid.get('user-2')).toBe('u1');
+
+    // Projects should have simple global keys (no team prefix)
+    expect(registry.projects.get('pr0')).toBe('project-1');
+    expect(registry.projects.get('pr1')).toBe('project-2');
+    expect(registry.projectsByUuid.get('project-1')).toBe('pr0');
+    expect(registry.projectsByUuid.get('project-2')).toBe('pr1');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests: Resolution Functions
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -533,6 +826,245 @@ describe('tryResolveShortKey', () => {
 
   it('returns undefined for undefined input', () => {
     expect(tryResolveShortKey(registry, 'user', undefined)).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests: Multi-Team Resolution with Flexible Input
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('multi-team resolution - flexible input', () => {
+  // Create a multi-team registry with DEFAULT_TEAM=SQT
+  const createMultiTeamBuildData = (): RegistryBuildData => ({
+    users: [
+      {
+        id: 'user-1',
+        createdAt: new Date('2024-01-01'),
+        name: 'Alice',
+        displayName: 'alice',
+        email: 'alice@test.com',
+        active: true,
+      },
+      {
+        id: 'user-2',
+        createdAt: new Date('2024-01-02'),
+        name: 'Bob',
+        displayName: 'bob',
+        email: 'bob@test.com',
+        active: true,
+      },
+    ],
+    states: [
+      // SQT (default team) states
+      {
+        id: 'sqt-todo',
+        createdAt: new Date('2024-01-01'),
+        name: 'Todo',
+        type: 'unstarted',
+        teamId: 'team-sqt-uuid',
+      },
+      {
+        id: 'sqt-done',
+        createdAt: new Date('2024-01-02'),
+        name: 'Done',
+        type: 'completed',
+        teamId: 'team-sqt-uuid',
+      },
+      // SQM (non-default team) states
+      {
+        id: 'sqm-todo',
+        createdAt: new Date('2024-01-03'),
+        name: 'Todo',
+        type: 'unstarted',
+        teamId: 'team-sqm-uuid',
+      },
+      {
+        id: 'sqm-done',
+        createdAt: new Date('2024-01-04'),
+        name: 'Done',
+        type: 'completed',
+        teamId: 'team-sqm-uuid',
+      },
+    ],
+    projects: [
+      {
+        id: 'project-1',
+        createdAt: new Date('2024-01-01'),
+        name: 'Project Alpha',
+        state: 'started',
+      },
+    ],
+    workspaceId: 'workspace-1',
+    teams: [
+      { id: 'team-sqt-uuid', key: 'SQT' },
+      { id: 'team-sqm-uuid', key: 'SQM' },
+    ],
+    defaultTeamId: 'team-sqt-uuid',
+  });
+
+  describe('resolveShortKey with team prefixes', () => {
+    let registry: ShortKeyRegistry;
+
+    beforeEach(() => {
+      registry = buildRegistry(createMultiTeamBuildData());
+    });
+
+    it('resolves clean key to default team state', () => {
+      // s0 should resolve to SQT's first state (clean key)
+      expect(resolveShortKey(registry, 'state', 's0')).toBe('sqt-todo');
+      expect(resolveShortKey(registry, 'state', 's1')).toBe('sqt-done');
+    });
+
+    it('resolves default team prefix to same result as clean key (flexible input)', () => {
+      // "sqt:s0" should resolve to same UUID as "s0" when DEFAULT_TEAM=SQT
+      expect(resolveShortKey(registry, 'state', 'sqt:s0')).toBe('sqt-todo');
+      expect(resolveShortKey(registry, 'state', 'sqt:s1')).toBe('sqt-done');
+
+      // Both forms should return the same result
+      expect(resolveShortKey(registry, 'state', 's0')).toBe(
+        resolveShortKey(registry, 'state', 'sqt:s0'),
+      );
+    });
+
+    it('resolves non-default team prefixed key', () => {
+      // "sqm:s0" should resolve to SQM's first state
+      expect(resolveShortKey(registry, 'state', 'sqm:s0')).toBe('sqm-todo');
+      expect(resolveShortKey(registry, 'state', 'sqm:s1')).toBe('sqm-done');
+    });
+
+    it('resolves user keys (global, no team prefix)', () => {
+      expect(resolveShortKey(registry, 'user', 'u0')).toBe('user-1');
+      expect(resolveShortKey(registry, 'user', 'u1')).toBe('user-2');
+    });
+
+    it('strips team prefix from global user keys (flexible input)', () => {
+      // Users are global, so "sqt:u0" should normalize to "u0"
+      expect(resolveShortKey(registry, 'user', 'sqt:u0')).toBe('user-1');
+      expect(resolveShortKey(registry, 'user', 'sqm:u0')).toBe('user-1');
+    });
+
+    it('strips team prefix from global project keys (flexible input)', () => {
+      // Projects are global, so prefixes should be stripped
+      expect(resolveShortKey(registry, 'project', 'pr0')).toBe('project-1');
+      expect(resolveShortKey(registry, 'project', 'sqt:pr0')).toBe('project-1');
+    });
+
+    it('handles case-insensitive team prefixes', () => {
+      // Should work with different cases
+      expect(resolveShortKey(registry, 'state', 'SQM:s0')).toBe('sqm-todo');
+      expect(resolveShortKey(registry, 'state', 'Sqm:s0')).toBe('sqm-todo');
+      expect(resolveShortKey(registry, 'state', 'SQT:s0')).toBe('sqt-todo');
+    });
+
+    it('throws for unknown team prefix', () => {
+      expect(() => resolveShortKey(registry, 'state', 'xyz:s0')).toThrow(
+        ToonResolutionError,
+      );
+    });
+  });
+
+  describe('tryResolveShortKey with team prefixes', () => {
+    let registry: ShortKeyRegistry;
+
+    beforeEach(() => {
+      registry = buildRegistry(createMultiTeamBuildData());
+    });
+
+    it('returns UUID for clean key', () => {
+      expect(tryResolveShortKey(registry, 'state', 's0')).toBe('sqt-todo');
+    });
+
+    it('returns UUID for default team prefixed key (flexible input)', () => {
+      expect(tryResolveShortKey(registry, 'state', 'sqt:s0')).toBe('sqt-todo');
+    });
+
+    it('returns UUID for non-default team prefixed key', () => {
+      expect(tryResolveShortKey(registry, 'state', 'sqm:s0')).toBe('sqm-todo');
+    });
+
+    it('returns undefined for unknown team prefix', () => {
+      expect(tryResolveShortKey(registry, 'state', 'xyz:s0')).toBeUndefined();
+    });
+
+    it('strips team prefix from global user keys', () => {
+      expect(tryResolveShortKey(registry, 'user', 'sqt:u0')).toBe('user-1');
+    });
+  });
+
+  describe('getShortKey with team prefixes', () => {
+    let registry: ShortKeyRegistry;
+
+    beforeEach(() => {
+      registry = buildRegistry(createMultiTeamBuildData());
+    });
+
+    it('returns clean key for default team state', () => {
+      // SQT states should have clean keys
+      expect(getShortKey(registry, 'state', 'sqt-todo')).toBe('s0');
+      expect(getShortKey(registry, 'state', 'sqt-done')).toBe('s1');
+    });
+
+    it('returns prefixed key for non-default team state', () => {
+      // SQM states should have prefixed keys
+      expect(getShortKey(registry, 'state', 'sqm-todo')).toBe('sqm:s0');
+      expect(getShortKey(registry, 'state', 'sqm-done')).toBe('sqm:s1');
+    });
+
+    it('returns clean key for global users', () => {
+      expect(getShortKey(registry, 'user', 'user-1')).toBe('u0');
+      expect(getShortKey(registry, 'user', 'user-2')).toBe('u1');
+    });
+
+    it('returns clean key for global projects', () => {
+      expect(getShortKey(registry, 'project', 'project-1')).toBe('pr0');
+    });
+  });
+
+  describe('tryGetShortKey with team prefixes', () => {
+    let registry: ShortKeyRegistry;
+
+    beforeEach(() => {
+      registry = buildRegistry(createMultiTeamBuildData());
+    });
+
+    it('returns clean key for default team state', () => {
+      expect(tryGetShortKey(registry, 'state', 'sqt-todo')).toBe('s0');
+    });
+
+    it('returns prefixed key for non-default team state', () => {
+      expect(tryGetShortKey(registry, 'state', 'sqm-todo')).toBe('sqm:s0');
+    });
+
+    it('returns undefined for unknown UUID', () => {
+      expect(tryGetShortKey(registry, 'state', 'unknown-uuid')).toBeUndefined();
+    });
+  });
+
+  describe('round-trip consistency', () => {
+    let registry: ShortKeyRegistry;
+
+    beforeEach(() => {
+      registry = buildRegistry(createMultiTeamBuildData());
+    });
+
+    it('resolving and getting short key is reversible for default team', () => {
+      const uuid = resolveShortKey(registry, 'state', 's0');
+      const key = getShortKey(registry, 'state', uuid);
+      expect(key).toBe('s0');
+    });
+
+    it('resolving and getting short key is reversible for non-default team', () => {
+      const uuid = resolveShortKey(registry, 'state', 'sqm:s0');
+      const key = getShortKey(registry, 'state', uuid);
+      expect(key).toBe('sqm:s0');
+    });
+
+    it('flexible input resolves to canonical key', () => {
+      // "sqt:s0" (flexible input) -> UUID -> "s0" (canonical clean key)
+      const uuid = resolveShortKey(registry, 'state', 'sqt:s0');
+      const key = getShortKey(registry, 'state', uuid);
+      expect(key).toBe('s0'); // Should be clean key (canonical form)
+    });
   });
 });
 
@@ -933,5 +1465,780 @@ describe('edge cases', () => {
     for (const [shortKey, uuid] of registry.projects) {
       expect(registry.projectsByUuid.get(uuid)).toBe(shortKey);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests: Helper Functions (getTeamPrefix, parseShortKey, parseLabelKey)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('getTeamPrefix', () => {
+  it('returns empty string for default team', () => {
+    const teamKeys = new Map([
+      ['team-sqt-uuid', 'sqt'],
+      ['team-sqm-uuid', 'sqm'],
+    ]);
+    const result = getTeamPrefix('team-sqt-uuid', 'team-sqt-uuid', teamKeys);
+    expect(result).toBe('');
+  });
+
+  it('returns lowercase team key with colon for non-default teams', () => {
+    const teamKeys = new Map([
+      ['team-sqt-uuid', 'sqt'],
+      ['team-sqm-uuid', 'sqm'],
+      ['team-eng-uuid', 'eng'],
+    ]);
+    // SQM is not the default team (SQT is)
+    const result = getTeamPrefix('team-sqm-uuid', 'team-sqt-uuid', teamKeys);
+    expect(result).toBe('sqm:');
+
+    // ENG is not the default team
+    const result2 = getTeamPrefix('team-eng-uuid', 'team-sqt-uuid', teamKeys);
+    expect(result2).toBe('eng:');
+  });
+
+  it('returns empty string when defaultTeamId is undefined', () => {
+    const teamKeys = new Map([
+      ['team-sqt-uuid', 'sqt'],
+      ['team-sqm-uuid', 'sqm'],
+    ]);
+    const result = getTeamPrefix('team-sqm-uuid', undefined, teamKeys);
+    expect(result).toBe('');
+  });
+
+  it('returns empty string when teamKeys map is undefined', () => {
+    const result = getTeamPrefix('team-sqm-uuid', 'team-sqt-uuid', undefined);
+    expect(result).toBe('');
+  });
+
+  it('returns empty string when teamId not found in teamKeys', () => {
+    const teamKeys = new Map([
+      ['team-sqt-uuid', 'sqt'],
+    ]);
+    // Unknown team ID
+    const result = getTeamPrefix('team-unknown-uuid', 'team-sqt-uuid', teamKeys);
+    expect(result).toBe('');
+  });
+});
+
+describe('parseShortKey', () => {
+  it('parses sqm:s0 to { teamPrefix: "sqm", type: "state", index: 0 }', () => {
+    const result = parseShortKey('sqm:s0');
+    expect(result).toEqual({
+      teamPrefix: 'sqm',
+      type: 'state',
+      index: 0,
+    });
+  });
+
+  it('parses u0 to { teamPrefix: undefined, type: "user", index: 0 }', () => {
+    const result = parseShortKey('u0');
+    expect(result).toEqual({
+      teamPrefix: undefined,
+      type: 'user',
+      index: 0,
+    });
+  });
+
+  it('parses pr10 to { teamPrefix: undefined, type: "project", index: 10 }', () => {
+    const result = parseShortKey('pr10');
+    expect(result).toEqual({
+      teamPrefix: undefined,
+      type: 'project',
+      index: 10,
+    });
+  });
+
+  it('parses eng:u5 to { teamPrefix: "eng", type: "user", index: 5 }', () => {
+    const result = parseShortKey('eng:u5');
+    expect(result).toEqual({
+      teamPrefix: 'eng',
+      type: 'user',
+      index: 5,
+    });
+  });
+
+  it('returns undefined for invalid format like "invalid"', () => {
+    expect(parseShortKey('invalid')).toBeUndefined();
+    expect(parseShortKey('xyz')).toBeUndefined();
+    expect(parseShortKey('123')).toBeUndefined();
+    expect(parseShortKey('')).toBeUndefined();
+  });
+
+  it('parses state keys with various indices', () => {
+    expect(parseShortKey('s0')).toEqual({
+      teamPrefix: undefined,
+      type: 'state',
+      index: 0,
+    });
+    expect(parseShortKey('s99')).toEqual({
+      teamPrefix: undefined,
+      type: 'state',
+      index: 99,
+    });
+    expect(parseShortKey('sqt:s123')).toEqual({
+      teamPrefix: 'sqt',
+      type: 'state',
+      index: 123,
+    });
+  });
+
+  it('handles uppercase team prefix by converting to lowercase', () => {
+    const result = parseShortKey('SQM:s5');
+    expect(result).toEqual({
+      teamPrefix: 'sqm',
+      type: 'state',
+      index: 5,
+    });
+  });
+
+  it('parses project keys with team prefix', () => {
+    const result = parseShortKey('dev:pr3');
+    expect(result).toEqual({
+      teamPrefix: 'dev',
+      type: 'project',
+      index: 3,
+    });
+  });
+});
+
+describe('parseLabelKey', () => {
+  it('parses sqm:Bugs to { teamPrefix: "sqm", labelName: "Bugs" }', () => {
+    const result = parseLabelKey('sqm:Bugs');
+    expect(result).toEqual({
+      teamPrefix: 'sqm',
+      labelName: 'Bugs',
+    });
+  });
+
+  it('parses sqm:Herramientas/Airtable preserving slash', () => {
+    const result = parseLabelKey('sqm:Herramientas/Airtable');
+    expect(result).toEqual({
+      teamPrefix: 'sqm',
+      labelName: 'Herramientas/Airtable',
+    });
+  });
+
+  it('parses Bug to { teamPrefix: undefined, labelName: "Bug" }', () => {
+    const result = parseLabelKey('Bug');
+    expect(result).toEqual({
+      teamPrefix: undefined,
+      labelName: 'Bug',
+    });
+  });
+
+  it('handles labels with colons in name - only first colon is separator', () => {
+    // Label name contains a colon: "My:Label:Name"
+    const result = parseLabelKey('sqm:My:Label:Name');
+    expect(result).toEqual({
+      teamPrefix: 'sqm',
+      labelName: 'My:Label:Name',
+    });
+  });
+
+  it('handles label name that looks like a time (10:30)', () => {
+    const result = parseLabelKey('eng:10:30');
+    expect(result).toEqual({
+      teamPrefix: 'eng',
+      labelName: '10:30',
+    });
+  });
+
+  it('handles empty prefix (colon at start)', () => {
+    // Colon at position 0 means no prefix (colonIndex > 0 check fails)
+    const result = parseLabelKey(':NoPrefixLabel');
+    expect(result).toEqual({
+      teamPrefix: undefined,
+      labelName: ':NoPrefixLabel',
+    });
+  });
+
+  it('converts team prefix to lowercase', () => {
+    const result = parseLabelKey('SQM:HighPriority');
+    expect(result).toEqual({
+      teamPrefix: 'sqm',
+      labelName: 'HighPriority',
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests: DEFAULT_TEAM Not Set Behavior
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('when DEFAULT_TEAM not set', () => {
+  it('assigns prefixed keys to ALL team states when teams provided but no defaultTeamId', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'sqt-state-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqm-state-1',
+          createdAt: new Date('2024-01-02'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-sqm-uuid',
+        },
+        {
+          id: 'sqt-state-2',
+          createdAt: new Date('2024-01-03'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-sqt-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-sqt-uuid', key: 'SQT' },
+        { id: 'team-sqm-uuid', key: 'SQM' },
+      ],
+      // NO defaultTeamId - this triggers legacy sequential behavior
+    };
+
+    const registry = buildRegistry(data);
+
+    // Without defaultTeamId, falls back to simple sequential keys
+    expect(registry.states.get('s0')).toBe('sqt-state-1');
+    expect(registry.states.get('s1')).toBe('sqm-state-1');
+    expect(registry.states.get('s2')).toBe('sqt-state-2');
+    expect(registry.statesByUuid.get('sqt-state-1')).toBe('s0');
+    expect(registry.statesByUuid.get('sqm-state-1')).toBe('s1');
+    expect(registry.statesByUuid.get('sqt-state-2')).toBe('s2');
+  });
+
+  it('users and projects remain global (no prefix) regardless of team context', () => {
+    const data: RegistryBuildData = {
+      users: [
+        {
+          id: 'user-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Alice',
+          displayName: 'alice',
+          email: 'alice@example.com',
+          active: true,
+        },
+        {
+          id: 'user-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Bob',
+          displayName: 'bob',
+          email: 'bob@example.com',
+          active: true,
+        },
+      ],
+      states: [],
+      projects: [
+        {
+          id: 'project-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Project Alpha',
+          state: 'started',
+        },
+        {
+          id: 'project-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Project Beta',
+          state: 'planned',
+        },
+      ],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-sqt-uuid', key: 'SQT' },
+        { id: 'team-sqm-uuid', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-sqt-uuid',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Users get global keys (u0, u1) - no team prefix ever
+    expect(registry.users.get('u0')).toBe('user-1');
+    expect(registry.users.get('u1')).toBe('user-2');
+    expect(registry.usersByUuid.get('user-1')).toBe('u0');
+    expect(registry.usersByUuid.get('user-2')).toBe('u1');
+
+    // Verify no prefixed user keys exist
+    expect(registry.users.has('sqt:u0')).toBe(false);
+    expect(registry.users.has('sqm:u0')).toBe(false);
+
+    // Projects get global keys (pr0, pr1) - no team prefix ever
+    expect(registry.projects.get('pr0')).toBe('project-1');
+    expect(registry.projects.get('pr1')).toBe('project-2');
+    expect(registry.projectsByUuid.get('project-1')).toBe('pr0');
+    expect(registry.projectsByUuid.get('project-2')).toBe('pr1');
+
+    // Verify no prefixed project keys exist
+    expect(registry.projects.has('sqt:pr0')).toBe(false);
+    expect(registry.projects.has('sqm:pr0')).toBe(false);
+  });
+
+  it('builds teamKeys map even when no defaultTeamId', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-sqt-uuid', key: 'SQT' },
+        { id: 'team-sqm-uuid', key: 'SQM' },
+      ],
+      // No defaultTeamId
+    };
+
+    const registry = buildRegistry(data);
+
+    // teamKeys should still be populated
+    expect(registry.teamKeys.get('team-sqt-uuid')).toBe('sqt');
+    expect(registry.teamKeys.get('team-sqm-uuid')).toBe('sqm');
+    expect(registry.defaultTeamId).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests: Flexible Input Resolution (Additional Edge Cases)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('flexible input resolution - additional edge cases', () => {
+  const createMultiTeamRegistry = (): ShortKeyRegistry => {
+    const data: RegistryBuildData = {
+      users: [
+        {
+          id: 'user-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Alice',
+          displayName: 'alice',
+          email: 'alice@example.com',
+          active: true,
+        },
+        {
+          id: 'user-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Bob',
+          displayName: 'bob',
+          email: 'bob@example.com',
+          active: true,
+        },
+      ],
+      states: [
+        {
+          id: 'sqt-todo',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqt-done',
+          createdAt: new Date('2024-01-02'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqm-todo',
+          createdAt: new Date('2024-01-03'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-sqm-uuid',
+        },
+        {
+          id: 'sqm-done',
+          createdAt: new Date('2024-01-04'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-sqm-uuid',
+        },
+      ],
+      projects: [
+        {
+          id: 'project-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Project Alpha',
+          state: 'started',
+        },
+        {
+          id: 'project-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Project Beta',
+          state: 'planned',
+        },
+      ],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-sqt-uuid', key: 'SQT' },
+        { id: 'team-sqm-uuid', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-sqt-uuid',
+    };
+    return buildRegistry(data);
+  };
+
+  describe('resolves sqt:s0 same as s0 for default team', () => {
+    it('both resolve to same UUID', () => {
+      const registry = createMultiTeamRegistry();
+
+      // Both "s0" and "sqt:s0" should resolve to the same UUID
+      const uuidClean = resolveShortKey(registry, 'state', 's0');
+      const uuidPrefixed = resolveShortKey(registry, 'state', 'sqt:s0');
+
+      expect(uuidClean).toBe('sqt-todo');
+      expect(uuidPrefixed).toBe('sqt-todo');
+      expect(uuidClean).toBe(uuidPrefixed);
+    });
+  });
+
+  describe('resolves sqt:u0 same as u0 for default team', () => {
+    it('strips team prefix from user keys', () => {
+      const registry = createMultiTeamRegistry();
+
+      // Users are global, so "sqt:u0" should normalize to "u0"
+      const uuidClean = resolveShortKey(registry, 'user', 'u0');
+      const uuidPrefixed = resolveShortKey(registry, 'user', 'sqt:u0');
+
+      expect(uuidClean).toBe('user-1');
+      expect(uuidPrefixed).toBe('user-1');
+      expect(uuidClean).toBe(uuidPrefixed);
+    });
+  });
+
+  describe('resolves sqt:pr0 same as pr0 for default team', () => {
+    it('strips team prefix from project keys', () => {
+      const registry = createMultiTeamRegistry();
+
+      // Projects are global, so "sqt:pr0" should normalize to "pr0"
+      const uuidClean = resolveShortKey(registry, 'project', 'pr0');
+      const uuidPrefixed = resolveShortKey(registry, 'project', 'sqt:pr0');
+
+      expect(uuidClean).toBe('project-1');
+      expect(uuidPrefixed).toBe('project-1');
+      expect(uuidClean).toBe(uuidPrefixed);
+    });
+  });
+
+  describe('does not normalize prefix for non-default teams', () => {
+    it('sqm:s0 stays as sqm:s0 (not normalized)', () => {
+      const registry = createMultiTeamRegistry();
+
+      // SQM is non-default, so "sqm:s0" resolves to SQM's first state
+      const uuid = resolveShortKey(registry, 'state', 'sqm:s0');
+      expect(uuid).toBe('sqm-todo');
+
+      // Verify this is different from the default team's s0
+      const defaultUuid = resolveShortKey(registry, 'state', 's0');
+      expect(defaultUuid).toBe('sqt-todo');
+      expect(uuid).not.toBe(defaultUuid);
+    });
+
+    it('any team prefix on global entity types is stripped', () => {
+      const registry = createMultiTeamRegistry();
+
+      // Even non-default team prefixes are stripped for users/projects
+      expect(resolveShortKey(registry, 'user', 'sqm:u0')).toBe('user-1');
+      expect(resolveShortKey(registry, 'project', 'sqm:pr1')).toBe('project-2');
+    });
+  });
+
+  describe('mixed case handling', () => {
+    it('handles uppercase, lowercase, and mixed case team prefixes', () => {
+      const registry = createMultiTeamRegistry();
+
+      // All of these should resolve to SQM's first state
+      expect(resolveShortKey(registry, 'state', 'sqm:s0')).toBe('sqm-todo');
+      expect(resolveShortKey(registry, 'state', 'SQM:s0')).toBe('sqm-todo');
+      expect(resolveShortKey(registry, 'state', 'Sqm:s0')).toBe('sqm-todo');
+      expect(resolveShortKey(registry, 'state', 'sQm:s0')).toBe('sqm-todo');
+    });
+
+    it('handles uppercase default team prefix', () => {
+      const registry = createMultiTeamRegistry();
+
+      // SQT is default team - uppercase/mixed should still normalize
+      expect(resolveShortKey(registry, 'state', 'SQT:s0')).toBe('sqt-todo');
+      expect(resolveShortKey(registry, 'state', 'Sqt:s0')).toBe('sqt-todo');
+    });
+  });
+
+  describe('error handling for unknown team prefixes', () => {
+    it('throws ToonResolutionError for completely unknown team prefix on states', () => {
+      const registry = createMultiTeamRegistry();
+
+      // "xyz" is not a known team
+      expect(() => resolveShortKey(registry, 'state', 'xyz:s0')).toThrow(
+        ToonResolutionError,
+      );
+    });
+
+    it('returns undefined from tryResolveShortKey for unknown team prefix', () => {
+      const registry = createMultiTeamRegistry();
+
+      expect(tryResolveShortKey(registry, 'state', 'xyz:s0')).toBeUndefined();
+    });
+
+    it('strips unknown team prefix for global entities (users/projects)', () => {
+      const registry = createMultiTeamRegistry();
+
+      // For users and projects, any prefix is stripped
+      // So "xyz:u0" becomes "u0" which should resolve
+      expect(resolveShortKey(registry, 'user', 'xyz:u0')).toBe('user-1');
+      expect(resolveShortKey(registry, 'project', 'xyz:pr0')).toBe('project-1');
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests: Multiple Teams with Different State Counts
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('multiple teams with varying state counts', () => {
+  it('handles teams with different numbers of states', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        // SQT has 5 states
+        {
+          id: 'sqt-s0',
+          createdAt: new Date('2024-01-01T00:00:00Z'),
+          name: 'Triage',
+          type: 'triage',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqt-s1',
+          createdAt: new Date('2024-01-01T01:00:00Z'),
+          name: 'Backlog',
+          type: 'backlog',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqt-s2',
+          createdAt: new Date('2024-01-01T02:00:00Z'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqt-s3',
+          createdAt: new Date('2024-01-01T03:00:00Z'),
+          name: 'In Progress',
+          type: 'started',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqt-s4',
+          createdAt: new Date('2024-01-01T04:00:00Z'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-sqt-uuid',
+        },
+        // SQM has only 2 states
+        {
+          id: 'sqm-s0',
+          createdAt: new Date('2024-01-02T00:00:00Z'),
+          name: 'Open',
+          type: 'unstarted',
+          teamId: 'team-sqm-uuid',
+        },
+        {
+          id: 'sqm-s1',
+          createdAt: new Date('2024-01-02T01:00:00Z'),
+          name: 'Closed',
+          type: 'completed',
+          teamId: 'team-sqm-uuid',
+        },
+        // ENG has 3 states
+        {
+          id: 'eng-s0',
+          createdAt: new Date('2024-01-03T00:00:00Z'),
+          name: 'New',
+          type: 'unstarted',
+          teamId: 'team-eng-uuid',
+        },
+        {
+          id: 'eng-s1',
+          createdAt: new Date('2024-01-03T01:00:00Z'),
+          name: 'Working',
+          type: 'started',
+          teamId: 'team-eng-uuid',
+        },
+        {
+          id: 'eng-s2',
+          createdAt: new Date('2024-01-03T02:00:00Z'),
+          name: 'Complete',
+          type: 'completed',
+          teamId: 'team-eng-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-sqt-uuid', key: 'SQT' },
+        { id: 'team-sqm-uuid', key: 'SQM' },
+        { id: 'team-eng-uuid', key: 'ENG' },
+      ],
+      defaultTeamId: 'team-sqt-uuid',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Default team (SQT) has s0-s4
+    expect(registry.states.get('s0')).toBe('sqt-s0');
+    expect(registry.states.get('s1')).toBe('sqt-s1');
+    expect(registry.states.get('s2')).toBe('sqt-s2');
+    expect(registry.states.get('s3')).toBe('sqt-s3');
+    expect(registry.states.get('s4')).toBe('sqt-s4');
+    expect(registry.states.has('s5')).toBe(false);
+
+    // SQM has sqm:s0-s1
+    expect(registry.states.get('sqm:s0')).toBe('sqm-s0');
+    expect(registry.states.get('sqm:s1')).toBe('sqm-s1');
+    expect(registry.states.has('sqm:s2')).toBe(false);
+
+    // ENG has eng:s0-s2
+    expect(registry.states.get('eng:s0')).toBe('eng-s0');
+    expect(registry.states.get('eng:s1')).toBe('eng-s1');
+    expect(registry.states.get('eng:s2')).toBe('eng-s2');
+    expect(registry.states.has('eng:s3')).toBe(false);
+
+    // Total state count
+    expect(registry.states.size).toBe(10); // 5 + 2 + 3
+  });
+
+  it('preserves state metadata with correct teamId', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'sqt-todo',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqm-pending',
+          createdAt: new Date('2024-01-02'),
+          name: 'Pending',
+          type: 'unstarted',
+          teamId: 'team-sqm-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-sqt-uuid', key: 'SQT' },
+        { id: 'team-sqm-uuid', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-sqt-uuid',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Check metadata for default team state
+    const sqtMeta = registry.stateMetadata.get('sqt-todo');
+    expect(sqtMeta).toBeDefined();
+    expect(sqtMeta?.name).toBe('Todo');
+    expect(sqtMeta?.type).toBe('unstarted');
+    expect(sqtMeta?.teamId).toBe('team-sqt-uuid');
+
+    // Check metadata for non-default team state
+    const sqmMeta = registry.stateMetadata.get('sqm-pending');
+    expect(sqmMeta).toBeDefined();
+    expect(sqmMeta?.name).toBe('Pending');
+    expect(sqmMeta?.type).toBe('unstarted');
+    expect(sqmMeta?.teamId).toBe('team-sqm-uuid');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests: listShortKeys with Multi-Team States
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('listShortKeys with multi-team states', () => {
+  it('lists all state keys including prefixed ones', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'sqt-s0',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqt-s1',
+          createdAt: new Date('2024-01-02'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqm-s0',
+          createdAt: new Date('2024-01-03'),
+          name: 'Open',
+          type: 'unstarted',
+          teamId: 'team-sqm-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-sqt-uuid', key: 'SQT' },
+        { id: 'team-sqm-uuid', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-sqt-uuid',
+    };
+
+    const registry = buildRegistry(data);
+    const keys = listShortKeys(registry, 'state');
+
+    // Should include both clean keys and prefixed keys
+    expect(keys).toContain('s0');
+    expect(keys).toContain('s1');
+    expect(keys).toContain('sqm:s0');
+    expect(keys.length).toBe(3);
+  });
+
+  it('hasShortKey works with prefixed keys', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'sqt-s0',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-sqt-uuid',
+        },
+        {
+          id: 'sqm-s0',
+          createdAt: new Date('2024-01-02'),
+          name: 'Open',
+          type: 'unstarted',
+          teamId: 'team-sqm-uuid',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teams: [
+        { id: 'team-sqt-uuid', key: 'SQT' },
+        { id: 'team-sqm-uuid', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-sqt-uuid',
+    };
+
+    const registry = buildRegistry(data);
+
+    expect(hasShortKey(registry, 'state', 's0')).toBe(true);
+    expect(hasShortKey(registry, 'state', 'sqm:s0')).toBe(true);
+    expect(hasShortKey(registry, 'state', 'sqt:s0')).toBe(false); // Not stored with prefix for default team
+    expect(hasShortKey(registry, 'state', 'eng:s0')).toBe(false); // Non-existent team
   });
 });

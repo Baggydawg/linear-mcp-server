@@ -40,7 +40,10 @@ import {
   computeFieldChanges,
   createTeamSettingsCache,
   validateEstimate,
+  validateLabelKeyPrefix,
   validatePriority,
+  validateStateBelongsToTeam,
+  validateStateKeyPrefix,
 } from './shared/index.js';
 
 const IssueUpdateItem = z.object({
@@ -256,8 +259,60 @@ export const updateIssuesTool = defineTool({
         // Resolve state from short key, ID, name, or type
         // Priority: state (short key) > stateId > stateName/stateType
         if (it.state && registry) {
+          // Pre-validate state key prefix before resolution (if we have teamId)
+          if (teamId) {
+            const prefixValidation = validateStateKeyPrefix(
+              it.state,
+              teamId,
+              registry,
+            );
+            if (!prefixValidation.valid) {
+              results.push({
+                index: i,
+                ok: false,
+                success: false,
+                id: it.id,
+                identifier: issueIdentifier,
+                error: {
+                  code: 'CROSS_TEAM_STATE_ERROR',
+                  message: prefixValidation.error ?? 'State belongs to different team',
+                  suggestions: prefixValidation.suggestion
+                    ? [prefixValidation.suggestion]
+                    : ['Check workspace_metadata for available states'],
+                },
+              });
+              continue;
+            }
+          }
+
           const resolvedStateId = tryResolveShortKey(registry, 'state', it.state);
           if (resolvedStateId) {
+            // Post-validate that resolved state belongs to the issue's team
+            if (teamId) {
+              const teamValidation = validateStateBelongsToTeam(
+                it.state,
+                resolvedStateId,
+                teamId,
+                registry,
+              );
+              if (!teamValidation.valid) {
+                results.push({
+                  index: i,
+                  ok: false,
+                  success: false,
+                  id: it.id,
+                  identifier: issueIdentifier,
+                  error: {
+                    code: 'CROSS_TEAM_STATE_ERROR',
+                    message: teamValidation.error ?? 'State belongs to different team',
+                    suggestions: teamValidation.suggestion
+                      ? [teamValidation.suggestion]
+                      : ['Check workspace_metadata for available states'],
+                  },
+                });
+                continue;
+              }
+            }
             payloadInput.stateId = resolvedStateId;
           } else {
             results.push({
@@ -354,6 +409,44 @@ export const updateIssuesTool = defineTool({
             });
             continue;
           }
+
+          // Pre-validate label key prefixes before resolution
+          if (registry) {
+            let labelPrefixError: { error: string; suggestion?: string } | null = null;
+            for (const labelName of it.labelNames) {
+              const labelPrefixValidation = validateLabelKeyPrefix(
+                labelName,
+                teamId,
+                registry,
+              );
+              if (!labelPrefixValidation.valid) {
+                labelPrefixError = {
+                  error:
+                    labelPrefixValidation.error ?? 'Label belongs to different team',
+                  suggestion: labelPrefixValidation.suggestion,
+                };
+                break;
+              }
+            }
+            if (labelPrefixError) {
+              results.push({
+                index: i,
+                ok: false,
+                success: false,
+                id: it.id,
+                identifier: issueIdentifier,
+                error: {
+                  code: 'CROSS_TEAM_LABEL_ERROR',
+                  message: labelPrefixError.error,
+                  suggestions: labelPrefixError.suggestion
+                    ? [labelPrefixError.suggestion]
+                    : ['Check workspace_metadata for available labels'],
+                },
+              });
+              continue;
+            }
+          }
+
           const labelsResult = await resolveLabels(client, teamId, it.labelNames);
           if (!labelsResult.success) {
             results.push({
@@ -394,6 +487,44 @@ export const updateIssuesTool = defineTool({
             });
             continue;
           }
+
+          // Pre-validate label key prefixes before resolution
+          if (registry) {
+            let labelPrefixError: { error: string; suggestion?: string } | null = null;
+            for (const labelName of it.addLabelNames) {
+              const labelPrefixValidation = validateLabelKeyPrefix(
+                labelName,
+                teamId,
+                registry,
+              );
+              if (!labelPrefixValidation.valid) {
+                labelPrefixError = {
+                  error:
+                    labelPrefixValidation.error ?? 'Label belongs to different team',
+                  suggestion: labelPrefixValidation.suggestion,
+                };
+                break;
+              }
+            }
+            if (labelPrefixError) {
+              results.push({
+                index: i,
+                ok: false,
+                success: false,
+                id: it.id,
+                identifier: issueIdentifier,
+                error: {
+                  code: 'CROSS_TEAM_LABEL_ERROR',
+                  message: labelPrefixError.error,
+                  suggestions: labelPrefixError.suggestion
+                    ? [labelPrefixError.suggestion]
+                    : ['Check workspace_metadata for available labels'],
+                },
+              });
+              continue;
+            }
+          }
+
           const addResult = await resolveLabels(client, teamId, it.addLabelNames);
           if (!addResult.success) {
             results.push({
@@ -437,6 +568,44 @@ export const updateIssuesTool = defineTool({
             });
             continue;
           }
+
+          // Pre-validate label key prefixes before resolution
+          if (registry) {
+            let labelPrefixError: { error: string; suggestion?: string } | null = null;
+            for (const labelName of it.removeLabelNames) {
+              const labelPrefixValidation = validateLabelKeyPrefix(
+                labelName,
+                teamId,
+                registry,
+              );
+              if (!labelPrefixValidation.valid) {
+                labelPrefixError = {
+                  error:
+                    labelPrefixValidation.error ?? 'Label belongs to different team',
+                  suggestion: labelPrefixValidation.suggestion,
+                };
+                break;
+              }
+            }
+            if (labelPrefixError) {
+              results.push({
+                index: i,
+                ok: false,
+                success: false,
+                id: it.id,
+                identifier: issueIdentifier,
+                error: {
+                  code: 'CROSS_TEAM_LABEL_ERROR',
+                  message: labelPrefixError.error,
+                  suggestions: labelPrefixError.suggestion
+                    ? [labelPrefixError.suggestion]
+                    : ['Check workspace_metadata for available labels'],
+                },
+              });
+              continue;
+            }
+          }
+
           const removeResult = await resolveLabels(client, teamId, it.removeLabelNames);
           if (!removeResult.success) {
             results.push({

@@ -32,6 +32,18 @@ vi.mock('../../src/services/linear/client.js', () => ({
   getLinearClient: vi.fn(() => Promise.resolve(mockClient)),
 }));
 
+// Mock the config module to ensure DEFAULT_TEAM is not set in tests
+vi.mock('../../src/config/env.js', () => ({
+  config: {
+    HOST: '127.0.0.1',
+    PORT: 3000,
+    NODE_ENV: 'test',
+    AUTH_STRATEGY: 'bearer',
+    LINEAR_ACCESS_TOKEN: 'test-token-xxx',
+    DEFAULT_TEAM: undefined,
+  },
+}));
+
 // Mock cycles for testing
 const mockCycles = [
   {
@@ -73,7 +85,7 @@ const mockSprintIssues = [
     priority: 1, // Urgent
     estimate: null, // Missing estimate - gap
     updatedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days ago - stale
-    state: { id: 'state-todo', name: 'Todo', type: 'unstarted' },
+    state: { id: 'state-eng-todo', name: 'Todo', type: 'unstarted' },
     project: { id: 'project-001', name: 'Q1 Release' },
     assignee: { id: 'user-001', name: 'Test User' },
     parent: null,
@@ -98,7 +110,7 @@ const mockSprintIssues = [
     priority: 2,
     estimate: 3,
     updatedAt: new Date().toISOString(), // Recent
-    state: { id: 'state-inprogress', name: 'In Progress', type: 'started' },
+    state: { id: 'state-eng-inprogress', name: 'In Progress', type: 'started' },
     project: { id: 'project-001', name: 'Q1 Release' },
     assignee: { id: 'user-002', name: 'Jane Doe' },
     parent: null,
@@ -122,7 +134,7 @@ const mockSprintIssues = [
     priority: 2,
     estimate: null, // Missing estimate
     updatedAt: new Date().toISOString(),
-    state: { id: 'state-todo', name: 'Todo', type: 'unstarted' },
+    state: { id: 'state-eng-todo', name: 'Todo', type: 'unstarted' },
     project: null, // No project
     assignee: null, // No assignee - gap
     parent: null,
@@ -138,7 +150,7 @@ const mockSprintIssues = [
     priority: 3,
     estimate: 2,
     updatedAt: new Date().toISOString(),
-    state: { id: 'state-done', name: 'Done', type: 'completed' },
+    state: { id: 'state-eng-done', name: 'Done', type: 'completed' },
     project: { id: 'project-001', name: 'Q1 Release' },
     assignee: { id: 'user-001', name: 'Test User' },
     parent: null,
