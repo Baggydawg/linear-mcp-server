@@ -59,9 +59,9 @@ describe('list_cycles tool metadata', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('list_cycles input validation', () => {
-  it('requires teamId parameter', () => {
+  it('teamId is optional (defaults to DEFAULT_TEAM)', () => {
     const result = listCyclesTool.inputSchema.safeParse({});
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it('accepts valid teamId', () => {

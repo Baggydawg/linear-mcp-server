@@ -106,6 +106,8 @@ export interface RegistryStateEntity extends RegistryEntity {
   name: string;
   /** State type (e.g., "started", "completed", "unstarted", "canceled") */
   type: string;
+  /** Team this state belongs to */
+  teamId?: string;
 }
 
 /**
@@ -130,6 +132,8 @@ export interface RegistryBuildData {
   projects: RegistryProjectEntity[];
   /** Workspace ID for scoping */
   workspaceId: string;
+  /** Optional team filter for scoping */
+  teamId?: string;
 }
 
 /**
@@ -351,16 +355,21 @@ function buildProjectMetadata(
  * @returns Complete ShortKeyRegistry
  */
 export function buildRegistry(data: RegistryBuildData): ShortKeyRegistry {
+  // Filter states by team if teamId provided
+  const filteredStates = data.teamId
+    ? data.states.filter((s) => s.teamId === data.teamId)
+    : data.states;
+
   const [users, usersByUuid] = buildMapsForType(data.users, KEY_PREFIXES.user);
-  const [states, statesByUuid] = buildMapsForType(data.states, KEY_PREFIXES.state);
+  const [states, statesByUuid] = buildMapsForType(filteredStates, KEY_PREFIXES.state);
   const [projects, projectsByUuid] = buildMapsForType(
     data.projects,
     KEY_PREFIXES.project,
   );
 
-  // Build metadata maps
+  // Build metadata maps - IMPORTANT: use filteredStates for consistency
   const userMetadata = buildUserMetadata(data.users);
-  const stateMetadata = buildStateMetadata(data.states);
+  const stateMetadata = buildStateMetadata(filteredStates);
   const projectMetadata = buildProjectMetadata(data.projects);
 
   return {

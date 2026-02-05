@@ -73,6 +73,9 @@ export type UnifiedConfig = {
   // Custom user profile metadata (role, skills, focus area) for work assignment context
   USER_PROFILES_FILE?: string; // Path to JSON config file (default: ./team-profiles.json)
   USER_PROFILES_JSON?: string; // JSON string for Workers runtime
+
+  // Team Scoping
+  DEFAULT_TEAM?: string; // Team key (e.g., "SQT") or UUID for default team filtering
 };
 
 function parseBoolean(value: unknown): boolean {
@@ -188,6 +191,9 @@ export function parseConfig(env: Record<string, unknown>): UnifiedConfig {
     // User Profiles
     USER_PROFILES_FILE: env.USER_PROFILES_FILE as string | undefined,
     USER_PROFILES_JSON: env.USER_PROFILES_JSON as string | undefined,
+
+    // Team Scoping
+    DEFAULT_TEAM: (env.DEFAULT_TEAM as string | undefined)?.trim() || undefined,
   };
 }
 

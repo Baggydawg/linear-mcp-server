@@ -16,6 +16,7 @@ import {
   type UserProfilesConfig,
 } from '../../config/user-profiles.js';
 import { getLinearClient } from '../../../services/linear/client.js';
+import { resolveTeamId } from '../../../utils/resolvers.js';
 // Note: config is still imported for USER_PROFILES_* settings
 import {
   buildRegistry,
@@ -135,6 +136,9 @@ type TeamLike = {
       progress?: number;
       createdAt?: Date | string;
     }>;
+  }>;
+  members: (args: { first: number }) => Promise<{
+    nodes: UserLike[];
   }>;
 };
 
@@ -358,7 +362,6 @@ export const workspaceMetadataTool = defineTool({
   },
 
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
-    const teamIdsFilter = new Set(args.teamIds ?? []);
     // forceRefresh is accepted as input but currently unused
     // Will be used in the future to force registry rebuild even if one exists
     const _forceRefresh = args.forceRefresh ?? false;
@@ -366,6 +369,25 @@ export const workspaceMetadataTool = defineTool({
     // TOON format always returns all entity types
 
     const client = await getLinearClient(context);
+
+    // Handle explicit teamIds OR fall back to DEFAULT_TEAM with proper UUID resolution
+    let teamIdsFilter = new Set<string>();
+
+    if (args.teamIds && args.teamIds.length > 0) {
+      // User provided explicit team IDs - use them as-is
+      teamIdsFilter = new Set(args.teamIds);
+    } else if (config.DEFAULT_TEAM) {
+      // Fall back to DEFAULT_TEAM, resolving key to UUID if needed
+      const resolved = await resolveTeamId(client, config.DEFAULT_TEAM);
+      if (resolved.success) {
+        teamIdsFilter.add(resolved.value);
+      } else {
+        // Log warning but continue - will fetch all teams
+        console.warn(
+          `DEFAULT_TEAM '${config.DEFAULT_TEAM}' could not be resolved: ${resolved.error}`,
+        );
+      }
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Fetch workspace data
@@ -431,7 +453,7 @@ export const workspaceMetadataTool = defineTool({
       }));
     }
 
-    // Fetch users (always fetch for TOON to build registry)
+    // Fetch users (team members if scoped, all users otherwise)
     {
       // Load custom user profiles from config file or env var
       const userProfilesConfig: UserProfilesConfig = loadUserProfiles({
@@ -439,10 +461,29 @@ export const workspaceMetadataTool = defineTool({
         filePath: config.USER_PROFILES_FILE,
       });
 
-      const usersConn = (await client.users({ first: 200 })) as unknown as {
-        nodes: UserLike[];
-      };
-      workspaceData.users = usersConn.nodes.map((u) => {
+      // Fetch users - use team.members() if team-scoped, otherwise client.users()
+      let allUsers: UserLike[] = [];
+
+      if (teams.length > 0 && teamIdsFilter.size > 0) {
+        // Team-scoped: fetch members from each team
+        for (const team of teams) {
+          const membersConn = await team.members({ first: 200 });
+          for (const member of membersConn.nodes) {
+            // Deduplicate by id (user might be in multiple teams)
+            if (!allUsers.some((u) => u.id === member.id)) {
+              allUsers.push(member);
+            }
+          }
+        }
+      } else {
+        // Not team-scoped: fetch all workspace users
+        const usersConn = (await client.users({ first: 200 })) as unknown as {
+          nodes: UserLike[];
+        };
+        allUsers = usersConn.nodes;
+      }
+
+      workspaceData.users = allUsers.map((u) => {
         // Look up custom profile by email
         const profile = getUserProfile(userProfilesConfig, u.email ?? undefined);
         const formattedRole = formatProfileForToon(profile);
@@ -564,6 +605,7 @@ export const workspaceMetadataTool = defineTool({
         createdAt: s.createdAt ?? new Date(0),
         name: s.name,
         type: s.type ?? '',
+        teamId: s.teamId, // Needed for registry filtering
       })),
       projects: workspaceData.projects.map((p) => ({
         id: p.id,
@@ -572,6 +614,7 @@ export const workspaceMetadataTool = defineTool({
         state: p.state ?? '',
       })),
       workspaceId: workspaceData.viewer?.id ?? 'unknown',
+      teamId: teams.length === 1 ? teams[0].id : undefined, // Single team = filter states
     };
 
     // Build the registry

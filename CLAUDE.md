@@ -64,6 +64,22 @@ Configured via `AUTH_STRATEGY` env var:
 - `api_key` - API key header
 - `none` - No authentication
 
+### Team Scoping
+
+Set `DEFAULT_TEAM` environment variable to scope all queries to a specific team:
+
+```bash
+DEFAULT_TEAM=SQT  # Team key (recommended) or UUID
+```
+
+When `DEFAULT_TEAM` is configured:
+- `workspace_metadata` returns only team members (via `team.members()`) instead of all workspace users
+- `workspace_metadata` filters workflow states to only the specified team's states
+- Query tools (`list_issues`, `list_cycles`, `list_projects`, `get_sprint_context`) automatically filter to the default team when no team is explicitly specified
+- Short keys (u0, s0, pr0) only cover team-specific entities
+
+This is useful for multi-team workspaces where you want Claude to focus on a single team's context. To switch teams, update the environment variable and call `workspace_metadata({ forceRefresh: true })`.
+
 ## Tool Design Principles
 
 From `docs/rules.md`:

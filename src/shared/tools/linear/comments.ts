@@ -89,6 +89,7 @@ async function fetchWorkspaceDataForRegistry(
         createdAt: state.createdAt ?? new Date(),
         name: state.name,
         type: state.type ?? '',
+        teamId: team.id,
       });
     }
   }

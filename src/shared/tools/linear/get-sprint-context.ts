@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import {
@@ -609,6 +610,7 @@ async function fetchWorkspaceDataForRegistry(
         createdAt: state.createdAt ?? new Date(),
         name: state.name,
         type: state.type ?? '',
+        teamId: team.id,
       });
     }
   }
@@ -771,16 +773,17 @@ export const getSprintContextTool = defineTool({
       };
     }
 
-    // Find the target team
-    const team = args.team
+    // Use args.team, fall back to DEFAULT_TEAM, then first team
+    const defaultTeamKey = args.team ?? config.DEFAULT_TEAM;
+    const team = defaultTeamKey
       ? teams.find(
           (t) =>
             (t as unknown as { key?: string }).key?.toLowerCase() ===
-              args.team?.toLowerCase() || t.id === args.team,
+              defaultTeamKey.toLowerCase() || t.id === defaultTeamKey,
         )
       : teams[0];
 
-    if (!team) {
+    if (!team && defaultTeamKey) {
       const availableKeys = teams
         .map((t) => (t as unknown as { key?: string }).key)
         .filter(Boolean);
@@ -789,14 +792,26 @@ export const getSprintContextTool = defineTool({
         content: [
           {
             type: 'text',
-            text: `Team '${args.team}' not found. Available: ${availableKeys.join(', ')}`,
+            text: `Team '${defaultTeamKey}' not found. Available: ${availableKeys.join(', ')}`,
           },
         ],
         structuredContent: {
           error: 'TEAM_NOT_FOUND',
-          message: `Team '${args.team}' not found`,
+          message: `Team '${defaultTeamKey}' not found`,
           availableTeams: availableKeys,
           hint: 'Use one of the available team keys.',
+        },
+      };
+    }
+
+    if (!team) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: 'No teams found in workspace.' }],
+        structuredContent: {
+          error: 'NO_TEAMS',
+          message: 'No teams found in workspace',
+          hint: 'Ensure you have access to at least one team in Linear.',
         },
       };
     }

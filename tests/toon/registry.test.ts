@@ -223,6 +223,180 @@ describe('buildRegistry', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tests: Team Filtering
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('team filtering', () => {
+  it('filters states by teamId when provided', () => {
+    const data: RegistryBuildData = {
+      users: [
+        {
+          id: 'user-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'User 1',
+          displayName: 'u1',
+          email: 'u1@test.com',
+          active: true,
+        },
+      ],
+      states: [
+        {
+          id: 'state-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-a',
+        },
+        {
+          id: 'state-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-a',
+        },
+        {
+          id: 'state-3',
+          createdAt: new Date('2024-01-03'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-b',
+        },
+        {
+          id: 'state-4',
+          createdAt: new Date('2024-01-04'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-b',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teamId: 'team-a', // Filter to team-a only
+    };
+
+    const registry = buildRegistry(data);
+
+    // Should only have 2 states (team-a's states)
+    expect(registry.states.size).toBe(2);
+    expect(registry.statesByUuid.size).toBe(2);
+    expect(registry.stateMetadata.size).toBe(2);
+
+    // Verify the correct states are included
+    expect(registry.statesByUuid.has('state-1')).toBe(true);
+    expect(registry.statesByUuid.has('state-2')).toBe(true);
+    expect(registry.statesByUuid.has('state-3')).toBe(false);
+    expect(registry.statesByUuid.has('state-4')).toBe(false);
+  });
+
+  it('includes all states when teamId not provided', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'state-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-a',
+        },
+        {
+          id: 'state-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-b',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      // No teamId - should include all states
+    };
+
+    const registry = buildRegistry(data);
+
+    expect(registry.states.size).toBe(2);
+    expect(registry.statesByUuid.has('state-1')).toBe(true);
+    expect(registry.statesByUuid.has('state-2')).toBe(true);
+  });
+
+  it('assigns sequential short keys for filtered states', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'state-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-a',
+        },
+        {
+          id: 'state-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'In Progress',
+          type: 'started',
+          teamId: 'team-b',
+        },
+        {
+          id: 'state-3',
+          createdAt: new Date('2024-01-03'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-a',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teamId: 'team-a',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Should only have 2 states, with sequential keys starting from s0
+    expect(registry.states.size).toBe(2);
+    expect(registry.states.get('s0')).toBe('state-1');
+    expect(registry.states.get('s1')).toBe('state-3');
+    expect(registry.states.has('s2')).toBe(false);
+  });
+
+  it('preserves state metadata for filtered states only', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [
+        {
+          id: 'state-1',
+          createdAt: new Date('2024-01-01'),
+          name: 'Backlog',
+          type: 'backlog',
+          teamId: 'team-a',
+        },
+        {
+          id: 'state-2',
+          createdAt: new Date('2024-01-02'),
+          name: 'Working',
+          type: 'started',
+          teamId: 'team-b',
+        },
+      ],
+      projects: [],
+      workspaceId: 'workspace-1',
+      teamId: 'team-a',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Should have metadata for team-a state only
+    const metadata = registry.stateMetadata.get('state-1');
+    expect(metadata).toBeDefined();
+    expect(metadata?.name).toBe('Backlog');
+    expect(metadata?.type).toBe('backlog');
+
+    // Should NOT have metadata for team-b state
+    expect(registry.stateMetadata.has('state-2')).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests: Resolution Functions
 // ─────────────────────────────────────────────────────────────────────────────
 

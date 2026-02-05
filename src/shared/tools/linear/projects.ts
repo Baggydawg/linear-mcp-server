@@ -104,6 +104,7 @@ async function fetchWorkspaceDataForRegistry(
         createdAt: state.createdAt ?? new Date(),
         name: state.name,
         type: state.type ?? '',
+        teamId: team.id,
       });
     }
   }
@@ -282,7 +283,15 @@ export const listProjectsTool = defineTool({
     const client = await getLinearClient(context);
     const first = args.limit ?? 20;
     const after = args.cursor;
-    const filter = args.filter as Record<string, unknown> | undefined;
+    let filter = args.filter as Record<string, unknown> | undefined;
+
+    // Apply team filter if DEFAULT_TEAM configured and no team filter in args
+    if (!filter?.team && config.DEFAULT_TEAM) {
+      const resolved = await resolveTeamId(client, config.DEFAULT_TEAM);
+      if (resolved.success) {
+        filter = { ...filter, team: { id: { eq: resolved.value } } };
+      }
+    }
 
     const conn = await client.projects({
       first,

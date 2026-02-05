@@ -7,8 +7,10 @@
 
 import { LinearDocument } from '@linear/sdk';
 import { z } from 'zod';
+import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
+import { resolveTeamId } from '../../../utils/resolvers.js';
 import {
   CYCLE_SCHEMA,
   encodeResponse,
@@ -103,7 +105,7 @@ function buildCyclesToonResponse(
 }
 
 const InputSchema = z.object({
-  teamId: z.string(),
+  teamId: z.string().optional().describe('Team UUID or key. Defaults to DEFAULT_TEAM if configured.'),
   limit: z.number().int().min(1).max(100).optional(),
   cursor: z.string().optional(),
   includeArchived: z.boolean().optional(),
@@ -122,7 +124,28 @@ export const listCyclesTool = defineTool({
 
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
     const client = await getLinearClient(context);
-    const team = await client.team(args.teamId);
+
+    // Resolve teamId with DEFAULT_TEAM fallback
+    const teamIdInput = args.teamId ?? config.DEFAULT_TEAM;
+    if (!teamIdInput) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: 'teamId is required (no DEFAULT_TEAM configured)' }],
+        structuredContent: { error: 'TEAM_REQUIRED', hint: 'Provide teamId or set DEFAULT_TEAM env var' },
+      };
+    }
+
+    const resolvedResult = await resolveTeamId(client, teamIdInput);
+    if (!resolvedResult.success) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: resolvedResult.error }],
+        structuredContent: { error: 'TEAM_RESOLUTION_FAILED', message: resolvedResult.error },
+      };
+    }
+    const resolvedTeamId = resolvedResult.value;
+
+    const team = await client.team(resolvedTeamId);
 
     const cyclesEnabled =
       ((team as unknown as { cyclesEnabled?: boolean } | null)?.cyclesEnabled ??
@@ -130,7 +153,7 @@ export const listCyclesTool = defineTool({
 
     if (!cyclesEnabled) {
       const msg =
-        `Cycles are disabled for team ${args.teamId}.\n\n` +
+        `Cycles are disabled for team ${teamIdInput}.\n\n` +
         `Alternatives for organizing work:\n` +
         `- Use list_projects to manage work with milestones and project phases\n` +
         `- Use labels to group issues by sprint/phase (e.g., "Sprint 23", "Q1-2024")\n` +
@@ -142,7 +165,7 @@ export const listCyclesTool = defineTool({
         content: [{ type: 'text', text: msg }],
         structuredContent: {
           error: 'CYCLES_DISABLED',
-          teamId: args.teamId,
+          teamId: teamIdInput,
           alternatives: ['list_projects', 'labels', 'dueDate'],
           hint: 'Use workspace_metadata to find teams with cycles enabled.',
         },
@@ -170,7 +193,7 @@ export const listCyclesTool = defineTool({
     const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
 
     // Get team key for TOON output
-    const teamKey = (team as unknown as { key?: string }).key ?? args.teamId;
+    const teamKey = (team as unknown as { key?: string }).key ?? teamIdInput;
 
     // Convert items to RawCycleData for TOON processing
     const rawCycles: RawCycleData[] = conn.nodes.map((c) => ({

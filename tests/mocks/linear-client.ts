@@ -39,6 +39,7 @@ export interface MockTeam {
     includeArchived?: boolean;
     orderBy?: unknown;
   }) => Promise<{ nodes: MockCycle[]; pageInfo: MockPageInfo }>;
+  members: (args: { first: number }) => Promise<{ nodes: MockUser[] }>;
 }
 
 export interface MockWorkflowState {
@@ -219,6 +220,7 @@ export const defaultMockTeams: MockTeam[] = [
         },
       });
     },
+    members: () => Promise.resolve({ nodes: defaultMockUsers }),
   },
   {
     id: 'team-design',
@@ -229,6 +231,7 @@ export const defaultMockTeams: MockTeam[] = [
     labels: () => Promise.resolve({ nodes: [] }),
     projects: () => Promise.resolve({ nodes: [] }),
     cycles: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
+    members: () => Promise.resolve({ nodes: defaultMockUsers.slice(0, 1) }), // Only first user for design team
   },
 ];
 

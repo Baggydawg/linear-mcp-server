@@ -6,6 +6,7 @@
  */
 
 import { z } from 'zod';
+import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import {
@@ -486,6 +487,7 @@ async function fetchWorkspaceDataForRegistry(
         createdAt: state.createdAt ?? new Date(),
         name: state.name,
         type: state.type ?? '',
+        teamId: team.id,
       });
     }
   }
@@ -663,6 +665,12 @@ export const listIssuesTool = defineTool({
         };
       }
       resolvedTeamId = teamResult.value;
+    }
+
+    // Apply DEFAULT_TEAM if no team specified
+    if (!resolvedTeamId && config.DEFAULT_TEAM) {
+      const teamResult = await resolveTeamId(client, config.DEFAULT_TEAM);
+      if (teamResult.success) resolvedTeamId = teamResult.value;
     }
 
     // Validate cycle requires team
