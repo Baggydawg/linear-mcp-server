@@ -1,6 +1,6 @@
 /**
  * Tests for create_issues tool.
- * Verifies: input validation, batch creation, dry run, error handling.
+ * Verifies: input validation, batch creation, error handling.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

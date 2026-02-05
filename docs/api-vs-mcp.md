@@ -930,17 +930,16 @@ MCP supports full GraphQL-style filtering with comparators:
 2. **Human-Readable Inputs** - Support for names instead of UUIDs (stateName, labelNames, assigneeName, projectName)
 3. **Flexible ID Resolution** - Accept both UUIDs and short identifiers (e.g., `ENG-123`)
 4. **Priority Strings** - Accept "Urgent", "High", "Medium", "Low" instead of just numbers
-5. **Dry Run Mode** - Validate without executing (create_issues, update_issues)
-6. **Pre-resolved Relations** - No N+1 queries; related entities included in response
-7. **Structured Errors** - Error codes, messages, and recovery suggestions
-8. **LLM Guidance** - nextSteps, relatedTools, and hints in responses
-9. **Zero-Result Hints** - Context-aware suggestions when no results found
-10. **Incremental Label Operations** - addLabelNames, removeLabelNames for partial updates
-11. **Detail Levels** - minimal/standard/full to control response verbosity
-12. **Keyword Search** - Built-in q/keywords with matchMode (all/any)
-13. **Quick Lookup Maps** - workspace_metadata returns pre-built ID lookup dictionaries
-14. **Update Diffs** - update_issues shows before/after changes in human-readable format
-15. **Rate Limit Protection** - Built-in concurrency control and retry logic
+5. **Pre-resolved Relations** - No N+1 queries; related entities included in response
+6. **Structured Errors** - Error codes, messages, and recovery suggestions
+7. **LLM Guidance** - nextSteps, relatedTools, and hints in responses
+8. **Zero-Result Hints** - Context-aware suggestions when no results found
+9. **Incremental Label Operations** - addLabelNames, removeLabelNames for partial updates
+10. **Detail Levels** - minimal/standard/full to control response verbosity
+11. **Keyword Search** - Built-in q/keywords with matchMode (all/any)
+12. **Quick Lookup Maps** - workspace_metadata returns pre-built ID lookup dictionaries
+13. **Update Diffs** - update_issues shows before/after changes in human-readable format
+14. **Rate Limit Protection** - Built-in concurrency control and retry logic
 
 ### Not Implemented (By Design)
 

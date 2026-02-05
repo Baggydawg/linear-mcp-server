@@ -52,7 +52,7 @@ bun run test:integration    # Live API tests (requires PROVIDER_API_KEY)
 |------|-------|--------------|
 | `list_issues` | 38 | Filters, pagination, keywords, TOON output |
 | `get_issues` | 22 | UUID/identifier lookup, batch fetch, errors |
-| `create_issues` | 32 | All fields, batch, dry run, short key resolution |
+| `create_issues` | 32 | All fields, batch, short key resolution |
 | `update_issues` | 31 | Updates, labels, archive, short key resolution |
 | `get_sprint_context` | 33 | Cycle navigation, all 5 gap types |
 | `workspace_metadata` | 16 | All entity types, registry storage, forceRefresh |
