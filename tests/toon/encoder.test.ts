@@ -6,7 +6,11 @@ import {
   encodeToonRow,
   encodeToonSection,
   encodeToonValue,
+  formatCycleToon,
+  formatEstimateToon,
+  formatPriorityToon,
   safeEncode,
+  stripMarkdownImages,
 } from '../../src/shared/toon/encoder.js';
 import type { ToonResponse, ToonRow, ToonSchema } from '../../src/shared/toon/types.js';
 
@@ -374,5 +378,109 @@ describe('truncation', () => {
     const encoded = encodeToonRow(row, schema);
     expect(encoded).not.toContain('[truncated]');
     expect(encoded).toBe(shortTitle);
+  });
+});
+
+describe('stripMarkdownImages', () => {
+  it('returns null for null input', () => {
+    expect(stripMarkdownImages(null)).toBeNull();
+  });
+
+  it('returns empty string for empty input', () => {
+    expect(stripMarkdownImages('')).toBe('');
+  });
+
+  it('returns unchanged text when no images', () => {
+    expect(stripMarkdownImages('Hello world')).toBe('Hello world');
+  });
+
+  it('strips single image and appends [1 image]', () => {
+    const input = 'See ![screenshot](https://example.com/img.png) here';
+    expect(stripMarkdownImages(input)).toBe('See here [1 image]');
+  });
+
+  it('strips multiple images and appends [N images]', () => {
+    const input = '![a](url1) and ![b](url2) and ![c](url3)';
+    expect(stripMarkdownImages(input)).toContain('[3 images]');
+  });
+
+  it('cleans up extra spaces after stripping', () => {
+    const input = 'Before  ![img](url)  after';
+    const result = stripMarkdownImages(input);
+    expect(result).not.toContain('  '); // No double spaces
+  });
+
+  it('returns just suffix for image-only text', () => {
+    expect(stripMarkdownImages('![only](url)')).toBe('[1 image]');
+  });
+
+  it('handles alt text with special characters (excluding brackets)', () => {
+    const input = '![alt "text" here](url)';
+    // Should handle quotes and other special chars in alt text
+    expect(stripMarkdownImages(input)).toBe('[1 image]');
+  });
+
+  it('does not match images with brackets in alt text (regex limitation)', () => {
+    const input = '![alt [text] here](url)';
+    // Current regex does not support nested brackets in alt text
+    expect(stripMarkdownImages(input)).toBe(input);
+  });
+});
+
+describe('formatPriorityToon', () => {
+  it('formats priority 1 as "p1"', () => {
+    expect(formatPriorityToon(1)).toBe('p1');
+  });
+
+  it('formats priority 0 as "p0"', () => {
+    expect(formatPriorityToon(0)).toBe('p0');
+  });
+
+  it('formats priority 4 as "p4"', () => {
+    expect(formatPriorityToon(4)).toBe('p4');
+  });
+
+  it('returns null for null input', () => {
+    expect(formatPriorityToon(null)).toBeNull();
+  });
+
+  it('returns null for undefined input', () => {
+    expect(formatPriorityToon(undefined)).toBeNull();
+  });
+});
+
+describe('formatEstimateToon', () => {
+  it('formats estimate 5 as "e5"', () => {
+    expect(formatEstimateToon(5)).toBe('e5');
+  });
+
+  it('formats estimate 0 as "e0"', () => {
+    expect(formatEstimateToon(0)).toBe('e0');
+  });
+
+  it('returns null for null input', () => {
+    expect(formatEstimateToon(null)).toBeNull();
+  });
+
+  it('returns null for undefined input', () => {
+    expect(formatEstimateToon(undefined)).toBeNull();
+  });
+});
+
+describe('formatCycleToon', () => {
+  it('formats cycle 5 as "c5"', () => {
+    expect(formatCycleToon(5)).toBe('c5');
+  });
+
+  it('formats cycle 1 as "c1"', () => {
+    expect(formatCycleToon(1)).toBe('c1');
+  });
+
+  it('returns null for null input', () => {
+    expect(formatCycleToon(null)).toBeNull();
+  });
+
+  it('returns null for undefined input', () => {
+    expect(formatCycleToon(undefined)).toBeNull();
   });
 });

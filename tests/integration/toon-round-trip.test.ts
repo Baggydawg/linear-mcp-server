@@ -862,3 +862,312 @@ describe('TOON Edge Cases', () => {
     expect(storedRegistry?.users.size).toBe(registry.users.size);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-Team Short Key Resolution Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('TOON Multi-Team Short Key Resolution', () => {
+  /**
+   * Create multi-team registry build data.
+   * SQT is the default team, SQM is a secondary team.
+   * This mirrors the multi-team setup in registry.test.ts.
+   *
+   * IMPORTANT: State team IDs must match the mock issue team IDs from linear-client.ts
+   * - Mock issues have team.id = 'team-sqt'
+   * - Cross-team state validation is enforced by update_issues
+   */
+  function createMultiTeamBuildData() {
+    return {
+      users: [
+        {
+          id: 'user-alice',
+          createdAt: new Date('2024-01-01'),
+          name: 'Alice',
+          displayName: 'alice',
+          email: 'alice@test.com',
+          active: true,
+        },
+        {
+          id: 'user-bob',
+          createdAt: new Date('2024-01-02'),
+          name: 'Bob',
+          displayName: 'bob',
+          email: 'bob@test.com',
+          active: true,
+        },
+      ],
+      states: [
+        // SQT (default team) states - matches mock issue team 'team-sqt'
+        {
+          id: 'state-sqt-todo',
+          createdAt: new Date('2024-01-01'),
+          name: 'Todo',
+          type: 'unstarted',
+          teamId: 'team-sqt',
+        },
+        {
+          id: 'state-sqt-done',
+          createdAt: new Date('2024-01-02'),
+          name: 'Done',
+          type: 'completed',
+          teamId: 'team-sqt',
+        },
+        // SQM (non-default team) states
+        {
+          id: 'state-sqm-pending',
+          createdAt: new Date('2024-01-03'),
+          name: 'Pending',
+          type: 'unstarted',
+          teamId: 'team-sqm',
+        },
+        {
+          id: 'state-sqm-resolved',
+          createdAt: new Date('2024-01-04'),
+          name: 'Resolved',
+          type: 'completed',
+          teamId: 'team-sqm',
+        },
+      ],
+      projects: [
+        {
+          id: 'project-alpha',
+          createdAt: new Date('2024-01-01'),
+          name: 'Project Alpha',
+          state: 'started',
+        },
+      ],
+      workspaceId: 'multi-team-workspace',
+      teams: [
+        { id: 'team-sqt', key: 'SQT' },
+        { id: 'team-sqm', key: 'SQM' },
+      ],
+      defaultTeamId: 'team-sqt',
+    };
+  }
+
+  afterEach(() => {
+    clearRegistry(SESSION_ID);
+  });
+
+  it('resolves prefixed state key through update_issues handler', async () => {
+    // Build multi-team registry (SQT default, SQM secondary)
+    const registry = buildRegistry(createMultiTeamBuildData());
+    storeRegistry(SESSION_ID, registry);
+
+    // Verify registry setup: sqt:s1 (prefixed default team key) should resolve to SQT's second state
+    const expectedSqtStateId = resolveShortKey(registry, 'state', 'sqt:s1');
+    expect(expectedSqtStateId).toBe('state-sqt-done');
+
+    // Call update_issues with prefixed state key for the default team
+    // Mock issue-001 belongs to team-sqt, so we must use SQT states
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001',
+            state: 'sqt:s1', // SQT team's second state (Done) - explicit prefix
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    // Verify mockClient.updateIssue was called with the correct SQT state UUID
+    expect(mockClient.updateIssue).toHaveBeenCalledWith(
+      'issue-001',
+      expect.objectContaining({
+        stateId: 'state-sqt-done',
+      }),
+    );
+  });
+
+  it('resolves sqt:s0 same as s0 for default team (flexible input)', async () => {
+    // Build multi-team registry
+    const registry = buildRegistry(createMultiTeamBuildData());
+    storeRegistry(SESSION_ID, registry);
+
+    // Both 's0' and 'sqt:s0' should resolve to the same UUID
+    const s0Uuid = resolveShortKey(registry, 'state', 's0');
+    const sqtS0Uuid = resolveShortKey(registry, 'state', 'sqt:s0');
+    expect(s0Uuid).toBe(sqtS0Uuid);
+    expect(s0Uuid).toBe('state-sqt-todo');
+
+    // Call with clean key 's0'
+    await updateIssuesTool.handler(
+      {
+        items: [{ id: 'issue-001', state: 's0' }],
+      },
+      baseContext,
+    );
+
+    // Call with prefixed key 'sqt:s0'
+    await updateIssuesTool.handler(
+      {
+        items: [{ id: 'issue-002', state: 'sqt:s0' }],
+      },
+      baseContext,
+    );
+
+    // Both calls should have the same stateId
+    const calls = mockClient._calls.updateIssue;
+    expect(calls.length).toBe(2);
+    expect(calls[0].input.stateId).toBe('state-sqt-todo');
+    expect(calls[1].input.stateId).toBe('state-sqt-todo');
+    expect(calls[0].input.stateId).toBe(calls[1].input.stateId);
+  });
+
+  it('resolves prefixed user key through create_issues handler', async () => {
+    // Build multi-team registry
+    const registry = buildRegistry(createMultiTeamBuildData());
+    storeRegistry(SESSION_ID, registry);
+
+    // u1 should resolve to Bob
+    const expectedUserId = resolveShortKey(registry, 'user', 'u1');
+    expect(expectedUserId).toBe('user-bob');
+
+    // Users are global, so 'sqt:u1' should normalize to 'u1'
+    const sqtU1Uuid = resolveShortKey(registry, 'user', 'sqt:u1');
+    expect(sqtU1Uuid).toBe('user-bob');
+
+    // Call create_issues with prefixed user key
+    const result = await createIssuesTool.handler(
+      {
+        items: [
+          {
+            teamId: 'team-sqt',
+            title: 'Test issue with prefixed user',
+            assignee: 'sqt:u1', // Should normalize to u1
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    // Verify API called with correct user UUID
+    expect(mockClient.createIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assigneeId: 'user-bob',
+      }),
+    );
+  });
+
+  it('returns helpful error for invalid team prefix', async () => {
+    // Build multi-team registry
+    const registry = buildRegistry(createMultiTeamBuildData());
+    storeRegistry(SESSION_ID, registry);
+
+    // Call with invalid team prefix 'xyz:s0'
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001',
+            state: 'xyz:s0', // Unknown team prefix
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    // Should not throw but report error in results
+    expect(result.isError).toBeFalsy();
+
+    // Verify text output shows the failure with helpful message
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('xyz:s0'); // The invalid key
+    expect(textContent).toContain('fail'); // Indicates failure
+  });
+
+  it('handles cross-team state validation gracefully', async () => {
+    // Build multi-team registry
+    const registry = buildRegistry(createMultiTeamBuildData());
+    storeRegistry(SESSION_ID, registry);
+
+    // Verify the registry resolves the key correctly at the registry level
+    const sqmStateId = resolveShortKey(registry, 'state', 'sqm:s0');
+    expect(sqmStateId).toBe('state-sqm-pending');
+
+    // Try to use SQM state on SQT issue - this should fail validation
+    // because the tool enforces cross-team state validation
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001', // This is an SQT issue in mock data (team-sqt)
+            state: 'sqm:s0', // SQM team's state - cross-team!
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    // The tool should not error at the top level
+    expect(result.isError).toBeFalsy();
+
+    // But the update should fail with a cross-team validation error
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('sqm:s0'); // The key that failed
+    expect(textContent).toContain('fail'); // Indicates failure
+
+    // The updateIssue API should NOT have been called (blocked by validation)
+    expect(mockClient.updateIssue).not.toHaveBeenCalled();
+  });
+
+  it('resolves multiple prefixed keys in batch update for same team', async () => {
+    // Build multi-team registry
+    const registry = buildRegistry(createMultiTeamBuildData());
+    storeRegistry(SESSION_ID, registry);
+
+    // Update multiple issues with SQT states (same team as mock issues)
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          { id: 'issue-001', state: 's0' }, // Clean key (default team SQT)
+          { id: 'issue-002', state: 'sqt:s1' }, // Explicit SQT prefix
+          { id: 'issue-003', state: 's1' }, // Clean key for second state
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    // Verify all calls used correctly resolved UUIDs
+    const calls = mockClient._calls.updateIssue;
+    expect(calls.length).toBe(3);
+    expect(calls[0].input.stateId).toBe('state-sqt-todo'); // s0 -> SQT Todo
+    expect(calls[1].input.stateId).toBe('state-sqt-done'); // sqt:s1 -> SQT Done
+    expect(calls[2].input.stateId).toBe('state-sqt-done'); // s1 -> SQT Done
+  });
+
+  it('handles case-insensitive team prefixes for default team', async () => {
+    // Build multi-team registry
+    const registry = buildRegistry(createMultiTeamBuildData());
+    storeRegistry(SESSION_ID, registry);
+
+    // Test with different case variations for the default team (SQT)
+    // Since mock issues belong to team-sqt, we must use SQT states
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          { id: 'issue-001', state: 'SQT:s0' }, // Uppercase prefix
+          { id: 'issue-002', state: 'Sqt:s1' }, // Mixed case prefix
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    // Both should resolve to SQT states
+    const calls = mockClient._calls.updateIssue;
+    expect(calls.length).toBe(2);
+    expect(calls[0].input.stateId).toBe('state-sqt-todo');
+    expect(calls[1].input.stateId).toBe('state-sqt-done');
+  });
+});
