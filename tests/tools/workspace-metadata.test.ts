@@ -141,11 +141,10 @@ describe('workspace_metadata handler', () => {
     const result = await workspaceMetadataTool.handler({}, baseContext);
     const text = result.content[0].text;
 
-    // Should include both teams from mock
-    expect(text).toContain('ENG');
-    expect(text).toContain('Engineering');
-    expect(text).toContain('DES');
-    expect(text).toContain('Design');
+    // Should include teams from mock - SQT is the primary team
+    // Note: When DEFAULT_TEAM is set, only that team is shown
+    expect(text).toContain('SQT');
+    expect(text).toContain('Squad Testing');
   });
 
   it('includes all users in TOON output (Tier 1)', async () => {

@@ -32,64 +32,52 @@ vi.mock('../../src/services/linear/client.js', () => ({
   getLinearClient: vi.fn(() => Promise.resolve(mockClient)),
 }));
 
-// Mock the config module to ensure DEFAULT_TEAM is not set in tests
-vi.mock('../../src/config/env.js', () => ({
-  config: {
-    HOST: '127.0.0.1',
-    PORT: 3000,
-    NODE_ENV: 'test',
-    AUTH_STRATEGY: 'bearer',
-    LINEAR_ACCESS_TOKEN: 'test-token-xxx',
-    DEFAULT_TEAM: undefined,
-  },
-}));
-
-// Mock cycles for testing
+// Mock cycles for testing (using SQT as primary team)
 const mockCycles = [
   {
-    id: 'cycle-001',
+    id: 'cycle-sqt-001',
     number: 1,
     name: 'Sprint 1',
     startsAt: '2026-01-05T00:00:00Z',
     endsAt: '2026-01-18T23:59:59Z',
     progress: 1.0,
-    team: { id: 'team-eng' },
+    team: { id: 'team-sqt' },
   },
   {
-    id: 'cycle-002',
+    id: 'cycle-sqt-002',
     number: 2,
     name: 'Sprint 2',
     startsAt: '2026-01-19T00:00:00Z',
     endsAt: '2026-02-01T23:59:59Z',
     progress: 0.5,
-    team: { id: 'team-eng' },
+    team: { id: 'team-sqt' },
   },
   {
-    id: 'cycle-003',
+    id: 'cycle-sqt-003',
     number: 3,
     name: 'Sprint 3',
     startsAt: '2026-02-02T00:00:00Z',
     endsAt: '2026-02-15T23:59:59Z',
     progress: 0,
-    team: { id: 'team-eng' },
+    team: { id: 'team-sqt' },
   },
 ];
 
-// Mock issues for sprint context
+// Mock issues for sprint context (using SQT as primary team)
 const mockSprintIssues = [
   {
     id: 'issue-sprint-1',
-    identifier: 'ENG-201',
+    identifier: 'SQT-201',
     title: 'Implement authentication',
     description: 'Add OAuth2 authentication flow',
     priority: 1, // Urgent
     estimate: null, // Missing estimate - gap
     updatedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(), // 10 days ago - stale
-    state: { id: 'state-eng-todo', name: 'Todo', type: 'unstarted' },
+    state: { id: 'state-sqt-todo', name: 'Todo', type: 'unstarted' },
     project: { id: 'project-001', name: 'Q1 Release' },
     assignee: { id: 'user-001', name: 'Test User' },
     parent: null,
-    labels: { nodes: [{ id: 'label-bug', name: 'Bug' }] },
+    labels: { nodes: [{ id: 'label-sqt-bug', name: 'Bug' }] },
     comments: {
       nodes: [
         {
@@ -104,13 +92,13 @@ const mockSprintIssues = [
   },
   {
     id: 'issue-sprint-2',
-    identifier: 'ENG-202',
+    identifier: 'SQT-202',
     title: 'Fix database connection',
     description: 'Connection pool exhaustion issue',
     priority: 2,
     estimate: 3,
     updatedAt: new Date().toISOString(), // Recent
-    state: { id: 'state-eng-inprogress', name: 'In Progress', type: 'started' },
+    state: { id: 'state-sqt-inprogress', name: 'In Progress', type: 'started' },
     project: { id: 'project-001', name: 'Q1 Release' },
     assignee: { id: 'user-002', name: 'Jane Doe' },
     parent: null,
@@ -121,20 +109,20 @@ const mockSprintIssues = [
         {
           id: 'rel-001',
           type: 'blocks',
-          relatedIssue: { identifier: 'ENG-203' },
+          relatedIssue: { identifier: 'SQT-203' },
         },
       ],
     },
   },
   {
     id: 'issue-sprint-3',
-    identifier: 'ENG-203',
+    identifier: 'SQT-203',
     title: 'Deploy to production',
     description: 'Final deployment',
     priority: 2,
     estimate: null, // Missing estimate
     updatedAt: new Date().toISOString(),
-    state: { id: 'state-eng-todo', name: 'Todo', type: 'unstarted' },
+    state: { id: 'state-sqt-todo', name: 'Todo', type: 'unstarted' },
     project: null, // No project
     assignee: null, // No assignee - gap
     parent: null,
@@ -144,13 +132,13 @@ const mockSprintIssues = [
   },
   {
     id: 'issue-sprint-4',
-    identifier: 'ENG-204',
+    identifier: 'SQT-204',
     title: 'Completed task',
     description: 'Already done',
     priority: 3,
     estimate: 2,
     updatedAt: new Date().toISOString(),
-    state: { id: 'state-eng-done', name: 'Done', type: 'completed' },
+    state: { id: 'state-sqt-done', name: 'Done', type: 'completed' },
     project: { id: 'project-001', name: 'Q1 Release' },
     assignee: { id: 'user-001', name: 'Test User' },
     parent: null,
@@ -167,7 +155,7 @@ beforeEach(() => {
     cycles: mockCycles,
   });
 
-  // Override rawRequest for sprint context queries
+  // Override rawRequest for sprint context queries (using SQT as primary team)
   mockClient.client.rawRequest = vi.fn(
     async (query: string, variables?: Record<string, unknown>) => {
       // Handle GetTeamCycles query
@@ -175,11 +163,11 @@ beforeEach(() => {
         return {
           data: {
             team: {
-              id: 'team-eng',
-              key: 'ENG',
-              name: 'Engineering',
+              id: 'team-sqt',
+              key: 'SQT',
+              name: 'Squad Testing',
               cycles: { nodes: mockCycles },
-              activeCycle: { id: 'cycle-002', number: 2 },
+              activeCycle: { id: 'cycle-sqt-002', number: 2 },
             },
           },
         };
@@ -197,9 +185,9 @@ beforeEach(() => {
         return {
           data: {
             team: {
-              id: 'team-eng',
-              key: 'ENG',
-              name: 'Engineering',
+              id: 'team-sqt',
+              key: 'SQT',
+              name: 'Squad Testing',
               cycles: {
                 nodes: [
                   {
@@ -208,7 +196,7 @@ beforeEach(() => {
                   },
                 ],
               },
-              activeCycle: { id: 'cycle-002', number: 2 },
+              activeCycle: { id: 'cycle-sqt-002', number: 2 },
             },
           },
         };
@@ -394,8 +382,8 @@ describe('get_sprint_context handler', () => {
 
     // Should detect issues without estimates
     expect(textContent).toContain('no_estimate');
-    expect(textContent).toContain('ENG-201'); // Has no estimate
-    expect(textContent).toContain('ENG-203'); // Has no estimate
+    expect(textContent).toContain('SQT-201'); // Has no estimate
+    expect(textContent).toContain('SQT-203'); // Has no estimate
   });
 
   it('detects no_assignee gap', async () => {
@@ -406,7 +394,7 @@ describe('get_sprint_context handler', () => {
 
     // Should detect unassigned issues (excluding completed)
     expect(textContent).toContain('no_assignee');
-    expect(textContent).toContain('ENG-203'); // No assignee, not completed
+    expect(textContent).toContain('SQT-203'); // No assignee, not completed
   });
 
   it('detects stale gap (7+ days old)', async () => {
@@ -417,7 +405,7 @@ describe('get_sprint_context handler', () => {
 
     // Should detect stale issues
     expect(textContent).toContain('stale');
-    expect(textContent).toContain('ENG-201'); // 10 days since update
+    expect(textContent).toContain('SQT-201'); // 10 days since update
   });
 
   it('detects blocked gap', async () => {
@@ -428,7 +416,7 @@ describe('get_sprint_context handler', () => {
 
     // Should detect blocked issues
     expect(textContent).toContain('blocked');
-    expect(textContent).toContain('ENG-203'); // Blocked by ENG-202
+    expect(textContent).toContain('SQT-203'); // Blocked by SQT-202
   });
 
   it('detects priority_mismatch gap (urgent not started)', async () => {
@@ -439,7 +427,7 @@ describe('get_sprint_context handler', () => {
 
     // Should detect priority mismatch
     expect(textContent).toContain('priority_mismatch');
-    expect(textContent).toContain('ENG-201'); // Priority 1, state = unstarted
+    expect(textContent).toContain('SQT-201'); // Priority 1, state = unstarted
   });
 
   it('uses first team when team not specified', async () => {
@@ -447,9 +435,9 @@ describe('get_sprint_context handler', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // Should use first team (ENG) - verify in text content
+    // Should use first team (SQT) - verify in text content
     const textContent = result.content[0].text;
-    expect(textContent).toContain('ENG');
+    expect(textContent).toContain('SQT');
   });
 
   it('handles specific cycle number', async () => {
@@ -541,11 +529,11 @@ describe('get_sprint_context cycle navigation', () => {
         return {
           data: {
             team: {
-              id: 'team-eng',
-              key: 'ENG',
-              name: 'Engineering',
+              id: 'team-sqt',
+              key: 'SQT',
+              name: 'Squad Testing',
               cycles: { nodes: mockCycles },
-              activeCycle: { id: 'cycle-003', number: 3 }, // Last cycle is active
+              activeCycle: { id: 'cycle-sqt-003', number: 3 }, // Last cycle is active
             },
           },
         };
@@ -568,11 +556,11 @@ describe('get_sprint_context cycle navigation', () => {
         return {
           data: {
             team: {
-              id: 'team-eng',
-              key: 'ENG',
-              name: 'Engineering',
+              id: 'team-sqt',
+              key: 'SQT',
+              name: 'Squad Testing',
               cycles: { nodes: mockCycles },
-              activeCycle: { id: 'cycle-001', number: 1 }, // First cycle is active
+              activeCycle: { id: 'cycle-sqt-001', number: 1 }, // First cycle is active
             },
           },
         };

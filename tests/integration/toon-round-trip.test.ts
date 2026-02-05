@@ -732,7 +732,7 @@ describe('TOON Multi-Tool Workflow', () => {
     // TOON format should show the issue in text content
     const verifyText = verifyResult.content[0].text;
     expect(verifyText).toContain('issues[');
-    expect(verifyText).toContain('ENG-123');
+    expect(verifyText).toContain('SQT-123');
   });
 
   it('simulates bulk create workflow with short keys', async () => {

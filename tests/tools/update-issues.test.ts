@@ -262,14 +262,14 @@ describe('update_issues label operations', () => {
       const labelIds = labelUpdateCall.input.labelIds as string[];
       // Should include the added label
       expect(labelIds).toContain('label-feature');
-      // Should retain existing labels (issue-001 has label-bug)
-      expect(labelIds).toContain('label-bug');
+      // Should retain existing labels (issue-001 has label-sqt-bug)
+      expect(labelIds).toContain('label-sqt-bug');
     }
   });
 
   it('removes labels with removeLabelIds (computes final labelIds)', async () => {
     const result = await updateIssuesTool.handler(
-      { items: [{ id: 'issue-001', removeLabelIds: ['label-bug'] }] },
+      { items: [{ id: 'issue-001', removeLabelIds: ['label-sqt-bug'] }] },
       baseContext,
     );
 
@@ -287,7 +287,7 @@ describe('update_issues label operations', () => {
     if (labelUpdateCall) {
       const labelIds = labelUpdateCall.input.labelIds as string[];
       // Should NOT include the removed label
-      expect(labelIds).not.toContain('label-bug');
+      expect(labelIds).not.toContain('label-sqt-bug');
     }
   });
 });

@@ -120,7 +120,7 @@ describe('get_issues handler', () => {
     // TOON format returns issue details in text content
     const textContent = result.content[0].text;
     expect(textContent).toContain('issues[');
-    expect(textContent).toContain('ENG-123'); // issue identifier
+    expect(textContent).toContain('SQT-123'); // issue identifier
     expect(textContent).toContain('Fix authentication bug'); // issue title
   });
 

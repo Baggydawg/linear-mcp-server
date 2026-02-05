@@ -162,7 +162,24 @@ export const defaultMockViewer: MockViewer = {
   createdAt: new Date('2024-01-01T00:00:00Z'),
 };
 
-// ENG team states (used by issue-001, etc.)
+// SQT team states (primary team - matches production DEFAULT_TEAM=SQT)
+export const defaultMockStatesSqt: MockWorkflowState[] = [
+  { id: 'state-sqt-backlog', name: 'Backlog', type: 'backlog' },
+  { id: 'state-sqt-todo', name: 'Todo', type: 'unstarted' },
+  { id: 'state-sqt-inprogress', name: 'In Progress', type: 'started' },
+  { id: 'state-sqt-inreview', name: 'In Review', type: 'started' },
+  { id: 'state-sqt-done', name: 'Done', type: 'completed' },
+  { id: 'state-sqt-canceled', name: 'Canceled', type: 'canceled' },
+];
+
+// SQT team labels (primary team)
+export const defaultMockLabelsSqt: MockLabel[] = [
+  { id: 'label-sqt-bug', name: 'Bug', color: '#ff0000' },
+  { id: 'label-sqt-feature', name: 'Feature', color: '#00ff00' },
+  { id: 'label-sqt-docs', name: 'Documentation', color: '#0000ff' },
+];
+
+// ENG team states (secondary team for cross-team testing)
 export const defaultMockStatesEng: MockWorkflowState[] = [
   { id: 'state-eng-backlog', name: 'Backlog', type: 'backlog' },
   { id: 'state-eng-todo', name: 'Todo', type: 'unstarted' },
@@ -194,13 +211,18 @@ export const defaultMockLabelsSqm: MockLabel[] = [
 ];
 
 // Legacy export for backward compatibility with tests that don't care about team isolation
-export const defaultMockStates = defaultMockStatesEng;
+// Now points to SQT as the primary team
+export const defaultMockStates = defaultMockStatesSqt;
 
-export const defaultMockLabels: MockLabel[] = [
-  { id: 'label-bug', name: 'Bug', color: '#ff0000' },
-  { id: 'label-feature', name: 'Feature', color: '#00ff00' },
-  { id: 'label-docs', name: 'Documentation', color: '#0000ff' },
+// ENG team labels (secondary team)
+export const defaultMockLabelsEng: MockLabel[] = [
+  { id: 'label-eng-bug', name: 'Bug', color: '#ff0000' },
+  { id: 'label-eng-feature', name: 'Feature', color: '#00ff00' },
+  { id: 'label-eng-docs', name: 'Documentation', color: '#0000ff' },
 ];
+
+// Legacy export - now uses SQT labels as the primary team labels
+export const defaultMockLabels = defaultMockLabelsSqt;
 
 export const defaultMockProjects: MockProject[] = [
   {
@@ -209,7 +231,7 @@ export const defaultMockProjects: MockProject[] = [
     state: 'started',
     lead: { id: 'user-001' },
     leadId: 'user-001',
-    teamId: 'team-eng',
+    teamId: 'team-sqt',
     targetDate: '2025-03-31',
     createdAt: new Date('2024-12-01T00:00:00Z'),
   },
@@ -218,11 +240,42 @@ export const defaultMockProjects: MockProject[] = [
     name: 'Infrastructure',
     state: 'planned',
     leadId: 'user-002',
+    teamId: 'team-eng',
     createdAt: new Date('2024-11-01T00:00:00Z'),
   },
 ];
 
 export const defaultMockTeams: MockTeam[] = [
+  // SQT is the primary team (matches production DEFAULT_TEAM=SQT)
+  {
+    id: 'team-sqt',
+    key: 'SQT',
+    name: 'Squad Testing',
+    description: 'Primary testing and development team',
+    defaultIssueEstimate: 2,
+    cyclesEnabled: true,
+    issueEstimationAllowZero: false,
+    issueEstimationType: 'fibonacci',
+    states: () => Promise.resolve({ nodes: defaultMockStatesSqt }),
+    labels: () => Promise.resolve({ nodes: defaultMockLabelsSqt }),
+    projects: () =>
+      Promise.resolve({
+        nodes: defaultMockProjects.filter((p) => p.teamId === 'team-sqt'),
+      }),
+    cycles: (args) => {
+      const limit = args?.first ?? defaultMockCycles.length;
+      const cyclesForTeam = defaultMockCycles.filter((c) => c.team.id === 'team-sqt');
+      return Promise.resolve({
+        nodes: cyclesForTeam.slice(0, limit),
+        pageInfo: {
+          hasNextPage: cyclesForTeam.length > limit,
+          endCursor: cyclesForTeam.length > limit ? 'cycle-cursor' : undefined,
+        },
+      });
+    },
+    members: () => Promise.resolve({ nodes: defaultMockUsers }),
+  },
+  // Secondary teams for cross-team testing
   {
     id: 'team-eng',
     key: 'ENG',
@@ -233,8 +286,11 @@ export const defaultMockTeams: MockTeam[] = [
     issueEstimationAllowZero: false,
     issueEstimationType: 'fibonacci',
     states: () => Promise.resolve({ nodes: defaultMockStatesEng }),
-    labels: () => Promise.resolve({ nodes: defaultMockLabels }),
-    projects: () => Promise.resolve({ nodes: defaultMockProjects }),
+    labels: () => Promise.resolve({ nodes: defaultMockLabelsEng }),
+    projects: () =>
+      Promise.resolve({
+        nodes: defaultMockProjects.filter((p) => p.teamId === 'team-eng'),
+      }),
     cycles: (args) => {
       const limit = args?.first ?? defaultMockCycles.length;
       const cyclesForTeam = defaultMockCycles.filter((c) => c.team.id === 'team-eng');
@@ -279,7 +335,7 @@ export const defaultMockComments: MockComment[] = [
   {
     id: 'comment-001',
     body: 'This looks good, approved!',
-    url: 'https://linear.app/team/issue/ENG-123/comment-001',
+    url: 'https://linear.app/team/issue/SQT-123/comment-001',
     createdAt: new Date('2024-12-15T10:00:00Z'),
     updatedAt: new Date('2024-12-15T10:00:00Z'),
     user: { id: 'user-002', name: 'Jane Doe' },
@@ -293,25 +349,27 @@ export const defaultMockComments: MockComment[] = [
 ];
 
 export const defaultMockIssues: MockIssue[] = [
+  // SQT issues (primary team)
   {
     id: 'issue-001',
-    identifier: 'ENG-123',
+    identifier: 'SQT-123',
     title: 'Fix authentication bug',
     description: 'Users are being logged out unexpectedly',
     priority: 1,
     estimate: 3,
     createdAt: new Date('2024-12-10T10:00:00Z'),
     updatedAt: new Date('2024-12-15T14:30:00Z'),
-    url: 'https://linear.app/team/issue/ENG-123',
+    url: 'https://linear.app/team/issue/SQT-123',
     branchName: 'fix/auth-bug',
     state: Promise.resolve({
-      id: 'state-eng-inprogress',
+      id: 'state-sqt-inprogress',
       name: 'In Progress',
       type: 'started',
     }),
     project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
     assignee: Promise.resolve({ id: 'user-001', name: 'Test User' }),
-    labels: () => Promise.resolve({ nodes: [{ id: 'label-bug', name: 'Bug' }] }),
+    labels: () =>
+      Promise.resolve({ nodes: [{ id: 'label-sqt-bug', name: 'Bug' }] }),
     attachments: () => Promise.resolve({ nodes: [] }),
     comments: (args) =>
       Promise.resolve({
@@ -324,63 +382,89 @@ export const defaultMockIssues: MockIssue[] = [
           {
             id: 'relation-001',
             type: 'blocks',
-            relatedIssue: { identifier: 'ENG-124' },
+            relatedIssue: { identifier: 'SQT-124' },
           },
         ],
       }),
     cycle: { number: 5 },
-    team: { id: 'team-eng' },
+    team: { id: 'team-sqt' },
   },
   {
     id: 'issue-002',
-    identifier: 'ENG-124',
+    identifier: 'SQT-124',
     title: 'Add dark mode support',
     description: 'Implement dark mode toggle in settings',
     priority: 2,
     createdAt: new Date('2024-12-11T09:00:00Z'),
     updatedAt: new Date('2024-12-14T11:00:00Z'),
-    url: 'https://linear.app/team/issue/ENG-124',
-    state: Promise.resolve({ id: 'state-eng-todo', name: 'Todo', type: 'unstarted' }),
+    url: 'https://linear.app/team/issue/SQT-124',
+    state: Promise.resolve({ id: 'state-sqt-todo', name: 'Todo', type: 'unstarted' }),
     project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
     assignee: Promise.resolve(null),
     labels: () =>
-      Promise.resolve({ nodes: [{ id: 'label-feature', name: 'Feature' }] }),
+      Promise.resolve({ nodes: [{ id: 'label-sqt-feature', name: 'Feature' }] }),
     attachments: () => Promise.resolve({ nodes: [] }),
     comments: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
-    parent: { identifier: 'ENG-100' },
-    team: { id: 'team-eng' },
+    parent: { identifier: 'SQT-100' },
+    team: { id: 'team-sqt' },
   },
   {
     id: 'issue-003',
-    identifier: 'ENG-125',
+    identifier: 'SQT-125',
     title: 'Update API documentation',
     priority: 3,
     createdAt: new Date('2024-12-12T08:00:00Z'),
     updatedAt: new Date('2024-12-12T08:00:00Z'),
-    state: Promise.resolve({ id: 'state-eng-backlog', name: 'Backlog', type: 'backlog' }),
+    state: Promise.resolve({
+      id: 'state-sqt-backlog',
+      name: 'Backlog',
+      type: 'backlog',
+    }),
     project: Promise.resolve(null),
     assignee: Promise.resolve(null),
     labels: () =>
-      Promise.resolve({ nodes: [{ id: 'label-docs', name: 'Documentation' }] }),
+      Promise.resolve({ nodes: [{ id: 'label-sqt-docs', name: 'Documentation' }] }),
     attachments: () => Promise.resolve({ nodes: [] }),
     comments: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
-    team: { id: 'team-eng' },
+    team: { id: 'team-sqt' },
   },
   {
     id: 'issue-004',
-    identifier: 'ENG-126',
+    identifier: 'SQT-126',
     title: 'Fix login page styling',
     priority: 2,
     createdAt: new Date('2024-12-01T08:00:00Z'),
     updatedAt: new Date('2024-12-10T16:00:00Z'),
-    state: Promise.resolve({ id: 'state-eng-done', name: 'Done', type: 'completed' }),
+    state: Promise.resolve({ id: 'state-sqt-done', name: 'Done', type: 'completed' }),
     project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
     assignee: Promise.resolve({ id: 'user-002', name: 'Jane Doe' }),
-    labels: () => Promise.resolve({ nodes: [{ id: 'label-bug', name: 'Bug' }] }),
+    labels: () =>
+      Promise.resolve({ nodes: [{ id: 'label-sqt-bug', name: 'Bug' }] }),
     attachments: () => Promise.resolve({ nodes: [] }),
     comments: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
-    team: { id: 'team-eng' },
+    team: { id: 'team-sqt' },
   },
+  {
+    id: 'issue-006',
+    identifier: 'SQT-127',
+    title: 'Deprecated feature removal',
+    priority: 4,
+    createdAt: new Date('2024-11-15T08:00:00Z'),
+    updatedAt: new Date('2024-12-01T12:00:00Z'),
+    state: Promise.resolve({
+      id: 'state-sqt-canceled',
+      name: 'Canceled',
+      type: 'canceled',
+    }),
+    project: Promise.resolve(null),
+    assignee: Promise.resolve({ id: 'user-001', name: 'Test User' }),
+    labels: () =>
+      Promise.resolve({ nodes: [{ id: 'label-sqt-feature', name: 'Feature' }] }),
+    attachments: () => Promise.resolve({ nodes: [] }),
+    comments: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
+    team: { id: 'team-sqt' },
+  },
+  // ENG issue (secondary team for cross-team testing)
   {
     id: 'issue-005',
     identifier: 'ENG-127',
@@ -389,17 +473,17 @@ export const defaultMockIssues: MockIssue[] = [
     createdAt: new Date('2024-11-20T08:00:00Z'),
     updatedAt: new Date('2024-12-05T12:00:00Z'),
     state: Promise.resolve({
-      id: 'state-des-canceled',
-      name: 'Cancelled',
+      id: 'state-eng-canceled',
+      name: 'Canceled',
       type: 'canceled',
     }),
     project: Promise.resolve({ id: 'project-002', name: 'Infrastructure' }),
     assignee: Promise.resolve({ id: 'user-001', name: 'Test User' }),
     labels: () =>
-      Promise.resolve({ nodes: [{ id: 'label-feature', name: 'Feature' }] }),
+      Promise.resolve({ nodes: [{ id: 'label-eng-feature', name: 'Feature' }] }),
     attachments: () => Promise.resolve({ nodes: [] }),
     comments: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
-    team: { id: 'team-design' },
+    team: { id: 'team-eng' },
   },
 ];
 
@@ -415,8 +499,26 @@ export const defaultMockUsers: MockUser[] = [
 ];
 
 export const defaultMockCycles: MockCycle[] = [
+  // SQT cycles (primary team)
   {
-    id: 'cycle-001',
+    id: 'cycle-sqt-001',
+    name: 'Sprint 1',
+    number: 1,
+    startsAt: new Date('2024-12-09T00:00:00Z'),
+    endsAt: new Date('2024-12-22T23:59:59Z'),
+    team: { id: 'team-sqt' },
+  },
+  {
+    id: 'cycle-sqt-002',
+    name: 'Sprint 2',
+    number: 2,
+    startsAt: new Date('2024-12-23T00:00:00Z'),
+    endsAt: new Date('2025-01-05T23:59:59Z'),
+    team: { id: 'team-sqt' },
+  },
+  // ENG cycles (secondary team)
+  {
+    id: 'cycle-eng-001',
     name: 'Sprint 1',
     number: 1,
     startsAt: new Date('2024-12-09T00:00:00Z'),
@@ -424,7 +526,7 @@ export const defaultMockCycles: MockCycle[] = [
     team: { id: 'team-eng' },
   },
   {
-    id: 'cycle-002',
+    id: 'cycle-eng-002',
     name: 'Sprint 2',
     number: 2,
     startsAt: new Date('2024-12-23T00:00:00Z'),

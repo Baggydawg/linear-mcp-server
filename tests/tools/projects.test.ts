@@ -70,10 +70,10 @@ describe('list_projects tool', () => {
 
       expect(result.isError).toBeFalsy();
 
-      // Verify filter was passed to API
+      // Verify filter was passed to API (includes default team filter when DEFAULT_TEAM is set)
       expect(mockClient.projects).toHaveBeenCalledWith(
         expect.objectContaining({
-          filter: { state: { eq: 'started' } },
+          filter: expect.objectContaining({ state: { eq: 'started' } }),
         }),
       );
     });
@@ -86,10 +86,10 @@ describe('list_projects tool', () => {
 
       expect(result.isError).toBeFalsy();
 
-      // Verify filter and limit were passed
+      // Verify filter and limit were passed (includes default team filter when DEFAULT_TEAM is set)
       expect(mockClient.projects).toHaveBeenCalledWith(
         expect.objectContaining({
-          filter: { id: { eq: 'project-001' } },
+          filter: expect.objectContaining({ id: { eq: 'project-001' } }),
           first: 1,
         }),
       );
@@ -391,10 +391,10 @@ describe('projects common workflows', () => {
 
     expect(result.isError).toBeFalsy();
 
-    // Verify filter was applied
+    // Verify filter was applied (includes default team filter when DEFAULT_TEAM is set)
     expect(mockClient.projects).toHaveBeenCalledWith(
       expect.objectContaining({
-        filter: { state: { in: ['started', 'planned'] } },
+        filter: expect.objectContaining({ state: { in: ['started', 'planned'] } }),
       }),
     );
   });

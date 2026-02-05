@@ -49,13 +49,13 @@ beforeEach(() => {
 function generateManyIssues(count: number): MockIssue[] {
   return Array.from({ length: count }, (_, i) => ({
     id: `issue-${String(i + 1).padStart(3, '0')}`,
-    identifier: `ENG-${100 + i}`,
+    identifier: `SQT-${100 + i}`,
     title: `Issue ${i + 1}`,
     priority: (i % 4) + 1,
     createdAt: new Date(Date.now() - i * 24 * 60 * 60 * 1000),
     updatedAt: new Date(Date.now() - i * 12 * 60 * 60 * 1000),
     state: Promise.resolve({
-      id: i % 3 === 0 ? 'state-done' : 'state-inprogress',
+      id: i % 3 === 0 ? 'state-sqt-done' : 'state-sqt-inprogress',
       name: i % 3 === 0 ? 'Done' : 'In Progress',
       type: i % 3 === 0 ? 'completed' : 'started',
     }),
@@ -63,6 +63,7 @@ function generateManyIssues(count: number): MockIssue[] {
     assignee: Promise.resolve({ id: 'user-001', name: 'Test User' }),
     labels: () => Promise.resolve({ nodes: [] }),
     attachments: () => Promise.resolve({ nodes: [] }),
+    team: { id: 'team-sqt' },
   }));
 }
 
