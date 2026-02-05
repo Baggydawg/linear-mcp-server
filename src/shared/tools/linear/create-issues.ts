@@ -135,7 +135,6 @@ const IssueCreateItem = z.object({
 const InputSchema = z.object({
   items: z.array(IssueCreateItem).min(1).max(50).describe('Issues to create.'),
   parallel: z.boolean().optional().describe('Run in parallel. Default: sequential.'),
-  dry_run: z.boolean().optional().describe('If true, validate but do not create.'),
 });
 
 export const createIssuesTool = defineTool({
@@ -149,30 +148,6 @@ export const createIssuesTool = defineTool({
   },
 
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
-    // Handle dry_run mode
-    if (args.dry_run) {
-      const validated = args.items.map((it, index) => ({
-        index,
-        ok: true,
-        title: it.title,
-        teamId: it.teamId,
-        validated: true,
-      }));
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Dry run: ${args.items.length} issue(s) validated successfully. No changes made.`,
-          },
-        ],
-        structuredContent: {
-          results: validated,
-          summary: { ok: args.items.length, failed: 0 },
-          dry_run: true,
-        },
-      };
-    }
-
     const client = await getLinearClient(context);
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
     const { items } = args;

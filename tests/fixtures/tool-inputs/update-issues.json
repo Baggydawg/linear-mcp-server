@@ -116,14 +116,6 @@
         "items": [{ "id": "ENG-123", "stateId": "state-done" }]
       },
       "description": "Update using short identifier (ENG-123)"
-    },
-    {
-      "name": "dry_run",
-      "input": {
-        "items": [{ "id": "issue-001", "title": "Dry run" }],
-        "dry_run": true
-      },
-      "description": "Dry run does not update issues"
     }
   ],
   "invalid": [

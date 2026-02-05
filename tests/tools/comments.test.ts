@@ -206,15 +206,6 @@ describe('add_comments tool', () => {
       expect(result.success).toBe(true);
     });
 
-    it('ignores unknown keys like dry_run (passthrough schema)', () => {
-      // add_comments schema doesn't use strict() so extra keys are ignored
-      const result = addCommentsTool.inputSchema.safeParse({
-        items: [{ issueId: 'issue-001', body: 'Test' }],
-        dry_run: true,
-      });
-      expect(result.success).toBe(true);
-    });
-
     it('accepts parallel option', () => {
       const result = addCommentsTool.inputSchema.safeParse({
         items: [{ issueId: 'issue-001', body: 'Test' }],
@@ -269,21 +260,6 @@ describe('add_comments tool', () => {
 
       expect(result.isError).toBeFalsy();
       expect(mockClient.createComment).toHaveBeenCalledTimes(3);
-    });
-
-    it('creates comment without dry_run option (not supported)', async () => {
-      // add_comments doesn't support dry_run
-      const result = await addCommentsTool.handler(
-        {
-          items: [{ issueId: 'issue-001', body: 'Real comment' }],
-        },
-        baseContext,
-      );
-
-      expect(result.isError).toBeFalsy();
-
-      // Verify createComment WAS called
-      expect(mockClient.createComment).toHaveBeenCalled();
     });
 
     it('returns TOON output for comment adds', async () => {

@@ -23,8 +23,8 @@ This document outlines all Linear MCP tools, their functionality, and testing wo
 |------|---------|----------------|
 | `list_issues` | Query issues with filtering | `teamId`, `projectId`, `filter{}`, `q`, `keywords[]`, `matchMode`, `assignedToMe`, `includeArchived`, `orderBy`, `detail`, `limit`, `cursor` |
 | `get_issues` | Fetch specific issues by ID | `ids[]` (UUIDs or identifiers like SQT-123) |
-| `create_issues` | Create new issues | `items[{teamId, title, description, stateId/stateName/stateType, assigneeId/assigneeName, projectId/projectName, labelIds/labelNames, priority, estimate, dueDate, parentId, allowZeroEstimate}]`, `parallel`, `dry_run` |
-| `update_issues` | Modify existing issues | `items[{id, title, description, stateId/stateName/stateType, assigneeId/assigneeName, projectId/projectName, labelIds/labelNames, addLabelIds/addLabelNames, removeLabelIds/removeLabelNames, priority, estimate, dueDate, parentId, archived, cycle, allowZeroEstimate}]`, `parallel`, `dry_run` |
+| `create_issues` | Create new issues | `items[{teamId, title, description, stateId/stateName/stateType, assigneeId/assigneeName, projectId/projectName, labelIds/labelNames, priority, estimate, dueDate, parentId, allowZeroEstimate}]`, `parallel` |
+| `update_issues` | Modify existing issues | `items[{id, title, description, stateId/stateName/stateType, assigneeId/assigneeName, projectId/projectName, labelIds/labelNames, addLabelIds/addLabelNames, removeLabelIds/removeLabelNames, priority, estimate, dueDate, parentId, archived, cycle, allowZeroEstimate}]`, `parallel` |
 | `get_sprint_context` | Full sprint data with gap analysis | `team`, `cycle`, `includeComments`, `includeRelations` |
 
 ### Tier 3: Comments
@@ -32,7 +32,7 @@ This document outlines all Linear MCP tools, their functionality, and testing wo
 | Tool | Purpose | Key Parameters |
 |------|---------|----------------|
 | `list_comments` | Get comments on an issue | `issueId`, `limit`, `cursor` |
-| `add_comments` | Add comments to issues | `items[{issueId, body}]`, `parallel`, `dry_run` |
+| `add_comments` | Add comments to issues | `items[{issueId, body}]`, `parallel` |
 | `update_comments` | Edit existing comments | `items[{id, body}]` |
 
 ### Tier 4: Cycles
@@ -195,7 +195,6 @@ This document outlines all Linear MCP tools, their functionality, and testing wo
 | With dueDate | `create_issues({ items: [{ teamId: "SQT", title: "Test", dueDate: "2026-03-01" }] })` | Due date set |
 | Subtask | `create_issues({ items: [{ teamId: "SQT", title: "Subtask", parentId: "SQT-123" }] })` | Created as child |
 | Cross-team | `create_issues({ items: [{ teamId: "SQM", title: "Test", state: "sqm:s0" }] })` | Created in SQM |
-| Dry run | `create_issues({ items: [...], dry_run: true })` | Validates without creating |
 | Batch | `create_issues({ items: [{...}, {...}], parallel: true })` | Multiple created |
 
 ### update_issues Tests
@@ -220,7 +219,6 @@ This document outlines all Linear MCP tools, their functionality, and testing wo
 | Unarchive | `update_issues({ items: [{ id: "SQT-123", archived: false }] })` | Issue restored |
 | Cross-team update | `update_issues({ items: [{ id: "SQM-123", state: "sqm:s1" }] })` | Works with prefix |
 | Cross-team validation | `update_issues({ items: [{ id: "SQT-123", state: "sqm:s0" }] })` | FAILS with helpful error |
-| Dry run | `update_issues({ items: [...], dry_run: true })` | Validates without updating |
 | Batch | `update_issues({ items: [{...}, {...}] })` | Multiple updated |
 
 ### get_sprint_context Tests

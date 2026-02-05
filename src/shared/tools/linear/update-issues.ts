@@ -162,7 +162,6 @@ const InputSchema = z.object({
     .max(50)
     .describe('Issues to update. Batch up to 50.'),
   parallel: z.boolean().optional().describe('Run in parallel. Default: sequential.'),
-  dry_run: z.boolean().optional().describe('If true, validate but do not update.'),
 });
 
 export const updateIssuesTool = defineTool({
@@ -176,29 +175,6 @@ export const updateIssuesTool = defineTool({
   },
 
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
-    // Handle dry_run mode
-    if (args.dry_run) {
-      const validated = args.items.map((it, index) => ({
-        index,
-        ok: true,
-        id: it.id,
-        validated: true,
-      }));
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Dry run: ${args.items.length} update(s) validated successfully. No changes made.`,
-          },
-        ],
-        structuredContent: {
-          results: validated,
-          summary: { ok: args.items.length, failed: 0 },
-          dry_run: true,
-        },
-      };
-    }
-
     const client = await getLinearClient(context);
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
     const { items } = args;

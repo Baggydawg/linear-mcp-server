@@ -143,24 +143,6 @@ describe('update_issues handler', () => {
     expect(mockClient.updateIssue).toHaveBeenCalledTimes(3);
   });
 
-  it('dry run validates without updating', async () => {
-    const result = await updateIssuesTool.handler(
-      {
-        items: [{ id: 'issue-001', stateId: 'state-done' }],
-        dry_run: true,
-      },
-      baseContext,
-    );
-
-    expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.dry_run).toBe(true);
-
-    // Verify updateIssue was NOT called
-    expect(mockClient.updateIssue).not.toHaveBeenCalled();
-  });
-
   it('updates multiple fields at once', async () => {
     const result = await updateIssuesTool.handler(
       {

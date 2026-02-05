@@ -7,7 +7,7 @@ This guide documents the interface decisions behind the Linear MCP tools: schema
 Goal: an LLM can use the tools correctly **without knowing Linear’s API** (or reading external docs). The tool surface must be self-explanatory at the point of use.
 
 - **Centralized descriptions**: Tool `name/title/description` live in `src/config/metadata.ts`, not scattered across implementations. This keeps instructions consistent and makes “prompt quality” easy to iterate on.
-- **Schema-level documentation**: Zod `.describe()` is used to explain *what a field means*, *where its value comes from*, and *how to recover when it’s missing* (e.g., “use workspace_metadata to find IDs”). This is especially important for non-obvious inputs like `cursor`, `matchMode`, `assignedToMe`, `includeArchived`, `parallel`, and `dry_run`.
+- **Schema-level documentation**: Zod `.describe()` is used to explain *what a field means*, *where its value comes from*, and *how to recover when it's missing* (e.g., "use workspace_metadata to find IDs"). This is especially important for non-obvious inputs like `cursor`, `matchMode`, `assignedToMe`, `includeArchived`, and `parallel`.
 - **Closed-loop discoverability**: If a field expects an ID, the schema should point to the tool that can produce it (typically `workspace_metadata` or a `list_*` tool), so the agent can always get unstuck.
 
 ## 2. High-Signal Responses (Fast to Understand, Low Noise)
@@ -34,7 +34,6 @@ Agents frequently need to apply the same action to many items. Write tools are d
 - **Per-item outcomes**: One failed item should not abort the entire batch; each result includes success/error details.
 - **Clear rollups**: Responses include a `summary` (`total/succeeded/failed`) plus actionable follow-ups.
 - **Predictable caps**: Batch inputs are capped (commonly 50 items) to keep latency reasonable and reduce rate-limit risk.
-- **Optional validation runs**: High-impact tools like `create_issues` and `update_issues` support `dry_run: true` so the agent can validate payloads and name resolution without writing.
 - **Controlled parallelism**: Some batch tools accept `parallel: true`, but still self-throttle internally to protect the provider API.
 
 ## 5. Human Inputs + Resolvers (Names Over UUIDs)

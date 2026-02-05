@@ -120,7 +120,6 @@ export const CreateIssuesInputSchema = z
       )
       .min(1),
     parallel: z.boolean().optional(),
-    dry_run: z.boolean().optional(),
   })
   .strict();
 export type CreateIssuesInput = z.infer<typeof CreateIssuesInputSchema>;
@@ -156,7 +155,6 @@ export const UpdateIssuesInputSchema = z
       )
       .min(1),
     parallel: z.boolean().optional(),
-    dry_run: z.boolean().optional(),
   })
   .strict();
 export type UpdateIssuesInput = z.infer<typeof UpdateIssuesInputSchema>;
@@ -253,7 +251,6 @@ export const AddCommentsInputSchema = z
       )
       .min(1),
     parallel: z.boolean().optional(),
-    dry_run: z.boolean().optional(),
   })
   .strict();
 export type AddCommentsInput = z.infer<typeof AddCommentsInputSchema>;

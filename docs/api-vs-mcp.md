@@ -31,8 +31,8 @@ This document compares the capabilities of the Linear MCP tools against the nati
 
 | Action | Linear Native SDK | MCP Tool | Notes |
 |--------|-------------------|----------|-------|
-| Create issue | `createIssue()` | `create_issues` | MCP adds batch support (up to 50), dry_run, human-readable inputs (stateName, labelNames, assigneeName) |
-| Update issue | `updateIssue()` | `update_issues` | MCP adds batch support, incremental label ops (addLabelNames, removeLabelNames), dry_run |
+| Create issue | `createIssue()` | `create_issues` | MCP adds batch support (up to 50), human-readable inputs (stateName, labelNames, assigneeName) |
+| Update issue | `updateIssue()` | `update_issues` | MCP adds batch support, incremental label ops (addLabelNames, removeLabelNames) |
 | Update issues batch | `updateIssueBatch()` | `update_issues` | MCP wraps this with enhanced UX |
 | Delete issue | `deleteIssue()` | ❌ Not implemented | Safety concern - intentionally omitted |
 | Archive issue | `archiveIssue()` | `update_issues { archived: true }` | Wrapped in update_issues |
@@ -169,7 +169,7 @@ This document compares the capabilities of the Linear MCP tools against the nati
 
 ### Create Issue
 
-LLM-focused differences: MCP uses batch `items[]` (up to 50) and supports `dry_run` so the agent can validate without writing. MCP accepts human-friendly fields (`stateName`/`stateType`, `labelNames`, `assigneeName`/`assigneeEmail`, `projectName`, priority strings) and resolves them to IDs/integers. If `assignee*` is omitted, it defaults to the current viewer. MCP intentionally omits many native-only fields (e.g. `descriptionData`, `createAsUser`, `cycleId`) to keep the schema small.
+LLM-focused differences: MCP uses batch `items[]` (up to 50). MCP accepts human-friendly fields (`stateName`/`stateType`, `labelNames`, `assigneeName`/`assigneeEmail`, `projectName`, priority strings) and resolves them to IDs/integers. If `assignee*` is omitted, it defaults to the current viewer. MCP intentionally omits many native-only fields (e.g. `descriptionData`, `createAsUser`, `cycleId`) to keep the schema small.
 
 **Linear Native SDK (`IssueCreateInput`):**
 ```typescript
@@ -228,13 +228,12 @@ LLM-focused differences: MCP uses batch `items[]` (up to 50) and supports `dry_r
     parentId?: string;
   }>;
   parallel?: boolean;      // ✨ Batch execution mode
-  dry_run?: boolean;       // ✨ Validation without mutation
 }
 ```
 
 ### Update Issue
 
-LLM-focused differences: MCP batches via `items[]` and accepts UUID or identifier for `id`. MCP supports name-based resolution for state/labels/assignee/project and adds incremental label ops (`addLabelNames`/`removeLabelNames`) in addition to replace-all. MCP supports `archived` to archive/unarchive and `dry_run` to validate without writes. MCP intentionally omits many native-only fields to keep the schema small.
+LLM-focused differences: MCP batches via `items[]` and accepts UUID or identifier for `id`. MCP supports name-based resolution for state/labels/assignee/project and adds incremental label ops (`addLabelNames`/`removeLabelNames`) in addition to replace-all. MCP supports `archived` to archive/unarchive. MCP intentionally omits many native-only fields to keep the schema small.
 
 **Linear Native SDK (`IssueUpdateInput`):**
 ```typescript
@@ -293,7 +292,6 @@ LLM-focused differences: MCP batches via `items[]` and accepts UUID or identifie
     archived?: boolean;    // ✨ Archive/unarchive in single call
   }>;
   parallel?: boolean;
-  dry_run?: boolean;
 }
 ```
 
@@ -375,7 +373,7 @@ LLM-focused differences: MCP batches via `items[]` and keeps the payload small (
   }>;
 }
 
-Note: Unlike issue tools, project tools do not currently support `parallel` or `dry_run`.
+Note: Unlike issue tools, project tools do not currently support `parallel`.
 ```
 
 ### Create Cycle

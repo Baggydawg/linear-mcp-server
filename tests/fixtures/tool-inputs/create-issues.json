@@ -86,14 +86,6 @@
       "description": "Explicitly allow zero estimate"
     },
     {
-      "name": "dry_run",
-      "input": {
-        "items": [{ "teamId": "team-eng", "title": "Dry run test" }],
-        "dry_run": true
-      },
-      "description": "Dry run does not create issues"
-    },
-    {
       "name": "parallel_execution",
       "input": {
         "items": [

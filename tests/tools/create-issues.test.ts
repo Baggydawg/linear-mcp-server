@@ -225,30 +225,6 @@ describe('create_issues handler', () => {
     expect(result.content[0].text).toContain('No user found');
   });
 
-  it('dry run validates without creating', async () => {
-    const result = await createIssuesTool.handler(
-      {
-        items: [{ teamId: 'team-eng', title: 'Dry run test' }],
-        dry_run: true,
-      },
-      baseContext,
-    );
-
-    expect(result.isError).toBeFalsy();
-
-    const structured = result.structuredContent as Record<string, unknown>;
-    expect(structured.dry_run).toBe(true);
-
-    const summary = structured.summary as { ok: number; failed: number };
-    expect(summary.ok).toBe(1);
-
-    // Verify createIssue was NOT called
-    expect(mockClient.createIssue).not.toHaveBeenCalled();
-
-    // Verify text mentions dry run
-    expect(result.content[0].text).toContain('Dry run');
-  });
-
   it('defaults assigneeId to viewer when not provided', async () => {
     const result = await createIssuesTool.handler(
       { items: [{ teamId: 'team-eng', title: 'Auto-assign test' }] },
