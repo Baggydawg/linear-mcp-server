@@ -396,6 +396,6 @@ This document outlines all Linear MCP tools, their functionality, and testing wo
 - Fixed TOON display in Claude Code (structuredContent issue)
 - Implemented and tested multi-team short keys
 - All 12/12 manual tests passed
-- 701 automated tests passing
+- 695 automated tests passing
 - Fixed workspace_metadata to show all teams in `_teams[]` output
 - Fixed `_meta{team}` to show DEFAULT_TEAM instead of first alphabetically

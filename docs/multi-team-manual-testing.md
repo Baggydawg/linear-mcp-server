@@ -45,7 +45,7 @@ We added **67 new automated tests** covering:
 - Prefixed short keys end-to-end (8 tests)
 - Encoder utility functions (22 tests)
 
-**Total test count: 701 tests**
+**Total test count: 695 tests**
 
 ---
 

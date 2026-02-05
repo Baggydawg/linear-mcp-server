@@ -6,7 +6,7 @@ Last updated: 2026-02-05
 
 | Metric | Value |
 |--------|-------|
-| **Total Tests** | 701 |
+| **Total Tests** | 695 |
 | **Test Files** | 16 |
 | **Expect Calls** | 1,564 |
 | **Run Time** | ~7 seconds |
