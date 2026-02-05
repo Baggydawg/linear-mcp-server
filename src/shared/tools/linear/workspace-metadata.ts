@@ -445,8 +445,8 @@ export const workspaceMetadataTool = defineTool({
         filteredTeams = allTeams;
       }
 
-      // workspaceData.teams is for TOON output - use filtered teams
-      workspaceData.teams = filteredTeams.map((t) => ({
+      // workspaceData.teams shows ALL teams so Claude knows workspace structure
+      workspaceData.teams = allTeams.map((t) => ({
         id: t.id,
         key: t.key ?? undefined,
         name: t.name,
