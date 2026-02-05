@@ -229,6 +229,7 @@ interface WorkspaceData {
 function buildToonResponse(
   data: WorkspaceData,
   registry: { usersByUuid: Map<string, string>; projectsByUuid: Map<string, string> },
+  defaultTeamKey?: string,
 ): ToonResponse {
   const sections: ToonSection[] = [];
 
@@ -323,9 +324,10 @@ function buildToonResponse(
     sections.push({ schema: CYCLE_LOOKUP_SCHEMA, items: cycleItems });
   }
 
-  // Build _meta section
+  // Build _meta section - show DEFAULT_TEAM if set, otherwise first team
   const teamKey =
-    data.teams.length > 0 ? (data.teams[0].key ?? data.teams[0].name) : '';
+    defaultTeamKey ??
+    (data.teams.length > 0 ? (data.teams[0].key ?? data.teams[0].name) : '');
 
   return {
     meta: {
@@ -686,7 +688,7 @@ export const workspaceMetadataTool = defineTool({
     // ─────────────────────────────────────────────────────────────────────────
 
     // Build TOON response
-    const toonResponse = buildToonResponse(workspaceData, registry);
+    const toonResponse = buildToonResponse(workspaceData, registry, config.DEFAULT_TEAM);
     const toonOutput = encodeResponse(workspaceData, toonResponse);
 
     return {
