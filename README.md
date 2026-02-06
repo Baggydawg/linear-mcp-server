@@ -9,12 +9,6 @@ Author: [overment](https://x.com/_overment)
 >
 > The HTTP/OAuth layer is designed for convenience during development, not production-grade security. If deploying remotely, harden it: proper token validation, secure storage, TLS termination, strict CORS/origin checks, rate limiting, audit logging, and compliance with Linear's terms.
 
-## Comparison
-
-Below is a comparison between the official Linear MCP (top) and this MCP (bottom).
-
-<img src="docs/comparison-hd.gif" width="800" />
-
 ## Notice
 
 This repo works in two ways:
