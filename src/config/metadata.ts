@@ -58,6 +58,7 @@ Safety & writes
 - Do not guess ids. Always take ids from 'workspace_metadata' or a read tool.
 - Batch writes default to sequential; keep batches small and verify with 'list_issues'.
 - 'update_issues' ignores empty strings (e.g., dueDate: ""): only valid fields are sent.
+- If an issue's state seems unexpected or you need to understand who changed what, use 'get_issue_history' to see the audit trail.
 `,
 } as const;
 
@@ -205,6 +206,24 @@ export const toolsMetadata = {
       '- blocked: Has blocking relations (excluding completed/canceled)\n' +
       '- priority_mismatch: Urgent (priority 1) issues not started\n\n' +
       "Next: Use update_issues with short keys (u0, s2, pr1) from lookups. Use 'list_cycles' to see all cycles.",
+  },
+  get_issue_history: {
+    name: 'get_issue_history',
+    title: 'Get Issue History',
+    description:
+      'Fetch the activity/audit log for one or more issues - shows who changed what and when. ' +
+      'Inputs: { issueIds: string[] (1-25 identifiers or UUIDs), limit?: number (per-issue, default 50 for single / 20 for bulk, max 100), cursor?: string }.\n\n' +
+      'Returns a timeline of changes: state transitions, assignee changes, estimate updates, ' +
+      'label modifications, priority changes, cycle/project moves, and more.\n\n' +
+      'Each entry shows: issue, time, actor (who made the change), field (what changed), ' +
+      'from (previous value), to (new value).\n\n' +
+      'TOON Output: Tier 2 - includes _users and _states lookups for referenced entities. ' +
+      'Uses short keys (u0, s2) for actors and states.\n\n' +
+      'Use case: Understanding why an issue changed state (e.g., who marked it Done), ' +
+      'tracking work patterns, audit trails. Supports bulk: pass multiple issue IDs to ' +
+      'compare activity across tickets.\n\n' +
+      'Note: Changes made via API tokens (including by AI agents) appear as the token owner, ' +
+      'not as a bot. Only dedicated integrations (Zapier, GitHub, etc.) show as bot actors.',
   },
 } as const satisfies Record<string, ToolMetadata>;
 

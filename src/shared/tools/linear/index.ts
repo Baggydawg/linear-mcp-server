@@ -5,6 +5,7 @@ export { addCommentsTool, listCommentsTool, updateCommentsTool } from './comment
 export { createIssuesTool } from './create-issues.js';
 // Cycles
 export { listCyclesTool } from './cycles.js';
+export { getIssueHistoryTool } from './get-issue-history.js';
 export { getIssuesTool } from './get-issues.js';
 // Sprint Context
 export { getSprintContextTool } from './get-sprint-context.js';

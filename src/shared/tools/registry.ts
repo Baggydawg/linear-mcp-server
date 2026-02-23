@@ -9,6 +9,7 @@ import {
   createIssuesTool,
   createProjectsTool,
   createProjectUpdateTool,
+  getIssueHistoryTool,
   getIssuesTool,
   getSprintContextTool,
   listCommentsTool,
@@ -53,6 +54,8 @@ export const sharedTools: RegisteredTool[] = [
   getIssuesTool as unknown as RegisteredTool,
   createIssuesTool as unknown as RegisteredTool,
   updateIssuesTool as unknown as RegisteredTool,
+  // Linear tools - Issue History
+  getIssueHistoryTool as unknown as RegisteredTool,
   // Linear tools - Sprint Context
   getSprintContextTool as unknown as RegisteredTool,
   // Linear tools - Comments

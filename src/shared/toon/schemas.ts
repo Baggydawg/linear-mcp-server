@@ -589,6 +589,35 @@ export const CREATED_PROJECT_UPDATE_SCHEMA: ToonSchema = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// HISTORY SCHEMA (for get_issue_history)
+// Activity/audit trail entries showing who changed what and when.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * History entry schema for issue activity timeline.
+ * Each row represents a single field change on an issue.
+ *
+ * One Linear API IssueHistory entry may contain multiple field changes
+ * (e.g., state + estimate in one action). These are expanded into separate rows.
+ *
+ * @example
+ * ```
+ * history[4]{issue,time,actor,field,from,to}:
+ *   SQT-542,2026-02-23T09:00:00Z,u0,created,,
+ *   SQT-542,2026-02-23T09:06:00Z,u1,state,s2,s5
+ *   SQT-542,2026-02-23T09:06:00Z,u1,estimate,,e3
+ *   SQT-542,2026-02-23T09:54:00Z,u0,labels,,Bug
+ * ```
+ */
+export const HISTORY_ENTRY_SCHEMA: ToonSchema = {
+  name: 'history',
+  fields: ['issue', 'time', 'actor', 'field', 'from', 'to'],
+  // issue: identifier (SQT-542) | time: ISO timestamp | actor: short key (u0) or bot name
+  // field: state/assignee/priority/estimate/labels/project/cycle/title/dueDate/description/parent/team/archived/relation/created
+  // from: previous value (short key, name, number, or empty) | to: new value
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GAP ANALYSIS SCHEMA (for get_sprint_context)
 // Identifies sprint health issues that require attention.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -647,6 +676,7 @@ export const DATA_SCHEMAS = {
   RELATION_WITH_ID: RELATION_SCHEMA_WITH_ID,
   ATTACHMENT: ATTACHMENT_SCHEMA,
   PROJECT_UPDATE: PROJECT_UPDATE_SCHEMA,
+  HISTORY_ENTRY: HISTORY_ENTRY_SCHEMA,
 } as const;
 
 /**
@@ -712,4 +742,7 @@ export const ALL_SCHEMAS = {
 
   // Gap analysis
   GAP: GAP_SCHEMA,
+
+  // History
+  HISTORY_ENTRY: HISTORY_ENTRY_SCHEMA,
 } as const;
