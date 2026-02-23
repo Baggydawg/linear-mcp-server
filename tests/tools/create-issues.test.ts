@@ -627,3 +627,90 @@ describe('create_issues TOON output', () => {
     expect(textContent).toContain('create_issues');
   });
 });
+
+describe('cycle selector support', () => {
+  it('resolves "current" selector when creating an issue', async () => {
+    const result = await createIssuesTool.handler(
+      { items: [{ teamId: 'team-sqt', title: 'Test with current cycle', cycle: 'current' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('create_issues');
+
+    // Verify createIssue was called with the resolved cycleId
+    const createCalls = mockClient._calls.createIssue;
+    expect(createCalls.length).toBe(1);
+    expect(createCalls[0].cycleId).toBe('cycle-sqt-001');
+  });
+
+  it('resolves "upcoming" alias to next cycle', async () => {
+    const result = await createIssuesTool.handler(
+      { items: [{ teamId: 'team-sqt', title: 'Test upcoming', cycle: 'upcoming' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const createCalls = mockClient._calls.createIssue;
+    expect(createCalls.length).toBe(1);
+    expect(createCalls[0].cycleId).toBe('cycle-sqt-002');
+  });
+
+  it('resolves "last" alias to previous cycle', async () => {
+    // Set active cycle to 2 so "last"/"previous" resolves to cycle 1
+    const teams = (await mockClient.teams()).nodes;
+    const sqtTeam = teams.find((t) => t.id === 'team-sqt');
+    const originalActiveCycle = sqtTeam?.activeCycle;
+    if (sqtTeam) {
+      sqtTeam.activeCycle = { id: 'cycle-sqt-002', number: 2 };
+    }
+
+    const result = await createIssuesTool.handler(
+      { items: [{ teamId: 'team-sqt', title: 'Test last', cycle: 'last' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const createCalls = mockClient._calls.createIssue;
+    expect(createCalls.length).toBe(1);
+    expect(createCalls[0].cycleId).toBe('cycle-sqt-001');
+
+    // Restore original activeCycle to avoid polluting shared mock data
+    if (sqtTeam) {
+      sqtTeam.activeCycle = originalActiveCycle ?? null;
+    }
+  });
+
+  it('caches selector resolution across batch items', async () => {
+    const result = await createIssuesTool.handler(
+      {
+        items: [
+          { teamId: 'team-sqt', title: 'Issue 1', cycle: 'current' },
+          { teamId: 'team-sqt', title: 'Issue 2', cycle: 'current' },
+          { teamId: 'team-sqt', title: 'Issue 3', cycle: 'current' },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    // All 3 should have been created with the same cycle
+    const createCalls = mockClient._calls.createIssue;
+    expect(createCalls.length).toBe(3);
+    for (const call of createCalls) {
+      expect(call.cycleId).toBe('cycle-sqt-001');
+    }
+  });
+
+  it('returns error for invalid cycle string', async () => {
+    const result = await createIssuesTool.handler(
+      { items: [{ teamId: 'team-sqt', title: 'Bad cycle', cycle: 'invalid_cycle' }] },
+      baseContext,
+    );
+
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('CYCLE_INVALID');
+  });
+});

@@ -12,8 +12,10 @@ import { getLinearClient } from '../../../services/linear/client.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import {
+  normalizeCycleSelector,
   resolveCycleNumber,
   resolveCycleNumberToId,
+  resolveCycleSelector,
   resolveEstimate,
   resolveLabels,
   resolvePriority,
@@ -129,7 +131,9 @@ const IssueCreateItem = z.object({
   cycle: z
     .union([z.number(), z.string()])
     .optional()
-    .describe('Cycle number (number or c-prefixed like c5)'),
+    .describe(
+      'Cycle: number (5), c-prefixed ("c5"), or selector ("current", "next", "previous", "last", "upcoming").',
+    ),
 });
 
 const InputSchema = z.object({
@@ -200,6 +204,7 @@ export const createIssuesTool = defineTool({
 
     // Batch-level cache for cycle number resolution (team-specific)
     const cycleIdCache = new Map<string, string>(); // key: "teamId:cycleNumber" -> cycleId
+    const cycleSelectorCache = new Map<string, number>(); // key: "teamId:current" -> resolved cycle number
 
     for (let i = 0; i < items.length; i++) {
       const it = items[i] as (typeof items)[number];
@@ -629,23 +634,72 @@ export const createIssuesTool = defineTool({
           payloadInput.parentId = it.parentId;
         }
 
-        // Handle cycle assignment (resolve string inputs like "c5" first)
+        // Handle cycle assignment (supports number, "c5", or selectors like "current")
         if (it.cycle !== undefined) {
-          const cycleNumberResult = resolveCycleNumber(it.cycle);
-          if (!cycleNumberResult.success) {
-            results.push({
-              input: { title: it.title, teamId: it.teamId, cycle: it.cycle },
-              success: false,
-              error: {
-                code: 'CYCLE_INVALID',
-                message: cycleNumberResult.error,
-              },
-              index: i,
-              ok: false,
-            });
-            continue;
+          // Check if input is a natural language selector
+          const selectorValue =
+            typeof it.cycle === 'string'
+              ? normalizeCycleSelector(it.cycle)
+              : null;
+
+          let cycleNumber: number;
+
+          if (selectorValue !== null) {
+            // Resolve selector to cycle number (with caching)
+            const selectorCacheKey = `${resolvedTeamId}:${selectorValue}`;
+            const cached = cycleSelectorCache.get(selectorCacheKey);
+            if (cached !== undefined) {
+              cycleNumber = cached;
+            } else {
+              const selectorResult = await resolveCycleSelector(
+                client,
+                resolvedTeamId,
+                selectorValue,
+              );
+              if (!selectorResult.success) {
+                results.push({
+                  input: {
+                    title: it.title,
+                    teamId: it.teamId,
+                    cycle: it.cycle,
+                  },
+                  success: false,
+                  error: {
+                    code: 'CYCLE_RESOLUTION_FAILED',
+                    message: selectorResult.error,
+                    suggestions: selectorResult.suggestions,
+                  },
+                  index: i,
+                  ok: false,
+                });
+                continue;
+              }
+              cycleNumber = selectorResult.value;
+              cycleSelectorCache.set(selectorCacheKey, cycleNumber);
+            }
+          } else {
+            // Parse numeric input (5, "5", "c5")
+            const cycleNumberResult = resolveCycleNumber(it.cycle);
+            if (!cycleNumberResult.success) {
+              results.push({
+                input: {
+                  title: it.title,
+                  teamId: it.teamId,
+                  cycle: it.cycle,
+                },
+                success: false,
+                error: {
+                  code: 'CYCLE_INVALID',
+                  message: cycleNumberResult.error,
+                },
+                index: i,
+                ok: false,
+              });
+              continue;
+            }
+            cycleNumber = cycleNumberResult.value;
           }
-          const cycleNumber = cycleNumberResult.value;
+
           const cacheKey = `${resolvedTeamId}:${cycleNumber}`;
           let cycleId = cycleIdCache.get(cacheKey);
 
@@ -657,7 +711,11 @@ export const createIssuesTool = defineTool({
             );
             if (!cycleResult.success) {
               results.push({
-                input: { title: it.title, teamId: it.teamId, cycle: it.cycle },
+                input: {
+                  title: it.title,
+                  teamId: it.teamId,
+                  cycle: it.cycle,
+                },
                 success: false,
                 error: {
                   code: 'CYCLE_RESOLUTION_FAILED',

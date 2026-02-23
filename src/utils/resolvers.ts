@@ -353,6 +353,34 @@ export async function resolveProject(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type CycleSelector = 'current' | 'next' | 'previous' | number;
+export type CycleSelectorAlias = 'last' | 'upcoming' | 'active';
+export type CycleSelectorInput = CycleSelector | CycleSelectorAlias;
+
+const CYCLE_SELECTOR_ALIASES: Record<string, CycleSelector> = {
+  last: 'previous',
+  upcoming: 'next',
+  active: 'current',
+};
+
+const ALL_CYCLE_SELECTORS = new Set<string>([
+  'current',
+  'next',
+  'previous',
+  'last',
+  'upcoming',
+  'active',
+]);
+
+/**
+ * Normalize a string cycle input to a canonical CycleSelector if it's a
+ * natural-language selector (current, next, previous, last, upcoming, active).
+ * Returns null if the input is not a recognized selector (e.g. "c5", "5").
+ */
+export function normalizeCycleSelector(input: string): CycleSelector | null {
+  const lower = input.toLowerCase().trim();
+  if (!ALL_CYCLE_SELECTORS.has(lower)) return null;
+  return (CYCLE_SELECTOR_ALIASES[lower] as CycleSelector) ?? (lower as CycleSelector);
+}
 
 /**
  * Resolve a cycle number to its UUID.
@@ -531,6 +559,6 @@ export function resolveCycleNumber(input: number | string): ResolverResult<numbe
   }
   return {
     success: false,
-    error: `Invalid cycle: "${input}". Use a number or c-prefixed format (c5, c6).`,
+    error: `Invalid cycle: "${input}". Use a number (5), c-prefixed format (c5), or selector ("current", "next", "previous").`,
   };
 }

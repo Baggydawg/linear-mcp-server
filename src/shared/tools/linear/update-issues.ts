@@ -13,8 +13,10 @@ import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js'
 import { logger } from '../../../utils/logger.js';
 import {
   getIssueTeamId,
+  normalizeCycleSelector,
   resolveCycleNumber,
   resolveCycleNumberToId,
+  resolveCycleSelector,
   resolveEstimate,
   resolveLabels,
   resolvePriority,
@@ -151,7 +153,7 @@ const IssueUpdateItem = z.object({
     .union([z.number(), z.string(), z.null()])
     .optional()
     .describe(
-      'Cycle number (5 or "c5") to assign, or null/0 to remove from cycle. Use list_cycles to see available.',
+      'Cycle: number (5), c-prefixed ("c5"), selector ("current", "next", "previous", "last", "upcoming"), or null/0 to remove.',
     ),
 });
 
@@ -749,29 +751,64 @@ export const updateIssuesTool = defineTool({
               continue;
             }
 
-            const cycleNumberResult = resolveCycleNumber(it.cycle);
-            if (!cycleNumberResult.success) {
-              results.push({
-                index: i,
-                ok: false,
-                success: false,
-                id: it.id,
-                identifier: issueIdentifier,
-                error: {
-                  code: 'CYCLE_INVALID',
-                  message: cycleNumberResult.error,
-                  suggestions: [
-                    'Use a number like 5 or prefixed format like "c5", or null to remove',
-                  ],
-                },
-              });
-              continue;
+            // Check if input is a natural language selector
+            const selectorValue =
+              typeof it.cycle === 'string'
+                ? normalizeCycleSelector(it.cycle)
+                : null;
+
+            let cycleNumber: number;
+
+            if (selectorValue !== null) {
+              // Resolve selector to cycle number via API
+              const selectorResult = await resolveCycleSelector(
+                client,
+                teamId,
+                selectorValue,
+              );
+              if (!selectorResult.success) {
+                results.push({
+                  index: i,
+                  ok: false,
+                  success: false,
+                  id: it.id,
+                  identifier: issueIdentifier,
+                  error: {
+                    code: 'CYCLE_RESOLUTION_FAILED',
+                    message: selectorResult.error,
+                    suggestions: selectorResult.suggestions,
+                  },
+                });
+                continue;
+              }
+              cycleNumber = selectorResult.value;
+            } else {
+              // Parse numeric input (5, "5", "c5")
+              const cycleNumberResult = resolveCycleNumber(it.cycle);
+              if (!cycleNumberResult.success) {
+                results.push({
+                  index: i,
+                  ok: false,
+                  success: false,
+                  id: it.id,
+                  identifier: issueIdentifier,
+                  error: {
+                    code: 'CYCLE_INVALID',
+                    message: cycleNumberResult.error,
+                    suggestions: [
+                      'Use a number like 5, prefixed format like "c5", selector like "current", or null to remove',
+                    ],
+                  },
+                });
+                continue;
+              }
+              cycleNumber = cycleNumberResult.value;
             }
 
             const cycleResult = await resolveCycleNumberToId(
               client,
               teamId,
-              cycleNumberResult.value,
+              cycleNumber,
             );
             if (!cycleResult.success) {
               results.push({

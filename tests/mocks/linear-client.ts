@@ -40,6 +40,7 @@ export interface MockTeam {
     orderBy?: unknown;
   }) => Promise<{ nodes: MockCycle[]; pageInfo: MockPageInfo }>;
   members: (args: { first: number }) => Promise<{ nodes: MockUser[] }>;
+  activeCycle?: { id: string; number: number } | null;
 }
 
 export interface MockWorkflowState {
@@ -274,6 +275,7 @@ export const defaultMockTeams: MockTeam[] = [
       });
     },
     members: () => Promise.resolve({ nodes: defaultMockUsers }),
+    activeCycle: { id: 'cycle-sqt-001', number: 1 },
   },
   // Secondary teams for cross-team testing
   {
@@ -303,6 +305,7 @@ export const defaultMockTeams: MockTeam[] = [
       });
     },
     members: () => Promise.resolve({ nodes: defaultMockUsers }),
+    activeCycle: { id: 'cycle-eng-001', number: 1 },
   },
   {
     id: 'team-design',

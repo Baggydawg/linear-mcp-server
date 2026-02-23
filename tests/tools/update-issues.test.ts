@@ -14,6 +14,7 @@ import {
 import updateIssuesFixtures from '../fixtures/tool-inputs/update-issues.json';
 import {
   createMockLinearClient,
+  defaultMockTeams,
   type MockLinearClient,
   resetMockCalls,
 } from '../mocks/linear-client.js';
@@ -639,5 +640,102 @@ describe('update_issues TOON output', () => {
     // TOON format is always used now
     expect(textContent).toContain('_meta{');
     expect(textContent).toContain('update_issues');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cycle Selector Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('cycle selector support', () => {
+  beforeEach(() => {
+    // Ensure the SQT team's activeCycle is reset to the default before each test,
+    // since some tests mutate it (e.g., the "last" alias test sets it to cycle 2).
+    const sqtTeam = defaultMockTeams.find((t) => t.id === 'team-sqt');
+    if (sqtTeam) {
+      sqtTeam.activeCycle = { id: 'cycle-sqt-001', number: 1 };
+    }
+  });
+
+  it('resolves "current" selector to active cycle', async () => {
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', cycle: 'current' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('update_issues');
+
+    // Verify the updateIssue was called with the correct cycleId
+    const updateCalls = mockClient._calls.updateIssue;
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].input.cycleId).toBe('cycle-sqt-001');
+  });
+
+  it('resolves "last" alias to previous cycle', async () => {
+    // Set active cycle to 2 so "last"/"previous" resolves to cycle 1
+    const teams = (await mockClient.teams()).nodes;
+    const sqtTeam = teams.find((t) => t.id === 'team-sqt');
+    if (sqtTeam) {
+      sqtTeam.activeCycle = { id: 'cycle-sqt-002', number: 2 };
+    }
+
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', cycle: 'last' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const updateCalls = mockClient._calls.updateIssue;
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].input.cycleId).toBe('cycle-sqt-001');
+  });
+
+  it('resolves "upcoming" alias to next cycle', async () => {
+    // Active cycle is 1, so "upcoming"/"next" resolves to cycle 2
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', cycle: 'upcoming' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const updateCalls = mockClient._calls.updateIssue;
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].input.cycleId).toBe('cycle-sqt-002');
+  });
+
+  it('still supports numeric cycle input', async () => {
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', cycle: 1 }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const updateCalls = mockClient._calls.updateIssue;
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].input.cycleId).toBe('cycle-sqt-001');
+  });
+
+  it('still supports c-prefixed cycle input', async () => {
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', cycle: 'c2' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const updateCalls = mockClient._calls.updateIssue;
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].input.cycleId).toBe('cycle-sqt-002');
+  });
+
+  it('returns error for invalid cycle string', async () => {
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', cycle: 'invalid_cycle' }] },
+      baseContext,
+    );
+
+    const textContent = result.content[0].text;
+    expect(textContent).toContain('CYCLE_INVALID');
   });
 });
