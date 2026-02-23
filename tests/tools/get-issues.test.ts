@@ -302,6 +302,16 @@ describe('get_issues TOON output', () => {
     expect(dataLines.length).toBeGreaterThan(0);
   });
 
+  it('includes relations section in TOON output', async () => {
+    const result = await getIssuesTool.handler({ ids: ['SQT-123'] }, baseContext);
+    expect(result.isError).toBeFalsy();
+    const text = (result.content[0] as { type: 'text'; text: string }).text;
+    expect(text).toContain('relations[');
+    expect(text).toContain('{from,type,to}');
+    expect(text).toContain('blocks');
+    expect(text).toContain('SQT-124');
+  });
+
   it('includes succeeded and failed counts in TOON meta', async () => {
     mockClient = createMockLinearClient();
     resetMockCalls(mockClient);

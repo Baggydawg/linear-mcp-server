@@ -228,46 +228,20 @@ export const RELATION_SCHEMA: ToonSchema = {
 };
 
 /**
- * Issue relation schema with UUID for mutations.
- * Include UUID when deletion is needed.
- *
- * @example
- * ```
- * relations[1]{id,from,type,to}:
- *   rel-uuid-...,SQT-160,blocks,SQT-159
- * ```
- */
-export const RELATION_SCHEMA_WITH_ID: ToonSchema = {
-  name: 'relations',
-  fields: ['id', 'from', 'type', 'to'],
-};
-
-/**
  * Write result schema for relation operations.
  * Per-item outcome for relation batch operations.
  *
  * @example
  * ```
- * results[3]{index,status,action,from,type,to,id,error,code,hint}:
- *   0,ok,create,SQT-123,blocks,SQT-456,rel-uuid-1,,,
- *   1,ok,delete,,,,rel-uuid-2,,,
- *   2,error,create,SQT-789,blocks,SQT-000,,Issue not found,ISSUE_NOT_FOUND,Check identifier
+ * results[3]{index,status,action,from,type,to,error,code,hint}:
+ *   0,ok,create,SQT-123,blocks,SQT-456,,,
+ *   1,ok,delete,SQT-123,blocks,SQT-456,,,
+ *   2,error,create,SQT-789,blocks,SQT-000,Issue not found,ISSUE_NOT_FOUND,Check identifier
  * ```
  */
 export const RELATION_WRITE_RESULT_SCHEMA: ToonSchema = {
   name: 'results',
-  fields: [
-    'index',
-    'status',
-    'action',
-    'from',
-    'type',
-    'to',
-    'id',
-    'error',
-    'code',
-    'hint',
-  ],
+  fields: ['index', 'status', 'action', 'from', 'type', 'to', 'error', 'code', 'hint'],
 };
 
 /**
@@ -673,7 +647,6 @@ export const DATA_SCHEMAS = {
   COMMENT: COMMENT_SCHEMA,
   COMMENT_WITH_ID: COMMENT_SCHEMA_WITH_ID,
   RELATION: RELATION_SCHEMA,
-  RELATION_WITH_ID: RELATION_SCHEMA_WITH_ID,
   ATTACHMENT: ATTACHMENT_SCHEMA,
   PROJECT_UPDATE: PROJECT_UPDATE_SCHEMA,
   HISTORY_ENTRY: HISTORY_ENTRY_SCHEMA,

@@ -1,5 +1,5 @@
 /**
- * Tests for manage_relations tool (create, update, delete issue relations).
+ * Tests for manage_relations tool (create, delete issue relations).
  * Verifies: tool metadata, input validation, handler behavior, TOON output, error handling.
  */
 
@@ -60,8 +60,8 @@ describe('manage_relations tool', () => {
         items: [
           {
             action: 'create',
-            issueId: 'SQT-123',
-            relatedIssueId: 'SQT-124',
+            from: 'SQT-123',
+            to: 'SQT-124',
             type: 'blocks',
           },
         ],
@@ -69,25 +69,14 @@ describe('manage_relations tool', () => {
       expect(result.success).toBe(true);
     });
 
-    it('accepts valid update item', () => {
-      const result = manageRelationsTool.inputSchema.safeParse({
-        items: [
-          {
-            action: 'update',
-            id: 'relation-001',
-            type: 'related',
-          },
-        ],
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it('accepts valid delete item', () => {
+    it('accepts valid delete item with from, to, and type', () => {
       const result = manageRelationsTool.inputSchema.safeParse({
         items: [
           {
             action: 'delete',
-            id: 'relation-001',
+            from: 'SQT-123',
+            to: 'SQT-124',
+            type: 'blocks',
           },
         ],
       });
@@ -99,13 +88,15 @@ describe('manage_relations tool', () => {
         items: [
           {
             action: 'create',
-            issueId: 'SQT-123',
-            relatedIssueId: 'SQT-124',
+            from: 'SQT-123',
+            to: 'SQT-124',
             type: 'blocks',
           },
           {
             action: 'delete',
-            id: 'relation-001',
+            from: 'SQT-123',
+            to: 'SQT-124',
+            type: 'blocks',
           },
         ],
       });
@@ -118,9 +109,9 @@ describe('manage_relations tool', () => {
     });
 
     it('rejects create without required fields', () => {
-      // Missing relatedIssueId and type
+      // Missing to and type
       const result = manageRelationsTool.inputSchema.safeParse({
-        items: [{ action: 'create', issueId: 'SQT-123' }],
+        items: [{ action: 'create', from: 'SQT-123' }],
       });
       expect(result.success).toBe(false);
     });
@@ -130,8 +121,8 @@ describe('manage_relations tool', () => {
         items: [
           {
             action: 'create',
-            issueId: 'SQT-123',
-            relatedIssueId: 'SQT-124',
+            from: 'SQT-123',
+            to: 'SQT-124',
             type: 'invalid_type',
           },
         ],
@@ -139,16 +130,24 @@ describe('manage_relations tool', () => {
       expect(result.success).toBe(false);
     });
 
-    it('rejects update without id', () => {
+    it('rejects delete without required fields', () => {
+      // Missing to and type
       const result = manageRelationsTool.inputSchema.safeParse({
-        items: [{ action: 'update', type: 'related' }],
+        items: [{ action: 'delete', from: 'SQT-123' }],
       });
       expect(result.success).toBe(false);
     });
 
-    it('rejects delete without id', () => {
+    it('rejects unknown action', () => {
       const result = manageRelationsTool.inputSchema.safeParse({
-        items: [{ action: 'delete' }],
+        items: [
+          {
+            action: 'update',
+            from: 'SQT-123',
+            to: 'SQT-124',
+            type: 'blocks',
+          },
+        ],
       });
       expect(result.success).toBe(false);
     });
@@ -165,8 +164,8 @@ describe('manage_relations tool', () => {
           items: [
             {
               action: 'create',
-              issueId: 'SQT-123',
-              relatedIssueId: 'SQT-124',
+              from: 'SQT-123',
+              to: 'SQT-124',
               type: 'blocks',
             },
           ],
@@ -185,35 +184,16 @@ describe('manage_relations tool', () => {
       );
     });
 
-    it('update calls updateIssueRelation with correct id and input', async () => {
-      const result = await manageRelationsTool.handler(
-        {
-          items: [
-            {
-              action: 'update',
-              id: 'relation-001',
-              type: 'duplicate',
-            },
-          ],
-        },
-        baseContext,
-      );
-
-      expect(result.isError).toBeFalsy();
-      expect(mockClient._calls.updateIssueRelation.length).toBe(1);
-      expect(mockClient._calls.updateIssueRelation[0]).toEqual({
-        id: 'relation-001',
-        input: { type: 'duplicate' },
-      });
-    });
-
-    it('delete calls deleteIssueRelation with correct id', async () => {
+    it('delete resolves issues, finds matching relation, and calls deleteIssueRelation', async () => {
+      // SQT-123 (issue-001) has a 'blocks' relation to SQT-124 (issue-002) with id 'relation-001'
       const result = await manageRelationsTool.handler(
         {
           items: [
             {
               action: 'delete',
-              id: 'relation-001',
+              from: 'SQT-123',
+              to: 'SQT-124',
+              type: 'blocks',
             },
           ],
         },
@@ -225,19 +205,42 @@ describe('manage_relations tool', () => {
       expect(mockClient._calls.deleteIssueRelation[0]).toBe('relation-001');
     });
 
+    it('delete with no matching relation returns RELATION_NOT_FOUND', async () => {
+      // SQT-123 has a 'blocks' relation, but we ask to delete a 'related' relation
+      const result = await manageRelationsTool.handler(
+        {
+          items: [
+            {
+              action: 'delete',
+              from: 'SQT-123',
+              to: 'SQT-124',
+              type: 'related',
+            },
+          ],
+        },
+        baseContext,
+      );
+
+      const text = (result.content[0] as { type: 'text'; text: string }).text;
+      expect(text).toContain('RELATION_NOT_FOUND');
+      expect(mockClient._calls.deleteIssueRelation.length).toBe(0);
+    });
+
     it('mixed batch processes all items with correct succeeded/failed counts', async () => {
       const result = await manageRelationsTool.handler(
         {
           items: [
             {
               action: 'create',
-              issueId: 'SQT-123',
-              relatedIssueId: 'SQT-124',
+              from: 'SQT-123',
+              to: 'SQT-124',
               type: 'related',
             },
             {
               action: 'delete',
-              id: 'relation-001',
+              from: 'SQT-123',
+              to: 'SQT-124',
+              type: 'blocks',
             },
           ],
         },
@@ -258,8 +261,8 @@ describe('manage_relations tool', () => {
           items: [
             {
               action: 'create',
-              issueId: 'NONEXISTENT-999',
-              relatedIssueId: 'SQT-124',
+              from: 'NONEXISTENT-999',
+              to: 'SQT-124',
               type: 'blocks',
             },
           ],
@@ -270,23 +273,6 @@ describe('manage_relations tool', () => {
       const text = (result.content[0] as { type: 'text'; text: string }).text;
       expect(text).toContain('ISSUE_NOT_FOUND');
       expect(text).toContain('error');
-    });
-
-    it('update with no fields provided returns NO_FIELDS_TO_UPDATE', async () => {
-      const result = await manageRelationsTool.handler(
-        {
-          items: [
-            {
-              action: 'update',
-              id: 'relation-001',
-            },
-          ],
-        },
-        baseContext,
-      );
-
-      const text = (result.content[0] as { type: 'text'; text: string }).text;
-      expect(text).toContain('NO_FIELDS_TO_UPDATE');
     });
   });
 
@@ -301,8 +287,8 @@ describe('manage_relations tool', () => {
           items: [
             {
               action: 'create',
-              issueId: 'SQT-123',
-              relatedIssueId: 'SQT-124',
+              from: 'SQT-123',
+              to: 'SQT-124',
               type: 'blocks',
             },
           ],
@@ -314,13 +300,15 @@ describe('manage_relations tool', () => {
       expect(text).toContain('_meta{action,succeeded,failed,total}:');
     });
 
-    it('output contains results section with correct schema', async () => {
+    it('output contains results section with correct schema (no id field)', async () => {
       const result = await manageRelationsTool.handler(
         {
           items: [
             {
-              action: 'delete',
-              id: 'relation-001',
+              action: 'create',
+              from: 'SQT-123',
+              to: 'SQT-124',
+              type: 'blocks',
             },
           ],
         },
@@ -329,17 +317,17 @@ describe('manage_relations tool', () => {
 
       const text = (result.content[0] as { type: 'text'; text: string }).text;
       expect(text).toContain('results[');
-      expect(text).toContain('{index,status,action,from,type,to,id,error,code,hint}');
+      expect(text).toContain('{index,status,action,from,type,to,error,code,hint}');
     });
 
-    it('successful create includes relations section with relation UUID', async () => {
+    it('successful create includes relations section with from,type,to (no id)', async () => {
       const result = await manageRelationsTool.handler(
         {
           items: [
             {
               action: 'create',
-              issueId: 'SQT-123',
-              relatedIssueId: 'SQT-124',
+              from: 'SQT-123',
+              to: 'SQT-124',
               type: 'blocks',
             },
           ],
@@ -349,7 +337,10 @@ describe('manage_relations tool', () => {
 
       const text = (result.content[0] as { type: 'text'; text: string }).text;
       expect(text).toContain('relations[');
-      expect(text).toContain('relation-new-');
+      expect(text).toContain('{from,type,to}');
+      expect(text).toContain('SQT-123');
+      expect(text).toContain('SQT-124');
+      expect(text).toContain('blocks');
     });
 
     it('error result includes error code and hint', async () => {
@@ -358,8 +349,8 @@ describe('manage_relations tool', () => {
           items: [
             {
               action: 'create',
-              issueId: 'NONEXISTENT-999',
-              relatedIssueId: 'SQT-124',
+              from: 'NONEXISTENT-999',
+              to: 'SQT-124',
               type: 'blocks',
             },
           ],
@@ -388,8 +379,8 @@ describe('manage_relations tool', () => {
           items: [
             {
               action: 'create',
-              issueId: 'SQT-123',
-              relatedIssueId: 'SQT-124',
+              from: 'SQT-123',
+              to: 'SQT-124',
               type: 'blocks',
             },
           ],
@@ -411,7 +402,9 @@ describe('manage_relations tool', () => {
           items: [
             {
               action: 'delete',
-              id: 'relation-nonexistent',
+              from: 'SQT-123',
+              to: 'SQT-124',
+              type: 'blocks',
             },
           ],
         },

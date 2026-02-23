@@ -24,7 +24,7 @@ import {
   getProjectMetadata,
   getUserMetadata,
   PROJECT_LOOKUP_SCHEMA,
-  RELATION_SCHEMA_WITH_ID,
+  RELATION_SCHEMA,
   type RegistryBuildData,
   type ShortKeyRegistry,
   STATE_LOOKUP_SCHEMA,
@@ -382,7 +382,6 @@ function relationToToonRow(relation: RawRelationData): ToonRow {
   };
 
   return {
-    id: relation.id,
     from: relation.issue.identifier,
     type: typeMap[relation.type] ?? relation.type,
     to: relation.relatedIssue.identifier,
@@ -729,7 +728,7 @@ function buildSprintContextResponse(
   // Relations section
   if (relations.length > 0) {
     const relationRows = relations.map(relationToToonRow);
-    data.push({ schema: RELATION_SCHEMA_WITH_ID, items: relationRows });
+    data.push({ schema: RELATION_SCHEMA, items: relationRows });
   }
 
   // Gaps section

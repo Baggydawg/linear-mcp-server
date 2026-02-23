@@ -34,6 +34,7 @@ const GetIssueOutputSchema = z
     createdAt: z.string().optional(),
   })
   .strict();
+
 import { makeConcurrencyGate } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import {
@@ -47,6 +48,7 @@ import {
   ISSUE_SCHEMA,
   LABEL_LOOKUP_SCHEMA,
   PROJECT_LOOKUP_SCHEMA,
+  RELATION_SCHEMA,
   type RegistryBuildData,
   type ShortKeyRegistry,
   STATE_LOOKUP_SCHEMA,
@@ -422,6 +424,11 @@ async function fetchWorkspaceDataForRegistry(
  */
 function buildToonResponse(
   rawIssues: RawIssueData[],
+  rawRelations: Array<{
+    issueIdentifier: string;
+    type: string;
+    relatedIssueIdentifier: string;
+  }>,
   registry: ShortKeyRegistry | null,
   succeeded: number,
   failed: number,
@@ -459,6 +466,15 @@ function buildToonResponse(
 
   const issueRows = rawIssues.map((issue) => issueToToonRow(issue, registry));
   const data: ToonSection[] = [{ schema: ISSUE_SCHEMA, items: issueRows }];
+
+  if (rawRelations.length > 0) {
+    const relationRows: ToonRow[] = rawRelations.map((r) => ({
+      from: r.issueIdentifier,
+      type: r.type,
+      to: r.relatedIssueIdentifier,
+    }));
+    data.push({ schema: RELATION_SCHEMA, items: relationRows });
+  }
 
   const metaFields = ['tool', 'succeeded', 'failed', 'total', 'generated'];
   const metaValues: Record<string, string | number | boolean | null> = {
@@ -499,6 +515,7 @@ export const getIssuesTool = defineTool({
       // Extra fields for TOON output (not in GetIssueOutputSchema)
       creator?: { id: string; name?: string } | null;
       createdAt?: Date | string;
+      relations?: Array<{ type: string; relatedIssueIdentifier: string }>;
     }> = [];
 
     for (let i = 0; i < ids.length; i++) {
@@ -517,6 +534,18 @@ export const getIssuesTool = defineTool({
         const cycleData = await issue.cycle;
         const teamData = await issue.team;
         const creatorData = await issue.creator;
+
+        const relationsData = await (
+          issue as unknown as {
+            relations?: () => Promise<{
+              nodes: Array<{
+                id: string;
+                type: string;
+                relatedIssue: { identifier: string };
+              }>;
+            }>;
+          }
+        ).relations?.();
 
         const issueUrl = (issue as unknown as { url?: string })?.url;
         const issueCreatedAt = (issue as unknown as { createdAt?: Date | string })
@@ -573,6 +602,10 @@ export const getIssuesTool = defineTool({
           requestedId: id,
           success: true,
           issue: structured,
+          relations: (relationsData?.nodes ?? []).map((r) => ({
+            type: r.type,
+            relatedIssueIdentifier: r.relatedIssue?.identifier ?? '',
+          })),
         });
       } catch (error) {
         await logger.error('get_issues', {
@@ -638,6 +671,25 @@ export const getIssuesTool = defineTool({
         };
       });
 
+    const rawRelations: Array<{
+      issueIdentifier: string;
+      type: string;
+      relatedIssueIdentifier: string;
+    }> = [];
+    for (const r of results) {
+      if (r.success && r.relations) {
+        const issueIdentifier =
+          (r.issue as unknown as { identifier?: string })?.identifier ?? r.requestedId;
+        for (const rel of r.relations) {
+          rawRelations.push({
+            issueIdentifier,
+            type: rel.type,
+            relatedIssueIdentifier: rel.relatedIssueIdentifier,
+          });
+        }
+      }
+    }
+
     // Initialize registry if needed (lazy init)
     let registry: ShortKeyRegistry | null = null;
     try {
@@ -653,7 +705,13 @@ export const getIssuesTool = defineTool({
     }
 
     // Build TOON response with unlimited desc truncation (detail view)
-    const toonResponse = buildToonResponse(rawIssues, registry, succeeded, failed);
+    const toonResponse = buildToonResponse(
+      rawIssues,
+      rawRelations,
+      registry,
+      succeeded,
+      failed,
+    );
 
     // Encode with no truncation for descriptions (detail view)
     const toonOutput = encodeResponse(rawIssues, toonResponse, {

@@ -1,5 +1,5 @@
 /**
- * Manage Relations tool - create, update, or delete issue relations.
+ * Manage Relations tool - create or delete issue relations.
  *
  * Uses TOON output format (Tier 2):
  * - Returns TOON format with per-item results and created relations
@@ -13,7 +13,7 @@ import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js'
 import { logger } from '../../../utils/logger.js';
 import {
   encodeToon,
-  RELATION_SCHEMA_WITH_ID,
+  RELATION_SCHEMA,
   RELATION_WRITE_RESULT_SCHEMA,
   type ToonResponse,
   type ToonRow,
@@ -26,43 +26,25 @@ import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 
 const CreateAction = z.object({
   action: z.literal('create'),
-  issueId: z.string().describe('Source issue identifier (e.g. SQT-123) or UUID.'),
-  relatedIssueId: z
+  from: z
     .string()
-    .describe('Target issue identifier (e.g. SQT-456) or UUID.'),
+    .describe('Source issue identifier (e.g. SQT-123). "from" blocks/duplicates "to".'),
+  to: z.string().describe('Target issue identifier (e.g. SQT-456).'),
   type: z
     .enum(['blocks', 'related', 'duplicate'])
     .describe(
-      'Relation type. "blocks": issueId blocks relatedIssueId. "duplicate": issueId is duplicate of relatedIssueId. "related": bidirectional.',
+      'Relation type. "blocks": from blocks to. "duplicate": from is duplicate of to. "related": bidirectional.',
     ),
-});
-
-const UpdateAction = z.object({
-  action: z.literal('update'),
-  id: z
-    .string()
-    .describe('Relation UUID (from get_sprint_context with includeRelations: true).'),
-  type: z
-    .enum(['blocks', 'related', 'duplicate'])
-    .optional()
-    .describe('New relation type.'),
-  issueId: z.string().optional().describe('New source issue identifier or UUID.'),
-  relatedIssueId: z
-    .string()
-    .optional()
-    .describe('New target issue identifier or UUID.'),
 });
 
 const DeleteAction = z.object({
   action: z.literal('delete'),
-  id: z.string().describe('Relation UUID to delete.'),
+  from: z.string().describe('Source issue identifier (e.g. SQT-123).'),
+  to: z.string().describe('Target issue identifier (e.g. SQT-456).'),
+  type: z.enum(['blocks', 'related', 'duplicate']).describe('Relation type to delete.'),
 });
 
-const RelationItem = z.discriminatedUnion('action', [
-  CreateAction,
-  UpdateAction,
-  DeleteAction,
-]);
+const RelationItem = z.discriminatedUnion('action', [CreateAction, DeleteAction]);
 
 const InputSchema = z.object({
   items: z
@@ -98,7 +80,6 @@ export const manageRelationsTool = defineTool({
       from?: string;
       type?: string;
       to?: string;
-      id?: string;
       error?: string | { code: string; message: string; suggestions: string[] };
       code?: string;
       success?: boolean;
@@ -124,23 +105,22 @@ export const manageRelationsTool = defineTool({
           let sourceUUID: string;
           let sourceIdentifier: string;
           try {
-            const sourceIssue = await client.issue(it.issueId);
+            const sourceIssue = await client.issue(it.from);
             sourceUUID = sourceIssue.id;
             sourceIdentifier =
-              (sourceIssue as unknown as { identifier?: string }).identifier ??
-              it.issueId;
+              (sourceIssue as unknown as { identifier?: string }).identifier ?? it.from;
           } catch {
             results.push({
               index: i,
               ok: false,
               success: false,
               action: 'create',
-              from: it.issueId,
+              from: it.from,
               type: it.type,
-              to: it.relatedIssueId,
+              to: it.to,
               error: {
                 code: 'ISSUE_NOT_FOUND',
-                message: `Source issue '${it.issueId}' not found.`,
+                message: `Source issue '${it.from}' not found.`,
                 suggestions: ['Verify identifier with list_issues or get_issues.'],
               },
               code: 'ISSUE_NOT_FOUND',
@@ -152,11 +132,10 @@ export const manageRelationsTool = defineTool({
           let targetUUID: string;
           let targetIdentifier: string;
           try {
-            const targetIssue = await client.issue(it.relatedIssueId);
+            const targetIssue = await client.issue(it.to);
             targetUUID = targetIssue.id;
             targetIdentifier =
-              (targetIssue as unknown as { identifier?: string }).identifier ??
-              it.relatedIssueId;
+              (targetIssue as unknown as { identifier?: string }).identifier ?? it.to;
           } catch {
             results.push({
               index: i,
@@ -165,10 +144,10 @@ export const manageRelationsTool = defineTool({
               action: 'create',
               from: sourceIdentifier,
               type: it.type,
-              to: it.relatedIssueId,
+              to: it.to,
               error: {
                 code: 'ISSUE_NOT_FOUND',
-                message: `Target issue '${it.relatedIssueId}' not found.`,
+                message: `Target issue '${it.to}' not found.`,
                 suggestions: ['Verify identifier with list_issues or get_issues.'],
               },
               code: 'ISSUE_NOT_FOUND',
@@ -185,13 +164,10 @@ export const manageRelationsTool = defineTool({
               >[0]['type'],
             });
 
-          const payload = await withRetry(() => gate(call), {
+          await withRetry(() => gate(call), {
             maxRetries: 3,
             baseDelayMs: 500,
           });
-
-          const relationId = (payload as unknown as { issueRelation?: { id?: string } })
-            .issueRelation?.id;
 
           results.push({
             index: i,
@@ -201,98 +177,114 @@ export const manageRelationsTool = defineTool({
             from: sourceIdentifier,
             type: it.type,
             to: targetIdentifier,
-            id: relationId,
           });
-        } else if (it.action === 'update') {
-          // ── Update ──────────────────────────────────────────────────────
-          const updateInput: Record<string, unknown> = {};
-
-          if (it.type) {
-            updateInput.type = it.type;
-          }
-
-          if (it.issueId) {
-            try {
-              const sourceIssue = await client.issue(it.issueId);
-              updateInput.issueId = sourceIssue.id;
-            } catch {
-              results.push({
-                index: i,
-                ok: false,
-                success: false,
-                action: 'update',
-                id: it.id,
-                error: {
-                  code: 'ISSUE_NOT_FOUND',
-                  message: `Source issue '${it.issueId}' not found.`,
-                  suggestions: ['Verify identifier with list_issues or get_issues.'],
-                },
-                code: 'ISSUE_NOT_FOUND',
-              });
-              continue;
-            }
-          }
-
-          if (it.relatedIssueId) {
-            try {
-              const targetIssue = await client.issue(it.relatedIssueId);
-              updateInput.relatedIssueId = targetIssue.id;
-            } catch {
-              results.push({
-                index: i,
-                ok: false,
-                success: false,
-                action: 'update',
-                id: it.id,
-                error: {
-                  code: 'ISSUE_NOT_FOUND',
-                  message: `Target issue '${it.relatedIssueId}' not found.`,
-                  suggestions: ['Verify identifier with list_issues or get_issues.'],
-                },
-                code: 'ISSUE_NOT_FOUND',
-              });
-              continue;
-            }
-          }
-
-          if (Object.keys(updateInput).length === 0) {
+        } else if (it.action === 'delete') {
+          // ── Delete ──────────────────────────────────────────────────────
+          // Resolve source issue
+          let sourceIdentifier: string;
+          let sourceIssue: { id: string; identifier?: string };
+          try {
+            const resolved = await client.issue(it.from);
+            sourceIssue = resolved as unknown as { id: string; identifier?: string };
+            sourceIdentifier =
+              (resolved as unknown as { identifier?: string }).identifier ?? it.from;
+          } catch {
             results.push({
               index: i,
               ok: false,
               success: false,
-              action: 'update',
-              id: it.id,
+              action: 'delete',
+              from: it.from,
+              type: it.type,
+              to: it.to,
               error: {
-                code: 'NO_FIELDS_TO_UPDATE',
-                message: 'No fields provided to update.',
-                suggestions: [
-                  'Provide at least one of: type, issueId, relatedIssueId.',
-                ],
+                code: 'ISSUE_NOT_FOUND',
+                message: `Source issue '${it.from}' not found.`,
+                suggestions: ['Verify identifier with list_issues or get_issues.'],
               },
-              code: 'NO_FIELDS_TO_UPDATE',
+              code: 'ISSUE_NOT_FOUND',
             });
             continue;
           }
 
-          const call = () => client.updateIssueRelation(it.id, updateInput);
+          // Resolve target issue
+          let targetIdentifier: string;
+          let targetIssue: { id: string; identifier?: string };
+          try {
+            const resolved = await client.issue(it.to);
+            targetIssue = resolved as unknown as { id: string; identifier?: string };
+            targetIdentifier =
+              (resolved as unknown as { identifier?: string }).identifier ?? it.to;
+          } catch {
+            results.push({
+              index: i,
+              ok: false,
+              success: false,
+              action: 'delete',
+              from: sourceIdentifier,
+              type: it.type,
+              to: it.to,
+              error: {
+                code: 'ISSUE_NOT_FOUND',
+                message: `Target issue '${it.to}' not found.`,
+                suggestions: ['Verify identifier with list_issues or get_issues.'],
+              },
+              code: 'ISSUE_NOT_FOUND',
+            });
+            continue;
+          }
 
-          await withRetry(() => gate(call), {
-            maxRetries: 3,
-            baseDelayMs: 500,
-          });
+          // Fetch relations for the source issue via SDK lazy-loading
+          const relationsData = await (
+            sourceIssue as unknown as {
+              relations?: () => Promise<{
+                nodes: Array<{
+                  id: string;
+                  type: string;
+                  _relatedIssue?: { id: string };
+                  relatedIssue?: { id: string };
+                }>;
+              }>;
+            }
+          ).relations?.();
 
-          results.push({
-            index: i,
-            ok: true,
-            success: true,
-            action: 'update',
-            id: it.id,
-          });
-        } else if (it.action === 'delete') {
-          // ── Delete ──────────────────────────────────────────────────────
-          const call = () => client.deleteIssueRelation(it.id);
+          const relNodes = relationsData?.nodes ?? [];
 
-          await withRetry(() => gate(call), {
+          // Match by type + target UUID.
+          // The raw SDK object stores _relatedIssue.id synchronously (production).
+          // In mocks, relatedIssue is a plain object, so we fall back to relatedIssue?.id.
+          const match = relNodes.find(
+            (r) =>
+              r.type === it.type &&
+              ((r as unknown as { _relatedIssue?: { id: string } })._relatedIssue
+                ?.id === targetIssue.id ||
+                (r as unknown as { relatedIssue?: { id: string } }).relatedIssue?.id ===
+                  targetIssue.id),
+          );
+
+          if (!match) {
+            results.push({
+              index: i,
+              ok: false,
+              success: false,
+              action: 'delete',
+              from: sourceIdentifier,
+              type: it.type,
+              to: targetIdentifier,
+              error: {
+                code: 'RELATION_NOT_FOUND',
+                message: `No '${it.type}' relation found from '${sourceIdentifier}' to '${targetIdentifier}'.`,
+                suggestions: [
+                  'Verify relation exists with list_issues or get_sprint_context.',
+                ],
+              },
+              code: 'RELATION_NOT_FOUND',
+            });
+            continue;
+          }
+
+          // Delete using the resolved UUID
+          await withRetry(() => gate(() => client.deleteIssueRelation(match.id)), {
             maxRetries: 3,
             baseDelayMs: 500,
           });
@@ -302,7 +294,9 @@ export const manageRelationsTool = defineTool({
             ok: true,
             success: true,
             action: 'delete',
-            id: it.id,
+            from: sourceIdentifier,
+            type: it.type,
+            to: targetIdentifier,
           });
         }
       } catch (error) {
@@ -316,7 +310,9 @@ export const manageRelationsTool = defineTool({
           ok: false,
           success: false,
           action: it.action,
-          id: 'id' in it ? it.id : undefined,
+          from: 'from' in it ? it.from : undefined,
+          type: 'type' in it ? it.type : undefined,
+          to: 'to' in it ? it.to : undefined,
           error: {
             code: 'LINEAR_RELATION_ERROR',
             message: (error as Error).message,
@@ -343,7 +339,6 @@ export const manageRelationsTool = defineTool({
         from: r.from ?? '',
         type: r.type ?? '',
         to: r.to ?? '',
-        id: r.id ?? '',
         error: r.success
           ? ''
           : (errObj?.message ?? (typeof r.error === 'string' ? r.error : '')),
@@ -356,7 +351,6 @@ export const manageRelationsTool = defineTool({
     const createdRelations: ToonRow[] = results
       .filter((r) => r.success && r.action === 'create')
       .map((r) => ({
-        id: r.id ?? '',
         from: r.from ?? '',
         type: r.type ?? '',
         to: r.to ?? '',
@@ -376,7 +370,7 @@ export const manageRelationsTool = defineTool({
       data: [
         { schema: RELATION_WRITE_RESULT_SCHEMA, items: toonResults },
         ...(createdRelations.length > 0
-          ? [{ schema: RELATION_SCHEMA_WITH_ID, items: createdRelations }]
+          ? [{ schema: RELATION_SCHEMA, items: createdRelations }]
           : []),
       ],
     };

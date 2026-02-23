@@ -165,16 +165,15 @@ export const toolsMetadata = {
     name: 'manage_relations',
     title: 'Manage Issue Relations',
     description:
-      'Create, update, or delete issue relations (blocks, related, duplicate) in batch. ' +
-      'Inputs: { items: Array<{ action: "create"|"update"|"delete", ... }> }.\n\n' +
-      'CREATE: { action: "create", issueId: "SQT-123", relatedIssueId: "SQT-456", type: "blocks"|"related"|"duplicate" }\n' +
-      '- For "blocks": issueId blocks relatedIssueId (relatedIssueId is blocked BY issueId)\n' +
-      '- For "duplicate": issueId is a duplicate of relatedIssueId\n' +
+      'Create or delete issue relations (blocks, related, duplicate) in batch. ' +
+      'Inputs: { items: Array<{ action: "create"|"delete", from, to, type }> }.\n\n' +
+      'CREATE: { action: "create", from: "SQT-123", to: "SQT-456", type: "blocks"|"related"|"duplicate" }\n' +
+      '- For "blocks": "from" blocks "to" ("to" is blocked BY "from")\n' +
+      '- For "duplicate": "from" is a duplicate of "to"\n' +
       '- For "related": direction does not matter\n\n' +
-      'UPDATE: { action: "update", id: "<relation-uuid>", type: "blocks"|"related"|"duplicate" }\n' +
-      '- Changes the relation type. Get relation UUIDs from get_sprint_context (includeRelations: true).\n\n' +
-      'DELETE: { action: "delete", id: "<relation-uuid>" }\n' +
-      '- Removes the relation. Get relation UUIDs from get_sprint_context (includeRelations: true).\n\n' +
+      'DELETE: { action: "delete", from: "SQT-123", to: "SQT-456", type: "blocks" }\n' +
+      '- Removes the matching relation. Fields match what you see in relations output.\n\n' +
+      'To change a relation type, delete the old one and create the new one in one batch.\n\n' +
       'Returns: per-item results with relation details. ' +
       'Next: Use get_sprint_context or list_issues to verify relations.',
   },
