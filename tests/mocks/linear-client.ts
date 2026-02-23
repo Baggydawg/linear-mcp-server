@@ -368,8 +368,7 @@ export const defaultMockIssues: MockIssue[] = [
     }),
     project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
     assignee: Promise.resolve({ id: 'user-001', name: 'Test User' }),
-    labels: () =>
-      Promise.resolve({ nodes: [{ id: 'label-sqt-bug', name: 'Bug' }] }),
+    labels: () => Promise.resolve({ nodes: [{ id: 'label-sqt-bug', name: 'Bug' }] }),
     attachments: () => Promise.resolve({ nodes: [] }),
     comments: (args) =>
       Promise.resolve({
@@ -438,8 +437,7 @@ export const defaultMockIssues: MockIssue[] = [
     state: Promise.resolve({ id: 'state-sqt-done', name: 'Done', type: 'completed' }),
     project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
     assignee: Promise.resolve({ id: 'user-002', name: 'Jane Doe' }),
-    labels: () =>
-      Promise.resolve({ nodes: [{ id: 'label-sqt-bug', name: 'Bug' }] }),
+    labels: () => Promise.resolve({ nodes: [{ id: 'label-sqt-bug', name: 'Bug' }] }),
     attachments: () => Promise.resolve({ nodes: [] }),
     comments: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
     team: { id: 'team-sqt' },
@@ -629,6 +627,14 @@ export interface MockLinearClient {
     id: string,
     input: Record<string, unknown>,
   ) => Promise<{ success: boolean; projectUpdate?: { id: string } }>;
+  createIssueRelation: (
+    input: Record<string, unknown>,
+  ) => Promise<{ success: boolean; issueRelation?: Record<string, unknown> }>;
+  updateIssueRelation: (
+    id: string,
+    input: Record<string, unknown>,
+  ) => Promise<{ success: boolean; issueRelation?: Record<string, unknown> }>;
+  deleteIssueRelation: (id: string) => Promise<{ success: boolean }>;
   /** Raw GraphQL client for rawRequest calls */
   client: {
     rawRequest: (
@@ -646,6 +652,9 @@ export interface MockLinearClient {
     projectUpdates: Array<Record<string, unknown>>;
     createProjectUpdate: Array<Record<string, unknown>>;
     updateProjectUpdate: Array<{ id: string; input: Record<string, unknown> }>;
+    createIssueRelation: Array<Record<string, unknown>>;
+    updateIssueRelation: Array<{ id: string; input: Record<string, unknown> }>;
+    deleteIssueRelation: Array<string>;
   };
 }
 
@@ -672,6 +681,9 @@ export function createMockLinearClient(
     projectUpdates: [] as Array<Record<string, unknown>>,
     createProjectUpdate: [] as Array<Record<string, unknown>>,
     updateProjectUpdate: [] as Array<{ id: string; input: Record<string, unknown> }>,
+    createIssueRelation: [] as Array<Record<string, unknown>>,
+    updateIssueRelation: [] as Array<{ id: string; input: Record<string, unknown> }>,
+    deleteIssueRelation: [] as Array<string>,
   };
 
   return {
@@ -847,6 +859,32 @@ export function createMockLinearClient(
         success: !!existing,
         projectUpdate: existing ? { id: existing.id } : undefined,
       };
+    }),
+
+    createIssueRelation: vi.fn(async (input: Record<string, unknown>) => {
+      calls.createIssueRelation.push(input);
+      return {
+        success: true,
+        issueRelation: {
+          id: `relation-new-${Date.now()}`,
+          type: input.type,
+          issue: { id: input.issueId, identifier: 'SQT-123' },
+          relatedIssue: { id: input.relatedIssueId, identifier: 'SQT-124' },
+        },
+      };
+    }),
+
+    updateIssueRelation: vi.fn(async (id: string, input: Record<string, unknown>) => {
+      calls.updateIssueRelation.push({ id, input });
+      return {
+        success: true,
+        issueRelation: { id, type: input.type ?? 'related' },
+      };
+    }),
+
+    deleteIssueRelation: vi.fn(async (id: string) => {
+      calls.deleteIssueRelation.push(id);
+      return { success: true };
     }),
 
     // Raw GraphQL client for rawRequest calls (used by list-issues, list-my-issues, etc.)
@@ -1165,6 +1203,9 @@ export function resetMockCalls(client: MockLinearClient): void {
   client._calls.projectUpdates = [];
   client._calls.createProjectUpdate = [];
   client._calls.updateProjectUpdate = [];
+  client._calls.createIssueRelation = [];
+  client._calls.updateIssueRelation = [];
+  client._calls.deleteIssueRelation = [];
 
   // Reset vi.fn() call history
   (client.teams as ReturnType<typeof vi.fn>).mockClear();
@@ -1185,5 +1226,8 @@ export function resetMockCalls(client: MockLinearClient): void {
   (client.projectUpdates as ReturnType<typeof vi.fn>).mockClear();
   (client.createProjectUpdate as ReturnType<typeof vi.fn>).mockClear();
   (client.updateProjectUpdate as ReturnType<typeof vi.fn>).mockClear();
+  (client.createIssueRelation as ReturnType<typeof vi.fn>).mockClear();
+  (client.updateIssueRelation as ReturnType<typeof vi.fn>).mockClear();
+  (client.deleteIssueRelation as ReturnType<typeof vi.fn>).mockClear();
   (client.client.rawRequest as ReturnType<typeof vi.fn>).mockClear();
 }

@@ -243,6 +243,34 @@ export const RELATION_SCHEMA_WITH_ID: ToonSchema = {
 };
 
 /**
+ * Write result schema for relation operations.
+ * Per-item outcome for relation batch operations.
+ *
+ * @example
+ * ```
+ * results[3]{index,status,action,from,type,to,id,error,code,hint}:
+ *   0,ok,create,SQT-123,blocks,SQT-456,rel-uuid-1,,,
+ *   1,ok,delete,,,,rel-uuid-2,,,
+ *   2,error,create,SQT-789,blocks,SQT-000,,Issue not found,ISSUE_NOT_FOUND,Check identifier
+ * ```
+ */
+export const RELATION_WRITE_RESULT_SCHEMA: ToonSchema = {
+  name: 'results',
+  fields: [
+    'index',
+    'status',
+    'action',
+    'from',
+    'type',
+    'to',
+    'id',
+    'error',
+    'code',
+    'hint',
+  ],
+};
+
+/**
  * Attachment schema for read-only output.
  * Dynamic entity - typically read-only context.
  *
@@ -646,6 +674,7 @@ export const WRITE_SCHEMAS = {
   PROJECT_CHANGES: PROJECT_CHANGES_SCHEMA,
   PROJECT_UPDATE_RESULT: PROJECT_UPDATE_WRITE_RESULT_SCHEMA,
   CREATED_PROJECT_UPDATE: CREATED_PROJECT_UPDATE_SCHEMA,
+  RELATION_WRITE_RESULT: RELATION_WRITE_RESULT_SCHEMA,
 } as const;
 
 /**
@@ -679,6 +708,7 @@ export const ALL_SCHEMAS = {
   PROJECT_CHANGES: PROJECT_CHANGES_SCHEMA,
   PROJECT_UPDATE_WRITE_RESULT: PROJECT_UPDATE_WRITE_RESULT_SCHEMA,
   CREATED_PROJECT_UPDATE: CREATED_PROJECT_UPDATE_SCHEMA,
+  RELATION_WRITE_RESULT: RELATION_WRITE_RESULT_SCHEMA,
 
   // Gap analysis
   GAP: GAP_SCHEMA,

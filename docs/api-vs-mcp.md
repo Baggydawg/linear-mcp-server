@@ -134,9 +134,9 @@ This document compares the capabilities of the Linear MCP tools against the nati
 
 | Action | Linear Native SDK | MCP Tool | Notes |
 |--------|-------------------|----------|-------|
-| Create relation | `createIssueRelation()` | ❌ Not implemented | |
-| Update relation | `updateIssueRelation()` | ❌ Not implemented | |
-| Delete relation | `deleteIssueRelation()` | ❌ Not implemented | |
+| Create relation | `createIssueRelation()` | `manage_relations` | action: "create" |
+| Update relation | `updateIssueRelation()` | `manage_relations` | action: "update" |
+| Delete relation | `deleteIssueRelation()` | `manage_relations` | action: "delete" |
 
 ### Attachments
 
@@ -949,7 +949,6 @@ MCP supports full GraphQL-style filtering with comparators:
 - **Cycles**: create/update (only list_cycles available)
 - **Project Milestones**: CRUD operations
 - **Project Updates**: Status reports/health updates
-- **Issue Relations**: blocks/blocked-by/duplicates links
 - **Attachments**: Upload/manage issue attachments
 - **Labels CRUD**: Create/update/delete labels (only read via workspace_metadata)
 - **Workflow States CRUD**: Manage workflow states (only read via workspace_metadata)

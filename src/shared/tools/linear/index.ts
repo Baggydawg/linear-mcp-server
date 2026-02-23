@@ -10,6 +10,8 @@ export { getIssuesTool } from './get-issues.js';
 export { getSprintContextTool } from './get-sprint-context.js';
 // Issues
 export { listIssuesTool } from './list-issues.js';
+// Relations
+export { manageRelationsTool } from './manage-relations.js';
 // Project Updates
 export {
   createProjectUpdateTool,

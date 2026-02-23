@@ -160,6 +160,24 @@ export const toolsMetadata = {
       'Update existing comment bodies. Cannot delete comments (by design). Inputs: { items: Array<{ id: string; body: string }> }.\nReturns: per-item results and a summary. Next: Use list_comments to verify changes.',
   },
 
+  manage_relations: {
+    name: 'manage_relations',
+    title: 'Manage Issue Relations',
+    description:
+      'Create, update, or delete issue relations (blocks, related, duplicate) in batch. ' +
+      'Inputs: { items: Array<{ action: "create"|"update"|"delete", ... }> }.\n\n' +
+      'CREATE: { action: "create", issueId: "SQT-123", relatedIssueId: "SQT-456", type: "blocks"|"related"|"duplicate" }\n' +
+      '- For "blocks": issueId blocks relatedIssueId (relatedIssueId is blocked BY issueId)\n' +
+      '- For "duplicate": issueId is a duplicate of relatedIssueId\n' +
+      '- For "related": direction does not matter\n\n' +
+      'UPDATE: { action: "update", id: "<relation-uuid>", type: "blocks"|"related"|"duplicate" }\n' +
+      '- Changes the relation type. Get relation UUIDs from get_sprint_context (includeRelations: true).\n\n' +
+      'DELETE: { action: "delete", id: "<relation-uuid>" }\n' +
+      '- Removes the relation. Get relation UUIDs from get_sprint_context (includeRelations: true).\n\n' +
+      'Returns: per-item results with relation details. ' +
+      'Next: Use get_sprint_context or list_issues to verify relations.',
+  },
+
   list_cycles: {
     name: 'list_cycles',
     title: 'List Cycles',
