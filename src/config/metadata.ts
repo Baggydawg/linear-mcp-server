@@ -102,21 +102,21 @@ export const toolsMetadata = {
     name: 'list_projects',
     title: 'List Projects',
     description:
-      "List projects with filtering and pagination. Inputs: filter? (ProjectFilter: id/state/accessibleTeams/lead/targetDate), includeArchived?, limit?, cursor?. For a single project, set filter.id.eq and limit=1.\nReturns: { items[], cursor?, nextCursor?, limit? } where items include id, name, state, leadId?, teamId?, targetDate?, description?. Next: Use 'update_projects' to modify or 'list_issues' with projectId to find issues.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities. Projects use short keys (pr0, pr1) in output.",
+      "List projects with filtering and pagination. Inputs: team? (team key like 'SQM' or UUID — overrides DEFAULT_TEAM), filter? (ProjectFilter: id/state/accessibleTeams/lead/targetDate), includeArchived?, limit?, cursor?. For a single project, set filter.id.eq and limit=1.\nReturns: { items[], cursor?, nextCursor?, limit? } where items include id, name, state, leadId?, teamId?, targetDate?, description?. Next: Use 'update_projects' to modify or 'list_issues' with projectId to find issues.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities. Projects use short keys (pr0, pr1) in output.",
   },
 
   create_projects: {
     name: 'create_projects',
     title: 'Create Projects (Batch)',
     description:
-      'Create multiple projects in one call. Inputs: { items: Array<{ name: string; teamId?: string; leadId?: string; description?: string; targetDate?: string; state?: string }> }.\nNotes: team association uses teamIds internally; provide teamId to attach initially. Returns: per-item results and a summary.',
+      'Create multiple projects in one call. Inputs: { items: Array<{ name: string; teamId?: string; teamIds?: string[]; leadId?: string; description?: string; targetDate?: string; state?: string }> }.\nNotes: Use teamIds for multi-team projects (e.g., teamIds: ["SQT", "SQM"]). Accepts team keys or UUIDs. Use teamId for single-team (backward compatible). Returns: per-item results and a summary.',
   },
 
   update_projects: {
     name: 'update_projects',
     title: 'Update Projects (Batch)',
     description:
-      "Update multiple projects in one call. Inputs: { items: Array<{ id: string; name?: string; description?: string; targetDate?: string; state?: string; leadId?: string; archived?: boolean }> }.\nReturns: per-item results and a summary. Next: verify with 'list_projects' (filter.id.eq, limit=1); discover via 'list_projects'.",
+      "Update multiple projects in one call. Inputs: { items: Array<{ id: string; name?: string; description?: string; targetDate?: string; state?: string; leadId?: string; teamIds?: string[]; archived?: boolean }> }.\nNotes: teamIds replaces all team associations (e.g., teamIds: ['SQT', 'SQM'] to make a project span both teams). Accepts team keys or UUIDs.\nReturns: per-item results and a summary. Next: verify with 'list_projects' (filter.id.eq, limit=1); discover via 'list_projects'.",
   },
 
   create_project_update: {

@@ -597,3 +597,130 @@ describe('update_projects TOON output', () => {
     expect(textContent).toContain('{index,status,key,error,code,hint}');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-Team & Team Parameter Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_projects team parameter', () => {
+  it('filters by team parameter (team key)', async () => {
+    const result = await listProjectsTool.handler({ team: 'ENG' }, baseContext);
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.projects).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter: expect.objectContaining({
+          accessibleTeams: { id: { eq: 'team-eng' } },
+        }),
+      }),
+    );
+  });
+
+  it('filters by team parameter (UUID passthrough)', async () => {
+    const result = await listProjectsTool.handler({ team: 'team-eng' }, baseContext);
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.projects).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter: expect.objectContaining({
+          accessibleTeams: { id: { eq: 'team-eng' } },
+        }),
+      }),
+    );
+  });
+
+  it('rejects team + filter.accessibleTeams conflict', async () => {
+    const result = await listProjectsTool.handler(
+      { team: 'SQT', filter: { accessibleTeams: { id: { eq: 'team-eng' } } } },
+      baseContext,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Cannot specify both');
+  });
+
+  it('resolves team key in filter.accessibleTeams', async () => {
+    const result = await listProjectsTool.handler(
+      { filter: { accessibleTeams: { id: { eq: 'ENG' } } } },
+      baseContext,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.projects).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter: expect.objectContaining({
+          accessibleTeams: { id: { eq: 'team-eng' } },
+        }),
+      }),
+    );
+  });
+
+  it('team param overrides DEFAULT_TEAM', async () => {
+    const { config } = await import('../../src/config/env.js');
+    const original = config.DEFAULT_TEAM;
+    try {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = 'SQT';
+      const result = await listProjectsTool.handler({ team: 'SQM' }, baseContext);
+      expect(result.isError).toBeFalsy();
+      expect(mockClient.projects).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: expect.objectContaining({
+            accessibleTeams: { id: { eq: 'team-sqm' } },
+          }),
+        }),
+      );
+    } finally {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = original;
+    }
+  });
+});
+
+describe('create_projects multi-team support', () => {
+  it('creates project with multiple teams via teamIds', async () => {
+    const result = await createProjectsTool.handler(
+      { items: [{ name: 'Cross-Team Project', teamIds: ['SQT', 'SQM'] }] },
+      baseContext,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamIds: ['team-sqt', 'team-sqm'],
+      }),
+    );
+  });
+
+  it('rejects teamId + teamIds conflict', async () => {
+    const result = await createProjectsTool.handler(
+      { items: [{ name: 'Conflict', teamId: 'SQT', teamIds: ['SQM'] }] },
+      baseContext,
+    );
+    expect(result.isError).toBeFalsy(); // Per-item error, not tool-level
+    const text = result.content[0].text;
+    expect(text).toContain('CONFLICTING_PARAMS');
+  });
+
+  it('backward compat: single teamId still works', async () => {
+    const result = await createProjectsTool.handler(
+      { items: [{ name: 'Single Team', teamId: 'ENG' }] },
+      baseContext,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.createProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamIds: ['team-eng'],
+      }),
+    );
+  });
+});
+
+describe('update_projects teamIds support', () => {
+  it('updates project team associations via teamIds', async () => {
+    const result = await updateProjectsTool.handler(
+      { items: [{ id: 'project-001', teamIds: ['SQT', 'SQM'] }] },
+      baseContext,
+    );
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.updateProject).toHaveBeenCalledWith(
+      'project-001',
+      expect.objectContaining({
+        teamIds: ['team-sqt', 'team-sqm'],
+      }),
+    );
+  });
+});

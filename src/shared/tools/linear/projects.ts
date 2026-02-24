@@ -260,6 +260,12 @@ function buildProjectsToonResponse(
 
 // List Projects
 const ListProjectsInputSchema = z.object({
+  team: z
+    .string()
+    .optional()
+    .describe(
+      'Team key (e.g., "SQM") or UUID. Filters to projects accessible by this team. Overrides DEFAULT_TEAM.',
+    ),
   limit: z
     .number()
     .int()
@@ -301,9 +307,62 @@ export const listProjectsTool = defineTool({
     const after = args.cursor;
     let filter = args.filter as Record<string, unknown> | undefined;
 
-    // Apply team filter if DEFAULT_TEAM configured and no team filter in args
-    // Note: ProjectFilter uses 'accessibleTeams' (TeamCollectionFilter), not 'team'
-    if (!filter?.accessibleTeams && config.DEFAULT_TEAM) {
+    // Conflict: team param + filter.accessibleTeams
+    if (args.team && filter?.accessibleTeams) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: 'text',
+            text: "Cannot specify both 'team' and 'filter.accessibleTeams'. Use one or the other.",
+          },
+        ],
+      };
+    }
+
+    // Resolve team param to UUID
+    let resolvedTeamId: string | undefined;
+    if (args.team) {
+      const teamResult = await resolveTeamId(client, args.team);
+      if (!teamResult.success) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: teamResult.error }],
+        };
+      }
+      resolvedTeamId = teamResult.value;
+    }
+
+    // Resolve team key in filter.accessibleTeams if present (user may pass key instead of UUID)
+    if (
+      !resolvedTeamId &&
+      filter?.accessibleTeams &&
+      typeof (filter.accessibleTeams as Record<string, unknown>)?.id === 'object'
+    ) {
+      const accessibleTeams = filter.accessibleTeams as Record<string, unknown>;
+      const idFilter = accessibleTeams.id as Record<string, unknown> | undefined;
+      if (idFilter?.eq && typeof idFilter.eq === 'string') {
+        const teamValue = idFilter.eq as string;
+        if (!teamValue.includes('-') && teamValue.length <= 20) {
+          const resolved = await resolveTeamId(client, teamValue);
+          if (resolved.success) {
+            filter = {
+              ...filter,
+              accessibleTeams: {
+                ...accessibleTeams,
+                id: { ...idFilter, eq: resolved.value },
+              },
+            };
+          }
+        }
+      }
+    }
+
+    // Apply team filter from resolved team param
+    if (resolvedTeamId) {
+      filter = { ...filter, accessibleTeams: { id: { eq: resolvedTeamId } } };
+    } else if (!filter?.accessibleTeams && config.DEFAULT_TEAM) {
+      // Fall back to DEFAULT_TEAM if no team specified
       const resolved = await resolveTeamId(client, config.DEFAULT_TEAM);
       if (resolved.success) {
         filter = { ...filter, accessibleTeams: { id: { eq: resolved.value } } };
@@ -383,7 +442,13 @@ const CreateProjectsInputSchema = z.object({
         teamId: z
           .string()
           .optional()
-          .describe('Team UUID or key (e.g., "SQT") to associate.'),
+          .describe('Team UUID or key (e.g., "SQT") to associate. For single-team projects.'),
+        teamIds: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Team UUIDs or keys (e.g., ["SQT", "SQM"]) to associate. For multi-team projects. Alternative to teamId.',
+          ),
         leadId: z
           .string()
           .optional()
@@ -465,17 +530,36 @@ export const createProjectsTool = defineTool({
           }
         }
 
-        // Resolve team from key or UUID (with batch-level caching)
+        // Resolve team(s) from key or UUID (with batch-level caching)
+        // Supports both teamId (single, backward compat) and teamIds (multiple)
         let resolvedTeamIds: string[] = [];
-        if (it.teamId) {
-          const cacheKey = it.teamId.toLowerCase();
+
+        if (it.teamId && it.teamIds && it.teamIds.length > 0) {
+          results.push({
+            input: { name: it.name, teamId: it.teamId },
+            success: false,
+            error: {
+              code: 'CONFLICTING_PARAMS',
+              message:
+                "Cannot specify both 'teamId' and 'teamIds'. Use one or the other.",
+              suggestions: [],
+            },
+            index: i,
+            ok: false,
+          });
+          continue;
+        }
+
+        const teamInputs = it.teamIds ?? (it.teamId ? [it.teamId] : []);
+        for (const teamInput of teamInputs) {
+          const cacheKey = teamInput.toLowerCase();
           let resolvedTeamId = teamKeyCache.get(cacheKey);
 
           if (!resolvedTeamId) {
-            const teamResult = await resolveTeamId(client, it.teamId);
+            const teamResult = await resolveTeamId(client, teamInput);
             if (!teamResult.success) {
               results.push({
-                input: { name: it.name, teamId: it.teamId },
+                input: { name: it.name, teamId: teamInput },
                 success: false,
                 error: {
                   code: 'TEAM_RESOLUTION_FAILED',
@@ -485,12 +569,17 @@ export const createProjectsTool = defineTool({
                 index: i,
                 ok: false,
               });
-              continue;
+              break;
             }
             resolvedTeamId = teamResult.value;
             teamKeyCache.set(cacheKey, resolvedTeamId);
           }
-          resolvedTeamIds = [resolvedTeamId];
+          resolvedTeamIds.push(resolvedTeamId);
+        }
+
+        // Skip if team resolution failed (error already pushed above)
+        if (teamInputs.length > 0 && resolvedTeamIds.length !== teamInputs.length) {
+          continue;
         }
 
         const call = () =>
@@ -632,6 +721,12 @@ const UpdateProjectsInputSchema = z.object({
           .optional()
           .describe('New lead user UUID or short key (u0, u1...).'),
         lead: z.string().optional().describe('New lead user short key (u0, u1...).'),
+        teamIds: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Replace team associations. Team UUIDs or keys (e.g., ["SQT", "SQM"]). Sets all teams for this project.',
+          ),
         targetDate: z.string().optional().describe('New target date (YYYY-MM-DD).'),
         state: z
           .string()
@@ -761,6 +856,33 @@ export const updateProjectsTool = defineTool({
           }
         }
 
+        // Resolve teamIds if provided
+        let resolvedTeamIds: string[] | undefined;
+        if (it.teamIds && it.teamIds.length > 0) {
+          resolvedTeamIds = [];
+          let teamResolutionFailed = false;
+          for (const teamInput of it.teamIds) {
+            const teamResult = await resolveTeamId(client, teamInput);
+            if (!teamResult.success) {
+              results.push({
+                input: { id: it.id, name: it.name, state: it.state },
+                success: false,
+                error: {
+                  code: 'TEAM_RESOLUTION_FAILED',
+                  message: teamResult.error,
+                  suggestions: teamResult.suggestions ?? [],
+                },
+                index: i,
+                ok: false,
+              });
+              teamResolutionFailed = true;
+              break;
+            }
+            resolvedTeamIds.push(teamResult.value);
+          }
+          if (teamResolutionFailed) continue;
+        }
+
         // Capture BEFORE snapshot for diff
         const beforeSnapshot = await gate(() =>
           captureProjectSnapshot(client, resolvedProjectId),
@@ -773,6 +895,7 @@ export const updateProjectsTool = defineTool({
         if (resolvedLeadId) updatePayload.leadId = resolvedLeadId;
         if (it.targetDate) updatePayload.targetDate = it.targetDate;
         if (it.state) updatePayload.state = it.state;
+        if (resolvedTeamIds) updatePayload.teamIds = resolvedTeamIds;
 
         const call = () => client.updateProject(resolvedProjectId, updatePayload);
 
