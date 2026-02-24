@@ -221,6 +221,9 @@ describe('workspace_metadata handler', () => {
   });
 
   it('filters teams by teamIds when provided', async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+    clearRegistry(baseContext.sessionId);
+
     const result = await workspaceMetadataTool.handler(
       { teamIds: ['team-eng'] },
       baseContext,
@@ -231,10 +234,18 @@ describe('workspace_metadata handler', () => {
     // Verify teams() was called to fetch all teams (needed for registry)
     expect(mockClient.teams).toHaveBeenCalled();
 
-    // Verify the TOON output contains only the filtered team
-    // Note: The registry internally has all teams, but TOON output is filtered
-    const textContent = result.content[0].text;
-    expect(textContent).toContain('_teams[');
+    const text = result.content[0].text;
+
+    // _teams shows ALL teams (not just filtered)
+    expect(text).toMatch(/_teams\[4\]/);
+
+    // But states should only include ENG states (not SQT/DES/SQM)
+    const statesSection = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+    expect(statesSection).not.toBeNull();
+    expect(statesSection![1]).not.toContain('In Review'); // SQT-only state
+    expect(statesSection![1]).not.toContain('Pending'); // SQM-only state
+
+    clearRegistry(baseContext.sessionId);
   });
 });
 
@@ -296,7 +307,7 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     clearRegistry(baseContext.sessionId);
   });
 
-  it('teams filtered to DEFAULT_TEAM when set', async () => {
+  it('DEFAULT_TEAM filters states but shows all teams', async () => {
     const { config } = await import('../../src/config/env.js');
     const { clearRegistry } = await import('../../src/shared/toon/registry.js');
 
@@ -313,23 +324,14 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
 
       const text = result.content[0].text;
 
-      // The _teams section should contain SQT
+      // _teams should show ALL 4 teams (not just SQT)
+      expect(text).toMatch(/_teams\[4\]/);
       expect(text).toContain('SQT');
       expect(text).toContain('Squad Testing');
 
-      // Extract the _teams section and verify it only contains the filtered team
-      const teamsMatch = text.match(/_teams\[(\d+)\]/);
-      expect(teamsMatch).not.toBeNull();
-      // With DEFAULT_TEAM=SQT, only 1 team should be shown
-      expect(teamsMatch![1]).toBe('1');
-
-      // ENG and DES teams should NOT appear in the _teams section
-      // Find the _teams section content
-      const teamsSectionMatch = text.match(/_teams\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
-      expect(teamsSectionMatch).not.toBeNull();
-      const teamsContent = teamsSectionMatch![1];
-      expect(teamsContent).not.toContain('ENG');
-      expect(teamsContent).not.toContain('DES');
+      // States should be filtered to SQT only — no SQM states
+      expect(text).not.toContain('Pending'); // SQM state
+      expect(text).not.toContain('Resolved'); // SQM state
     } finally {
       // Restore original config
       (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = originalDefaultTeam;
@@ -455,6 +457,115 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     } finally {
       // Restore original cycles to avoid polluting other tests
       sqtTeam!.cycles = originalCycles;
+    }
+  });
+
+  it('resolves team keys in teamIds (not just UUIDs)', async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+    clearRegistry(baseContext.sessionId);
+
+    const result = await workspaceMetadataTool.handler({ teamIds: ['ENG'] }, baseContext);
+    expect(result.isError).toBeFalsy();
+    const text = result.content[0].text;
+
+    // States should be filtered to ENG team only
+    const statesSection = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+    expect(statesSection).not.toBeNull();
+    expect(statesSection![1]).not.toContain('In Review'); // SQT-only
+    expect(statesSection![1]).not.toContain('Pending'); // SQM-only
+
+    // _meta should show ENG as the team
+    expect(text).toMatch(/_meta\{[^}]+\}:\n\s+[^,]+,ENG,/);
+
+    clearRegistry(baseContext.sessionId);
+  });
+
+  it('teamIds overrides DEFAULT_TEAM for output filtering', async () => {
+    const { config } = await import('../../src/config/env.js');
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+
+    const originalDefault = config.DEFAULT_TEAM;
+    try {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = 'SQT';
+      clearRegistry(baseContext.sessionId);
+
+      const result = await workspaceMetadataTool.handler(
+        { teamIds: ['SQM'] },
+        baseContext,
+      );
+      expect(result.isError).toBeFalsy();
+      const text = result.content[0].text;
+
+      // _meta should show SQM (the requested team), not SQT (the default)
+      expect(text).toMatch(/_meta\{[^}]+\}:\n\s+[^,]+,SQM,/);
+
+      // States should include SQM states (Pending, Active, Resolved)
+      expect(text).toContain('Pending');
+      expect(text).toContain('Active');
+      expect(text).toContain('Resolved');
+
+      // States should NOT include SQT-only states
+      expect(text).not.toContain('In Review');
+
+      clearRegistry(baseContext.sessionId);
+    } finally {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = originalDefault;
+    }
+  });
+
+  it('registry maintains team-prefixed keys when teamIds overrides DEFAULT_TEAM', async () => {
+    const { config } = await import('../../src/config/env.js');
+    const { clearRegistry, getStoredRegistry } = await import(
+      '../../src/shared/toon/registry.js'
+    );
+
+    const originalDefault = config.DEFAULT_TEAM;
+    try {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = 'SQT';
+      clearRegistry(baseContext.sessionId);
+
+      // Call with explicit SQM team
+      await workspaceMetadataTool.handler({ teamIds: ['SQM'] }, baseContext);
+
+      // Registry should still have defaultTeamId=SQT for key prefixing
+      const registry = getStoredRegistry(baseContext.sessionId);
+      expect(registry).not.toBeNull();
+
+      // SQM states should have prefixed keys (sqm:s0, sqm:s1...)
+      const sqmStateKeys = [...registry!.states.entries()].filter(([key]) =>
+        key.startsWith('sqm:'),
+      );
+      expect(sqmStateKeys.length).toBeGreaterThan(0);
+
+      clearRegistry(baseContext.sessionId);
+    } finally {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = originalDefault;
+    }
+  });
+
+  it('_teams section shows all workspace teams regardless of filter', async () => {
+    const { config } = await import('../../src/config/env.js');
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+
+    const originalDefault = config.DEFAULT_TEAM;
+    try {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = 'SQT';
+      clearRegistry(baseContext.sessionId);
+
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+      expect(result.isError).toBeFalsy();
+      const text = result.content[0].text;
+
+      // _teams should list ALL 4 teams, not just SQT
+      expect(text).toMatch(/_teams\[4\]/);
+      expect(text).toContain('SQT');
+      expect(text).toContain('ENG');
+      expect(text).toContain('DES');
+      expect(text).toContain('SQM');
+
+      clearRegistry(baseContext.sessionId);
+    } finally {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = originalDefault;
     }
   });
 

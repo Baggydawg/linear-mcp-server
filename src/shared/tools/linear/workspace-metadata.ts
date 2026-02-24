@@ -39,7 +39,9 @@ const InputSchema = z.object({
   teamIds: z
     .array(z.string())
     .optional()
-    .describe('Filter to specific team UUIDs. If omitted, fetches all teams.'),
+    .describe(
+      'Filter to specific teams by key (e.g., "SQM") or UUID. Overrides DEFAULT_TEAM when provided.',
+    ),
   project_limit: z
     .number()
     .int()
@@ -353,21 +355,33 @@ export const workspaceMetadataTool = defineTool({
     let defaultTeamUuid: string | undefined;
     let teamIdsFilter = new Set<string>();
 
-    if (args.teamIds && args.teamIds.length > 0) {
-      // User provided explicit team IDs - use them for filtering
-      teamIdsFilter = new Set(args.teamIds);
-    } else if (config.DEFAULT_TEAM) {
-      // Fall back to DEFAULT_TEAM, resolving key to UUID if needed
+    // Always resolve DEFAULT_TEAM for registry key prefixing (clean keys vs prefixed)
+    if (config.DEFAULT_TEAM) {
       const resolved = await resolveTeamId(client, config.DEFAULT_TEAM);
       if (resolved.success) {
         defaultTeamUuid = resolved.value;
-        teamIdsFilter.add(resolved.value);
       } else {
-        // Log warning but continue - will fetch all teams
         console.warn(
           `DEFAULT_TEAM '${config.DEFAULT_TEAM}' could not be resolved: ${resolved.error}`,
         );
       }
+    }
+
+    // Resolve teamIds filter (accepts team keys or UUIDs)
+    if (args.teamIds && args.teamIds.length > 0) {
+      for (const idOrKey of args.teamIds) {
+        const resolved = await resolveTeamId(client, idOrKey);
+        if (resolved.success) {
+          teamIdsFilter.add(resolved.value);
+        } else {
+          console.warn(
+            `teamIds value '${idOrKey}' could not be resolved: ${resolved.error}`,
+          );
+        }
+      }
+    } else if (defaultTeamUuid) {
+      // No explicit teamIds — fall back to DEFAULT_TEAM for filtering
+      teamIdsFilter.add(defaultTeamUuid);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -421,7 +435,8 @@ export const workspaceMetadataTool = defineTool({
         filteredTeams = allTeams;
       }
 
-      workspaceData.teams = filteredTeams.map((t) => ({
+      // Show ALL teams so Claude knows workspace structure (filtered teams used for states/labels/cycles)
+      workspaceData.teams = allTeams.map((t) => ({
         id: t.id,
         key: t.key ?? undefined,
         name: t.name,
@@ -672,8 +687,14 @@ export const workspaceMetadataTool = defineTool({
     // Return TOON format
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Build TOON response
-    const toonResponse = buildToonResponse(workspaceData, registry, config.DEFAULT_TEAM);
+    // _meta.team: show explicitly requested team if teamIds provided, otherwise DEFAULT_TEAM
+    const metaTeamKey =
+      args.teamIds && args.teamIds.length > 0 && filteredTeams.length > 0
+        ? filteredTeams.length === 1
+          ? (filteredTeams[0].key ?? filteredTeams[0].name)
+          : filteredTeams.map((t) => t.key ?? t.name).join(',')
+        : config.DEFAULT_TEAM;
+    const toonResponse = buildToonResponse(workspaceData, registry, metaTeamKey);
     const toonOutput = encodeResponse(workspaceData, toonResponse);
 
     return {
