@@ -308,8 +308,9 @@ function calculateGaps(issues: RawIssueData[], relations: RawRelationData[]): Ga
 function issueToToonRow(
   issue: RawIssueData,
   registry: ShortKeyRegistry | null,
+  fallbackUserMap?: Map<string, string>,
 ): ToonRow {
-  const assigneeKey =
+  let assigneeKey =
     registry && issue.assignee?.id
       ? tryGetShortKey(registry, 'user', issue.assignee.id)
       : undefined;
@@ -321,10 +322,18 @@ function issueToToonRow(
     registry && issue.project?.id
       ? tryGetShortKey(registry, 'project', issue.project.id)
       : undefined;
-  const creatorKey =
+  let creatorKey =
     registry && issue.creator?.id
       ? tryGetShortKey(registry, 'user', issue.creator.id)
       : undefined;
+
+  // Fallback to external user keys if not found in registry
+  if (!assigneeKey && fallbackUserMap && issue.assignee?.id) {
+    assigneeKey = fallbackUserMap.get(issue.assignee.id);
+  }
+  if (!creatorKey && fallbackUserMap && issue.creator?.id) {
+    creatorKey = fallbackUserMap.get(issue.creator.id);
+  }
 
   // Collect label names as comma-separated string
   const labelNames = (issue.labels ?? []).map((l) => l.name).join(',');
@@ -359,11 +368,17 @@ function issueToToonRow(
 function commentToToonRow(
   comment: RawCommentData,
   registry: ShortKeyRegistry | null,
+  fallbackUserMap?: Map<string, string>,
 ): ToonRow {
-  const userKey =
+  let userKey =
     registry && comment.user?.id
       ? tryGetShortKey(registry, 'user', comment.user.id)
       : undefined;
+
+  // Fallback to external user key if not found in registry
+  if (!userKey && fallbackUserMap && comment.user?.id) {
+    userKey = fallbackUserMap.get(comment.user.id);
+  }
 
   return {
     issue: comment.issueIdentifier,
@@ -440,14 +455,18 @@ function buildUserLookup(
   referencedIds: Set<string>,
   issues: RawIssueData[],
   comments: RawCommentData[],
-): ToonSection {
+): { section: ToonSection; fallbackMap: Map<string, string> } {
   const items: ToonRow[] = [];
+  const fallbackMap = new Map<string, string>();
 
-  // Build name map from issues and comments as fallback
+  // Build name map from assignees, creators, and comment authors as fallback
   const userInfo = new Map<string, { name?: string }>();
   for (const issue of issues) {
     if (issue.assignee?.id) {
       userInfo.set(issue.assignee.id, { name: issue.assignee.name });
+    }
+    if (issue.creator?.id) {
+      userInfo.set(issue.creator.id, { name: issue.creator.name });
     }
   }
   for (const comment of comments) {
@@ -456,8 +475,12 @@ function buildUserLookup(
     }
   }
 
-  for (const [shortKey, uuid] of registry.users) {
-    if (referencedIds.has(uuid)) {
+  let extCounter = 0;
+
+  for (const uuid of referencedIds) {
+    const shortKey = registry.usersByUuid.get(uuid);
+    if (shortKey) {
+      // Registered user — use registry metadata
       const metadata = getUserMetadata(registry, uuid);
       const fallbackInfo = userInfo.get(uuid);
       items.push({
@@ -468,17 +491,35 @@ function buildUserLookup(
         role: metadata?.role ?? '',
         teams: metadata?.teams?.join(',') || '',
       });
+    } else {
+      // Unregistered / external user — create ext entry
+      const extKey = `ext${extCounter++}`;
+      const info = userInfo.get(uuid);
+      items.push({
+        key: extKey,
+        name: info?.name ?? 'Unknown User',
+        displayName: '',
+        email: '',
+        role: '(external)',
+        teams: '',
+      });
+      fallbackMap.set(uuid, extKey);
     }
   }
 
-  // Sort by key number
+  // Sort: registry users (u*) first, then ext*, numeric within each group
   items.sort((a, b) => {
-    const numA = parseInt(String(a.key).replace('u', ''), 10);
-    const numB = parseInt(String(b.key).replace('u', ''), 10);
+    const keyA = String(a.key);
+    const keyB = String(b.key);
+    const isExtA = keyA.startsWith('ext');
+    const isExtB = keyB.startsWith('ext');
+    if (isExtA !== isExtB) return isExtA ? 1 : -1;
+    const numA = parseInt(keyA.replace(/^(u|ext)/, ''), 10);
+    const numB = parseInt(keyB.replace(/^(u|ext)/, ''), 10);
     return numA - numB;
   });
 
-  return { schema: USER_LOOKUP_SCHEMA, items };
+  return { section: { schema: USER_LOOKUP_SCHEMA, items }, fallbackMap };
 }
 
 function buildStateLookup(
@@ -548,11 +589,12 @@ function buildProjectLookup(
         name: metadata?.name ?? issueInfo?.name ?? '',
         state: metadata?.state ?? '',
         priority: metadata?.priority ?? null,
-        progress: metadata?.progress !== undefined
-          ? Math.round(metadata.progress * 100) / 100
-          : null,
+        progress:
+          metadata?.progress !== undefined
+            ? Math.round(metadata.progress * 100) / 100
+            : null,
         lead: metadata?.leadId
-          ? tryGetShortKey(registry, 'user', metadata.leadId) ?? ''
+          ? (tryGetShortKey(registry, 'user', metadata.leadId) ?? '')
           : '',
         targetDate: metadata?.targetDate ?? '',
       });
@@ -599,6 +641,7 @@ async function fetchWorkspaceDataForRegistry(
   const teamsConn = await client.teams({ first: 100 });
   const teamsNodes = teamsConn.nodes ?? [];
   const states: RegistryBuildData['states'] = [];
+  const userTeamMap = new Map<string, string[]>();
 
   for (const team of teamsNodes) {
     const statesConn = await (
@@ -622,7 +665,27 @@ async function fetchWorkspaceDataForRegistry(
         teamId: team.id,
       });
     }
+
+    // Fetch team members for team membership column
+    const teamKey = (team as unknown as { key?: string }).key ?? team.id;
+    const membersConn = await (
+      team as unknown as {
+        members: (opts: { first: number }) => Promise<{ nodes: Array<{ id: string }> }>;
+      }
+    ).members({ first: 200 });
+    for (const member of membersConn.nodes ?? []) {
+      if (!userTeamMap.has(member.id)) {
+        userTeamMap.set(member.id, []);
+      }
+      userTeamMap.get(member.id)!.push(teamKey);
+    }
   }
+
+  // Enrich users with team membership
+  const usersWithTeams = users.map((u) => ({
+    ...u,
+    teams: userTeamMap.get(u.id) ?? [],
+  }));
 
   // Fetch projects with full metadata
   const projectsConn = await client.projects({ first: 100 });
@@ -660,7 +723,7 @@ async function fetchWorkspaceDataForRegistry(
     defaultTeamId = matchedTeam?.id;
   }
 
-  return { users, states, projects, workspaceId, teams, defaultTeamId };
+  return { users: usersWithTeams, states, projects, workspaceId, teams, defaultTeamId };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -701,9 +764,16 @@ function buildSprintContextResponse(
 
   // Build lookup sections
   const lookups: ToonSection[] = [];
+  let fallbackMap: Map<string, string> = new Map();
 
   if (registry && refs.userIds.size > 0) {
-    const userLookup = buildUserLookup(registry, refs.userIds, issues, comments);
+    const { section: userLookup, fallbackMap: userFallbackMap } = buildUserLookup(
+      registry,
+      refs.userIds,
+      issues,
+      comments,
+    );
+    fallbackMap = userFallbackMap;
     if (userLookup.items.length > 0) {
       lookups.push(userLookup);
     }
@@ -727,14 +797,14 @@ function buildSprintContextResponse(
   const data: ToonSection[] = [];
 
   // Issues section
-  const issueRows = issues.map((issue) => issueToToonRow(issue, registry));
+  const issueRows = issues.map((issue) => issueToToonRow(issue, registry, fallbackMap));
   if (issueRows.length > 0) {
     data.push({ schema: SPRINT_ISSUE_SCHEMA, items: issueRows });
   }
 
   // Comments section
   if (comments.length > 0) {
-    const commentRows = comments.map((c) => commentToToonRow(c, registry));
+    const commentRows = comments.map((c) => commentToToonRow(c, registry, fallbackMap));
     data.push({ schema: COMMENT_SCHEMA, items: commentRows });
   }
 

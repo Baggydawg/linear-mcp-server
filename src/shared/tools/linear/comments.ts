@@ -70,6 +70,8 @@ async function fetchWorkspaceDataForRegistry(
   const teamsNodes = teamsConn.nodes ?? [];
   const states: RegistryBuildData['states'] = [];
 
+  const userTeamMap = new Map<string, string[]>();
+
   for (const team of teamsNodes) {
     const statesConn = await (
       team as unknown as {
@@ -92,7 +94,27 @@ async function fetchWorkspaceDataForRegistry(
         teamId: team.id,
       });
     }
+
+    // Fetch team members for team membership column
+    const teamKey = (team as unknown as { key?: string }).key ?? team.id;
+    const membersConn = await (
+      team as unknown as {
+        members: (opts: { first: number }) => Promise<{ nodes: Array<{ id: string }> }>;
+      }
+    ).members({ first: 200 });
+    for (const member of membersConn.nodes ?? []) {
+      if (!userTeamMap.has(member.id)) {
+        userTeamMap.set(member.id, []);
+      }
+      userTeamMap.get(member.id)!.push(teamKey);
+    }
   }
+
+  // Enrich users with team membership
+  const usersWithTeams = users.map((u) => ({
+    ...u,
+    teams: userTeamMap.get(u.id) ?? [],
+  }));
 
   // Fetch projects with full metadata
   const projectsConn = await client.projects({ first: 100 });
@@ -124,7 +146,7 @@ async function fetchWorkspaceDataForRegistry(
     defaultTeamId = matchedTeam?.id;
   }
 
-  return { users, states, projects, workspaceId, teams, defaultTeamId };
+  return { users: usersWithTeams, states, projects, workspaceId, teams, defaultTeamId };
 }
 
 /**
@@ -184,13 +206,13 @@ function buildCommentAuthorLookup(
     }
   }
 
-  // Track which userIds we've added to the lookup
-  const addedUserIds = new Set<string>();
-
-  // Build lookup items from registry users
+  // Build lookup items - single pass over userIds using usersByUuid
   const items: ToonRow[] = [];
-  for (const [shortKey, uuid] of registry.users) {
-    if (userIds.has(uuid)) {
+  const fallbackMap = new Map<string, string>();
+  let extIndex = 0;
+  for (const uuid of userIds) {
+    const shortKey = registry.usersByUuid.get(uuid);
+    if (shortKey) {
       const metadata = getUserMetadata(registry, uuid);
       items.push({
         key: shortKey,
@@ -200,17 +222,8 @@ function buildCommentAuthorLookup(
         role: metadata?.role ?? '',
         teams: metadata?.teams?.join(',') || '',
       });
-      addedUserIds.add(uuid);
-    }
-  }
-
-  // Build fallback map for users not in registry (external/deactivated users)
-  // Use ad-hoc keys like "ext0", "ext1", etc.
-  const fallbackMap = new Map<string, string>();
-  let extIndex = 0;
-  for (const userId of userIds) {
-    if (!addedUserIds.has(userId)) {
-      const userName = userIdToName.get(userId) ?? 'Unknown User';
+    } else {
+      const userName = userIdToName.get(uuid) ?? 'Unknown User';
       const adHocKey = `ext${extIndex}`;
       extIndex++;
 
@@ -225,7 +238,7 @@ function buildCommentAuthorLookup(
       });
 
       // Add to fallback map for use in commentToToonRow
-      fallbackMap.set(userId, adHocKey);
+      fallbackMap.set(uuid, adHocKey);
     }
   }
 

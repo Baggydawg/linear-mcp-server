@@ -84,6 +84,7 @@ async function fetchWorkspaceDataForRegistry(
   const teamsConn = await client.teams({ first: 100 });
   const teamsNodes = teamsConn.nodes ?? [];
   const states: RegistryBuildData['states'] = [];
+  const userTeamMap = new Map<string, string[]>();
 
   for (const team of teamsNodes) {
     const statesConn = await (
@@ -107,7 +108,27 @@ async function fetchWorkspaceDataForRegistry(
         teamId: team.id,
       });
     }
+
+    // Fetch team members for team membership column
+    const teamKey = (team as unknown as { key?: string }).key ?? team.id;
+    const membersConn = await (
+      team as unknown as {
+        members: (opts: { first: number }) => Promise<{ nodes: Array<{ id: string }> }>;
+      }
+    ).members({ first: 200 });
+    for (const member of membersConn.nodes ?? []) {
+      if (!userTeamMap.has(member.id)) {
+        userTeamMap.set(member.id, []);
+      }
+      userTeamMap.get(member.id)!.push(teamKey);
+    }
   }
+
+  // Enrich users with team membership
+  const usersWithTeams = users.map((u) => ({
+    ...u,
+    teams: userTeamMap.get(u.id) ?? [],
+  }));
 
   // Fetch projects with full metadata
   const projectsConn = await client.projects({ first: 100 });
@@ -139,7 +160,7 @@ async function fetchWorkspaceDataForRegistry(
     defaultTeamId = matchedTeam?.id;
   }
 
-  return { users, states, projects, workspaceId, teams, defaultTeamId };
+  return { users: usersWithTeams, states, projects, workspaceId, teams, defaultTeamId };
 }
 
 /**
@@ -196,8 +217,9 @@ function buildProjectLeadLookup(
 
   // Build lookup items
   const items: ToonRow[] = [];
-  for (const [shortKey, uuid] of registry.users) {
-    if (userIds.has(uuid)) {
+  for (const uuid of userIds) {
+    const shortKey = registry.usersByUuid.get(uuid);
+    if (shortKey) {
       const metadata = getUserMetadata(registry, uuid);
       items.push({
         key: shortKey,
@@ -208,6 +230,7 @@ function buildProjectLeadLookup(
         teams: metadata?.teams?.join(',') || '',
       });
     }
+    // No ext fallback needed for project leads
   }
 
   // Sort by key number for consistent output
@@ -443,7 +466,9 @@ const CreateProjectsInputSchema = z.object({
         teamId: z
           .string()
           .optional()
-          .describe('Team UUID or key (e.g., "SQT") to associate. For single-team projects.'),
+          .describe(
+            'Team UUID or key (e.g., "SQT") to associate. For single-team projects.',
+          ),
         teamIds: z
           .array(z.string())
           .optional()
@@ -716,7 +741,9 @@ const UpdateProjectsInputSchema = z.object({
         content: z
           .string()
           .optional()
-          .describe('New full markdown content for the project (longer description area).'),
+          .describe(
+            'New full markdown content for the project (longer description area).',
+          ),
         leadId: z
           .string()
           .optional()

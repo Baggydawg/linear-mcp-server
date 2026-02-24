@@ -163,6 +163,8 @@ async function fetchWorkspaceDataForRegistry(
   const teamsNodes = teamsConn.nodes ?? [];
   const states: RegistryBuildData['states'] = [];
 
+  const userTeamMap = new Map<string, string[]>();
+
   for (const team of teamsNodes) {
     const statesConn = await (
       team as unknown as {
@@ -185,7 +187,27 @@ async function fetchWorkspaceDataForRegistry(
         teamId: team.id,
       });
     }
+
+    // Fetch team members for team membership column
+    const teamKey = (team as unknown as { key?: string }).key ?? team.id;
+    const membersConn = await (
+      team as unknown as {
+        members: (opts: { first: number }) => Promise<{ nodes: Array<{ id: string }> }>;
+      }
+    ).members({ first: 200 });
+    for (const member of membersConn.nodes ?? []) {
+      if (!userTeamMap.has(member.id)) {
+        userTeamMap.set(member.id, []);
+      }
+      userTeamMap.get(member.id)!.push(teamKey);
+    }
   }
+
+  // Enrich users with team membership
+  const usersWithTeams = users.map((u) => ({
+    ...u,
+    teams: userTeamMap.get(u.id) ?? [],
+  }));
 
   const projectsConn = await client.projects({ first: 100 });
   const projects = (projectsConn.nodes ?? []).map((p) => ({
@@ -215,7 +237,7 @@ async function fetchWorkspaceDataForRegistry(
     defaultTeamId = matchedTeam?.id;
   }
 
-  return { users, states, projects, workspaceId, teams, defaultTeamId };
+  return { users: usersWithTeams, states, projects, workspaceId, teams, defaultTeamId };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -530,25 +552,8 @@ function buildUserLookup(
   fallbackUserMap: Map<string, string>,
 ): ToonSection {
   const items: ToonRow[] = [];
-  const addedUserIds = new Set<string>();
 
-  // Registry users
-  for (const [shortKey, uuid] of registry.users) {
-    if (userIds.has(uuid)) {
-      const metadata = getUserMetadata(registry, uuid);
-      items.push({
-        key: shortKey,
-        name: metadata?.name ?? '',
-        displayName: metadata?.displayName ?? '',
-        email: metadata?.email ?? '',
-        role: metadata?.role ?? '',
-        teams: metadata?.teams?.join(',') || '',
-      });
-      addedUserIds.add(uuid);
-    }
-  }
-
-  // Fallback users (not in registry)
+  // Build userId -> userName map from entries for fallback users
   const userIdToName = new Map<string, string>();
   for (const entry of allEntries) {
     if (entry.actor?.id && entry.actor.name) {
@@ -562,18 +567,32 @@ function buildUserLookup(
     }
   }
 
-  for (const userId of userIds) {
-    const adHocKey = fallbackUserMap.get(userId);
-    if (!addedUserIds.has(userId) && adHocKey) {
-      const userName = userIdToName.get(userId) ?? 'Unknown User';
+  // Single pass over userIds using usersByUuid
+  for (const uuid of userIds) {
+    const shortKey = registry.usersByUuid.get(uuid);
+    if (shortKey) {
+      const metadata = getUserMetadata(registry, uuid);
       items.push({
-        key: adHocKey,
-        name: userName,
-        displayName: '',
-        email: '',
-        role: '(external)',
-        teams: '',
+        key: shortKey,
+        name: metadata?.name ?? '',
+        displayName: metadata?.displayName ?? '',
+        email: metadata?.email ?? '',
+        role: metadata?.role ?? '',
+        teams: metadata?.teams?.join(',') || '',
       });
+    } else {
+      const adHocKey = fallbackUserMap.get(uuid);
+      if (adHocKey) {
+        const userName = userIdToName.get(uuid) ?? 'Unknown User';
+        items.push({
+          key: adHocKey,
+          name: userName,
+          displayName: '',
+          email: '',
+          role: '(external)',
+          teams: '',
+        });
+      }
     }
   }
 

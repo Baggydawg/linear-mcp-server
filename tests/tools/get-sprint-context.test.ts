@@ -446,6 +446,242 @@ describe('get_sprint_context handler', () => {
     expect(result.isError).toBeFalsy();
     expect(result.content).toBeDefined();
   });
+
+  it('includes all referenced users in _users lookup (creators, assignees, comment authors)', async () => {
+    // Override rawRequest to return issues where user-003 is ONLY a creator
+    // (not an assignee of any issue, and not a comment author)
+    const issuesWithCreators = [
+      {
+        id: 'issue-sprint-1',
+        identifier: 'SQT-201',
+        title: 'Implement authentication',
+        description: 'Add OAuth2 authentication flow',
+        priority: 1,
+        estimate: null,
+        updatedAt: new Date(
+          Date.now() - 10 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        state: { id: 'state-sqt-todo', name: 'Todo', type: 'unstarted' },
+        project: { id: 'project-001', name: 'Q1 Release' },
+        assignee: { id: 'user-001', name: 'Test User' },
+        creator: { id: 'user-003', name: 'Bob Smith' }, // user-003 is only a creator here
+        parent: null,
+        labels: { nodes: [] },
+        comments: {
+          nodes: [
+            {
+              id: 'comment-s1',
+              body: 'Working on this',
+              createdAt: '2026-01-20T10:00:00Z',
+              user: { id: 'user-001', name: 'Test User' },
+            },
+          ],
+        },
+        relations: { nodes: [] },
+      },
+      {
+        id: 'issue-sprint-2',
+        identifier: 'SQT-202',
+        title: 'Fix database connection',
+        description: 'Connection pool exhaustion issue',
+        priority: 2,
+        estimate: 3,
+        updatedAt: new Date().toISOString(),
+        state: {
+          id: 'state-sqt-inprogress',
+          name: 'In Progress',
+          type: 'started',
+        },
+        project: { id: 'project-001', name: 'Q1 Release' },
+        assignee: { id: 'user-002', name: 'Jane Doe' },
+        creator: { id: 'user-002', name: 'Jane Doe' },
+        parent: null,
+        labels: { nodes: [] },
+        comments: { nodes: [] },
+        relations: { nodes: [] },
+      },
+    ];
+
+    mockClient.client.rawRequest = vi.fn(
+      async (query: string, variables?: Record<string, unknown>) => {
+        if (query.includes('query GetTeamCycles')) {
+          return {
+            data: {
+              team: {
+                id: 'team-sqt',
+                key: 'SQT',
+                name: 'Squad Testing',
+                cycles: { nodes: mockCycles },
+                activeCycle: { id: 'cycle-sqt-002', number: 2 },
+              },
+            },
+          };
+        }
+        if (query.includes('query GetSprintContext')) {
+          const cycleNumber = variables?.cycleNumber as number;
+          const cycle = mockCycles.find((c) => c.number === cycleNumber);
+          if (!cycle) {
+            return { data: { team: { cycles: { nodes: [] } } } };
+          }
+          return {
+            data: {
+              team: {
+                id: 'team-sqt',
+                key: 'SQT',
+                name: 'Squad Testing',
+                cycles: {
+                  nodes: [
+                    {
+                      ...cycle,
+                      issues: { nodes: issuesWithCreators },
+                    },
+                  ],
+                },
+                activeCycle: { id: 'cycle-sqt-002', number: 2 },
+              },
+            },
+          };
+        }
+        return { data: {} };
+      },
+    );
+
+    const result = await getSprintContextTool.handler({ cycle: 2 }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // _users section should exist
+    expect(textContent).toContain('_users[');
+
+    // Parse _users section to verify all 3 users are present
+    // user-001 is assignee + comment author, user-002 is assignee + creator, user-003 is ONLY a creator
+    const usersMatch = textContent.match(
+      /_users\[(\d+)\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|\nissues)/,
+    );
+    expect(usersMatch).not.toBeNull();
+
+    const usersSection = usersMatch![2];
+    // All three users should have entries: u0, u1, u2
+    expect(usersSection).toContain('u0');
+    expect(usersSection).toContain('u1');
+    expect(usersSection).toContain('u2');
+
+    // Verify the count matches: all 3 users are referenced
+    const userCount = parseInt(usersMatch![1], 10);
+    expect(userCount).toBe(3);
+
+    // Verify user-003 (Bob Smith) appears in _users despite being only a creator
+    expect(usersSection).toContain('Bob Smith');
+  });
+
+  it('handles external users not in registry with ext fallback', async () => {
+    // Create mock issues where the creator is NOT in the workspace users list
+    const issuesWithExternalCreator = [
+      {
+        id: 'issue-sprint-ext-1',
+        identifier: 'SQT-301',
+        title: 'Automated deployment setup',
+        description: 'Set up CI/CD pipeline',
+        priority: 2,
+        estimate: 3,
+        updatedAt: new Date().toISOString(),
+        state: {
+          id: 'state-sqt-inprogress',
+          name: 'In Progress',
+          type: 'started',
+        },
+        project: null,
+        assignee: { id: 'user-001', name: 'Test User' },
+        creator: { id: 'external-user-001', name: 'External Bot' }, // NOT in workspace users
+        parent: null,
+        labels: { nodes: [] },
+        comments: { nodes: [] },
+        relations: { nodes: [] },
+      },
+    ];
+
+    mockClient.client.rawRequest = vi.fn(
+      async (query: string, variables?: Record<string, unknown>) => {
+        if (query.includes('query GetTeamCycles')) {
+          return {
+            data: {
+              team: {
+                id: 'team-sqt',
+                key: 'SQT',
+                name: 'Squad Testing',
+                cycles: { nodes: mockCycles },
+                activeCycle: { id: 'cycle-sqt-002', number: 2 },
+              },
+            },
+          };
+        }
+        if (query.includes('query GetSprintContext')) {
+          const cycleNumber = variables?.cycleNumber as number;
+          const cycle = mockCycles.find((c) => c.number === cycleNumber);
+          if (!cycle) {
+            return { data: { team: { cycles: { nodes: [] } } } };
+          }
+          return {
+            data: {
+              team: {
+                id: 'team-sqt',
+                key: 'SQT',
+                name: 'Squad Testing',
+                cycles: {
+                  nodes: [
+                    {
+                      ...cycle,
+                      issues: { nodes: issuesWithExternalCreator },
+                    },
+                  ],
+                },
+                activeCycle: { id: 'cycle-sqt-002', number: 2 },
+              },
+            },
+          };
+        }
+        return { data: {} };
+      },
+    );
+
+    const result = await getSprintContextTool.handler({ cycle: 2 }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // _users section should exist
+    expect(textContent).toContain('_users[');
+
+    // Parse _users section
+    const usersMatch = textContent.match(
+      /_users\[(\d+)\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|\nissues)/,
+    );
+    expect(usersMatch).not.toBeNull();
+
+    const usersSection = usersMatch![2];
+
+    // Should contain ext0 entry for the external user
+    expect(usersSection).toContain('ext0');
+    expect(usersSection).toContain('External Bot');
+    expect(usersSection).toContain('(external)');
+
+    // Should also contain the registered user (u0 for user-001)
+    expect(usersSection).toContain('u0');
+
+    // Verify that ext0 appears in the full output (both _users and issues sections)
+    // ext0 is used in the issues section as the creator of SQT-301
+    // Count ext0 occurrences: once in _users, once in issues row
+    const ext0Occurrences = (textContent.match(/ext0/g) ?? []).length;
+    expect(ext0Occurrences).toBeGreaterThanOrEqual(2); // At least in _users + issues creator column
+
+    // Verify the issue row for SQT-301 contains ext0 (creator column is last in SPRINT_ISSUE_SCHEMA)
+    const issueRow = textContent
+      .split('\n')
+      .find((line: string) => line.includes('SQT-301'));
+    expect(issueRow).toBeDefined();
+    expect(issueRow).toContain('ext0');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

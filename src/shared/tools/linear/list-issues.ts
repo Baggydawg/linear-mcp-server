@@ -244,13 +244,15 @@ function collectReferencedEntities(
 /**
  * Convert an issue to TOON row format.
  * Uses short keys from registry for users, states, projects.
+ * Falls back to fallbackUserMap for unregistered users (ext keys).
  */
 function issueToToonRow(
   issue: RawIssueData,
   registry: ShortKeyRegistry | null,
+  fallbackUserMap?: Map<string, string>,
 ): ToonRow {
   // Get short keys from registry, fallback to undefined if not available
-  const assigneeKey =
+  let assigneeKey =
     registry && issue.assignee?.id
       ? tryGetShortKey(registry, 'user', issue.assignee.id)
       : undefined;
@@ -262,10 +264,18 @@ function issueToToonRow(
     registry && issue.project?.id
       ? tryGetShortKey(registry, 'project', issue.project.id)
       : undefined;
-  const creatorKey =
+  let creatorKey =
     registry && issue.creator?.id
       ? tryGetShortKey(registry, 'user', issue.creator.id)
       : undefined;
+
+  // Fallback to ext keys for unregistered users
+  if (!assigneeKey && issue.assignee?.id && fallbackUserMap) {
+    assigneeKey = fallbackUserMap.get(issue.assignee.id);
+  }
+  if (!creatorKey && issue.creator?.id && fallbackUserMap) {
+    creatorKey = fallbackUserMap.get(issue.creator.id);
+  }
 
   // Collect label names as comma-separated string
   const labelNames = (issue.labels?.nodes ?? []).map((l) => l.name).join(',');
@@ -296,16 +306,42 @@ function issueToToonRow(
 
 /**
  * Build a filtered user lookup section with only referenced users.
- * Uses registry metadata for user details.
+ * Uses single-pass over referencedIds, looking up via registry.usersByUuid.
+ * Unregistered users (e.g., external collaborators, bots) get ext0, ext1... keys.
+ *
+ * @returns section for TOON output and fallbackMap for ext key resolution in rows.
  */
 function buildUserLookup(
   registry: ShortKeyRegistry,
   referencedIds: Set<string>,
-): ToonSection {
+  issues: RawIssueData[],
+  comments: RawCommentData[],
+): { section: ToonSection; fallbackMap: Map<string, string> } {
   const items: ToonRow[] = [];
+  const fallbackMap = new Map<string, string>();
 
-  for (const [shortKey, uuid] of registry.users) {
-    if (referencedIds.has(uuid)) {
+  // Build userInfo map from issue assignees, creators, and comment authors for name resolution
+  const userInfo = new Map<string, string>();
+  for (const issue of issues) {
+    if (issue.assignee?.id && issue.assignee.name) {
+      userInfo.set(issue.assignee.id, issue.assignee.name);
+    }
+    if (issue.creator?.id && issue.creator.name) {
+      userInfo.set(issue.creator.id, issue.creator.name);
+    }
+  }
+  for (const comment of comments) {
+    if (comment.user?.id && comment.user.name) {
+      userInfo.set(comment.user.id, comment.user.name);
+    }
+  }
+
+  let extCounter = 0;
+
+  for (const uuid of referencedIds) {
+    const shortKey = registry.usersByUuid.get(uuid);
+    if (shortKey) {
+      // Registered user: use registry metadata for all fields
       const metadata = getUserMetadata(registry, uuid);
       items.push({
         key: shortKey,
@@ -315,17 +351,35 @@ function buildUserLookup(
         role: metadata?.role ?? '',
         teams: metadata?.teams?.join(',') || '',
       });
+    } else {
+      // Unregistered user: create ext entry
+      const extKey = `ext${extCounter++}`;
+      const name = userInfo.get(uuid) ?? 'Unknown User';
+      fallbackMap.set(uuid, extKey);
+      items.push({
+        key: extKey,
+        name,
+        displayName: '',
+        email: '',
+        role: '(external)',
+        teams: '',
+      });
     }
   }
 
-  // Sort by key number for consistent output
+  // Sort: registry users (u*) first, then ext*, numeric within each group
   items.sort((a, b) => {
-    const numA = parseInt(String(a.key).replace('u', ''), 10);
-    const numB = parseInt(String(b.key).replace('u', ''), 10);
+    const keyA = String(a.key);
+    const keyB = String(b.key);
+    const isExtA = keyA.startsWith('ext');
+    const isExtB = keyB.startsWith('ext');
+    if (isExtA !== isExtB) return isExtA ? 1 : -1;
+    const numA = parseInt(keyA.replace(/\D+/g, ''), 10);
+    const numB = parseInt(keyB.replace(/\D+/g, ''), 10);
     return numA - numB;
   });
 
-  return { schema: USER_LOOKUP_SCHEMA, items };
+  return { section: { schema: USER_LOOKUP_SCHEMA, items }, fallbackMap };
 }
 
 /**
@@ -477,6 +531,7 @@ async function fetchWorkspaceDataForRegistry(
   const teamsConn = await client.teams({ first: 100 });
   const teamsNodes = teamsConn.nodes ?? [];
   const states: RegistryBuildData['states'] = [];
+  const userTeamMap = new Map<string, string[]>();
 
   for (const team of teamsNodes) {
     const statesConn = await (
@@ -500,7 +555,27 @@ async function fetchWorkspaceDataForRegistry(
         teamId: team.id,
       });
     }
+
+    // Fetch team members for team membership column
+    const teamKey = (team as unknown as { key?: string }).key ?? team.id;
+    const membersConn = await (
+      team as unknown as {
+        members: (opts: { first: number }) => Promise<{ nodes: Array<{ id: string }> }>;
+      }
+    ).members({ first: 200 });
+    for (const member of membersConn.nodes ?? []) {
+      if (!userTeamMap.has(member.id)) {
+        userTeamMap.set(member.id, []);
+      }
+      userTeamMap.get(member.id)!.push(teamKey);
+    }
   }
+
+  // Enrich users with team membership
+  const usersWithTeams = users.map((u) => ({
+    ...u,
+    teams: userTeamMap.get(u.id) ?? [],
+  }));
 
   // Fetch projects with full metadata
   const projectsConn = await client.projects({ first: 100 });
@@ -538,7 +613,7 @@ async function fetchWorkspaceDataForRegistry(
     defaultTeamId = matchedTeam?.id;
   }
 
-  return { users, states, projects, workspaceId, teams, defaultTeamId };
+  return { users: usersWithTeams, states, projects, workspaceId, teams, defaultTeamId };
 }
 
 /**
@@ -559,10 +634,12 @@ function buildToonResponse(
   const lookups: ToonSection[] = [];
 
   // Add user lookup if we have a registry and referenced users
+  let fallbackMap: Map<string, string> | undefined;
   if (registry && refs.userIds.size > 0) {
-    const userLookup = buildUserLookup(registry, refs.userIds);
-    if (userLookup.items.length > 0) {
-      lookups.push(userLookup);
+    const userResult = buildUserLookup(registry, refs.userIds, rawIssues, rawComments);
+    fallbackMap = userResult.fallbackMap;
+    if (userResult.section.items.length > 0) {
+      lookups.push(userResult.section);
     }
   }
 
@@ -591,7 +668,9 @@ function buildToonResponse(
   }
 
   // Convert issues to TOON rows
-  const issueRows = rawIssues.map((issue) => issueToToonRow(issue, registry));
+  const issueRows = rawIssues.map((issue) =>
+    issueToToonRow(issue, registry, fallbackMap),
+  );
 
   // Build data sections
   const data: ToonSection[] = [{ schema: ISSUE_SCHEMA, items: issueRows }];
@@ -617,7 +696,9 @@ function buildToonResponse(
       issue: c.issueIdentifier,
       user: c.user?.id
         ? registry
-          ? (tryGetShortKey(registry, 'user', c.user.id) ?? '')
+          ? (tryGetShortKey(registry, 'user', c.user.id) ??
+            fallbackMap?.get(c.user.id) ??
+            '')
           : ''
         : '',
       body: c.body.length > 500 ? `${c.body.slice(0, 497)}...` : c.body,
