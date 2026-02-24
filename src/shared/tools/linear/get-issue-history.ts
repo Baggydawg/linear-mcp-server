@@ -542,6 +542,7 @@ function buildUserLookup(
         displayName: metadata?.displayName ?? '',
         email: metadata?.email ?? '',
         role: metadata?.role ?? '',
+        teams: metadata?.teams?.join(',') || '',
       });
       addedUserIds.add(uuid);
     }
@@ -571,6 +572,7 @@ function buildUserLookup(
         displayName: '',
         email: '',
         role: '(external)',
+        teams: '',
       });
     }
   }

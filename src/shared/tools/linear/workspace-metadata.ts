@@ -166,6 +166,7 @@ interface WorkspaceData {
     skills?: string[];
     focusArea?: string;
     createdAt?: Date | string;
+    teams?: string[];
   }>;
   states: Array<{
     id: string;
@@ -238,6 +239,7 @@ function buildToonResponse(
       displayName: u.displayName ?? '',
       email: u.email ?? '',
       role: u.role ?? '',
+      teams: u.teams?.join(',') || '',
     }));
     sections.push({ schema: USER_LOOKUP_SCHEMA, items: userItems });
   }
@@ -461,6 +463,7 @@ export const workspaceMetadataTool = defineTool({
       skills?: string[];
       focusArea?: string;
       createdAt?: Date | string;
+      teams?: string[];
     }> = [];
     {
       // Load custom user profiles from config file or env var
@@ -492,22 +495,24 @@ export const workspaceMetadataTool = defineTool({
         };
       });
 
-      // For TOON output: filter to team members if team-scoped
-      if (filteredTeams.length > 0 && teamIdsFilter.size > 0) {
-        // Get team members for filtered teams
-        const teamMemberIds = new Set<string>();
-        for (const team of filteredTeams) {
-          const membersConn = await team.members({ first: 200 });
-          for (const member of membersConn.nodes) {
-            teamMemberIds.add(member.id);
+      // Build team membership map for ALL teams (userId -> team keys)
+      const userTeamMap = new Map<string, string[]>();
+      for (const team of allTeams) {
+        const membersConn = await team.members({ first: 200 });
+        const teamKey = team.key ?? team.name;
+        for (const member of membersConn.nodes) {
+          if (!userTeamMap.has(member.id)) {
+            userTeamMap.set(member.id, []);
           }
+          userTeamMap.get(member.id)!.push(teamKey);
         }
-        // Filter to only team members for TOON output
-        workspaceData.users = allWorkspaceUsers.filter((u) => teamMemberIds.has(u.id));
-      } else {
-        // No filter - show all users
-        workspaceData.users = allWorkspaceUsers;
       }
+
+      // Enrich all users with team membership and show ALL users (no filtering)
+      for (const user of allWorkspaceUsers) {
+        user.teams = userTeamMap.get(user.id) ?? [];
+      }
+      workspaceData.users = allWorkspaceUsers;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -534,12 +539,8 @@ export const workspaceMetadataTool = defineTool({
       }
     }
 
-    // For TOON output: only show states from filtered teams
-    if (teamIdsFilter.size > 0) {
-      workspaceData.states = allTeamsStates.filter((s) => teamIdsFilter.has(s.teamId));
-    } else {
-      workspaceData.states = allTeamsStates;
-    }
+    // Show ALL teams' states (Claude needs cross-team state awareness)
+    workspaceData.states = allTeamsStates;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Fetch labels from filtered teams (labels are team-scoped, no cross-team needed)
@@ -640,6 +641,7 @@ export const workspaceMetadataTool = defineTool({
         role: u.role,
         skills: u.skills,
         focusArea: u.focusArea,
+        teams: u.teams,
       })),
       // ALL teams' states (not filtered)
       states: allTeamsStates.map((s) => ({

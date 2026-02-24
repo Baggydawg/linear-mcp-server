@@ -205,6 +205,7 @@ function buildProjectLeadLookup(
         displayName: metadata?.displayName ?? '',
         email: metadata?.email ?? '',
         role: metadata?.role ?? '',
+        teams: metadata?.teams?.join(',') || '',
       });
     }
   }

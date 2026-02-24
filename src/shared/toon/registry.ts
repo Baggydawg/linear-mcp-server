@@ -43,6 +43,8 @@ export interface UserMetadata {
   skills?: string[];
   /** Primary area of focus from user profiles config */
   focusArea?: string;
+  /** Team keys the user belongs to (e.g., ["SQT", "SQM"]) */
+  teams?: string[];
 }
 
 /**
@@ -101,6 +103,8 @@ export interface RegistryUserEntity extends RegistryEntity {
   skills?: string[];
   /** Primary area of focus from user profiles config */
   focusArea?: string;
+  /** Team keys the user belongs to (e.g., ["SQT", "SQM"]) */
+  teams?: string[];
 }
 
 /**
@@ -452,6 +456,7 @@ function buildUserMetadata(users: RegistryUserEntity[]): Map<string, UserMetadat
       role: user.role,
       skills: user.skills,
       focusArea: user.focusArea,
+      teams: user.teams,
     });
   }
   return metadata;

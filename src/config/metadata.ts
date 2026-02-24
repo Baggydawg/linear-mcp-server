@@ -18,6 +18,14 @@ Quick start
 - To modify, use 'update_issues' / 'update_projects', then verify with 'list_issues'.
 - For teams with cycles enabled, use 'list_cycles' to browse planning cycles.
 
+Cross-team awareness
+- 'workspace_metadata' returns states and users for ALL teams, not just the default team.
+- Users include a 'teams' column showing which teams each person belongs to (e.g., "SQT" or "SQT,SQM").
+- States include team-prefixed keys for non-default teams (e.g., 'sqm:s0' for SQM's Backlog, 's0' for the default team).
+- Labels, projects, and cycles are scoped to DEFAULT_TEAM (or the requested teamIds parameter).
+- To browse another team's projects: list_projects({ team: "SQM" })
+- To get another team's labels/projects/cycles: workspace_metadata({ teamIds: ["SQM"] })
+
 Default recency window
 - If a date range is not provided when listing issues, default to the current week in the viewer's timezone (Mon 00:00 → Sun 23:59:59.999), using updatedAt for recency. Mention the timezone surfaced by the client in your reasoning and outputs.
 
@@ -67,7 +75,7 @@ export const toolsMetadata = {
     name: 'workspace_metadata',
     title: 'Discover IDs (Use First)',
     description:
-      "Use this to discover workspace entities and canonical IDs (viewer, teams, workflow states, labels, projects, favorites). Use this FIRST whenever you don't know ids. Inputs: include? (profile|teams|workflow_states|labels|projects|favorites), teamIds? (team keys like 'SQM' or UUIDs — overrides DEFAULT_TEAM), project_limit?, label_limit?, forceRefresh?.\nReturns: viewer, teams[] (with estimation settings and cyclesEnabled), workflowStatesByTeam, labelsByTeam, projects[], favorites?. Next: Use teamId/projectId to filter 'list_issues'; use workflowStatesByTeam[teamId][].id as stateId for 'update_issues'; use labelsByTeam ids for label operations. If a team has cyclesEnabled=false, avoid cycle-related tools.\n\nTOON Output (when enabled): This is a Tier 1 tool - returns ALL entities (users, states, projects, labels, cycles) to establish full context. Short keys (u0, s1, pr0) are assigned and can be used in subsequent tool calls. Call once per session; use forceRefresh: true to rebuild registry if team members or states change.\n\nTeam Scoping: When DEFAULT_TEAM env var is set, returns only team members and team-specific workflow states. Pass teamIds to override and query a different team (e.g., teamIds: ['SQM']).",
+      "Use this to discover workspace entities and canonical IDs (viewer, teams, workflow states, labels, projects, favorites). Use this FIRST whenever you don't know ids. Inputs: include? (profile|teams|workflow_states|labels|projects|favorites), teamIds? (team keys like 'SQM' or UUIDs — overrides DEFAULT_TEAM), project_limit?, label_limit?, forceRefresh?.\nReturns: viewer, teams[] (with estimation settings and cyclesEnabled), workflowStatesByTeam, labelsByTeam, projects[], favorites?. Next: Use teamId/projectId to filter 'list_issues'; use workflowStatesByTeam[teamId][].id as stateId for 'update_issues'; use labelsByTeam ids for label operations. If a team has cyclesEnabled=false, avoid cycle-related tools.\n\nTOON Output (when enabled): This is a Tier 1 tool - returns ALL entities (users, states, projects, labels, cycles) to establish full context. Short keys (u0, s1, pr0) are assigned and can be used in subsequent tool calls. Call once per session; use forceRefresh: true to rebuild registry if team members or states change.\n\nTeam Scoping: States and users always cover ALL teams — states use team-prefixed keys (sqm:s0, do:s0) for non-default teams, and users include a 'teams' column showing team membership. Labels, projects, and cycles are scoped to DEFAULT_TEAM (or the requested teamIds). Pass teamIds to override which team's labels/projects/cycles are returned.",
   },
 
   list_issues: {

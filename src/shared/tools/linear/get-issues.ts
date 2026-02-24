@@ -211,6 +211,7 @@ function buildUserLookup(
         displayName: metadata?.displayName ?? '',
         email: metadata?.email ?? '',
         role: metadata?.role ?? '',
+        teams: metadata?.teams?.join(',') || '',
       });
     }
   }

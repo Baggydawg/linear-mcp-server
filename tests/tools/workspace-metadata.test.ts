@@ -239,11 +239,12 @@ describe('workspace_metadata handler', () => {
     // _teams shows ALL teams (not just filtered)
     expect(text).toMatch(/_teams\[4\]/);
 
-    // But states should only include ENG states (not SQT/DES/SQM)
+    // States now show ALL teams (not filtered) — 19 total states
     const statesSection = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
     expect(statesSection).not.toBeNull();
-    expect(statesSection![1]).not.toContain('In Review'); // SQT-only state
-    expect(statesSection![1]).not.toContain('Pending'); // SQM-only state
+    expect(statesSection![1]).toContain('In Review'); // SQT state present
+    expect(statesSection![1]).toContain('Pending'); // SQM state present
+    expect(text).toMatch(/_states\[19\]/);
 
     clearRegistry(baseContext.sessionId);
   });
@@ -307,7 +308,7 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     clearRegistry(baseContext.sessionId);
   });
 
-  it('DEFAULT_TEAM filters states but shows all teams', async () => {
+  it('DEFAULT_TEAM shows all teams and all states', async () => {
     const { config } = await import('../../src/config/env.js');
     const { clearRegistry } = await import('../../src/shared/toon/registry.js');
 
@@ -329,9 +330,10 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
       expect(text).toContain('SQT');
       expect(text).toContain('Squad Testing');
 
-      // States should be filtered to SQT only — no SQM states
-      expect(text).not.toContain('Pending'); // SQM state
-      expect(text).not.toContain('Resolved'); // SQM state
+      // States now show ALL teams — including SQM states
+      expect(text).toContain('Pending'); // SQM state
+      expect(text).toContain('Resolved'); // SQM state
+      expect(text).toMatch(/_states\[19\]/);
     } finally {
       // Restore original config
       (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = originalDefaultTeam;
@@ -468,11 +470,12 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     expect(result.isError).toBeFalsy();
     const text = result.content[0].text;
 
-    // States should be filtered to ENG team only
+    // States now show ALL teams (not filtered) — 19 total
     const statesSection = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
     expect(statesSection).not.toBeNull();
-    expect(statesSection![1]).not.toContain('In Review'); // SQT-only
-    expect(statesSection![1]).not.toContain('Pending'); // SQM-only
+    expect(statesSection![1]).toContain('In Review'); // SQT state present
+    expect(statesSection![1]).toContain('Pending'); // SQM state present
+    expect(text).toMatch(/_states\[19\]/);
 
     // _meta should show ENG as the team
     expect(text).toMatch(/_meta\{[^}]+\}:\n\s+[^,]+,ENG,/);
@@ -499,13 +502,16 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
       // _meta should show SQM (the requested team), not SQT (the default)
       expect(text).toMatch(/_meta\{[^}]+\}:\n\s+[^,]+,SQM,/);
 
-      // States should include SQM states (Pending, Active, Resolved)
+      // States now show ALL teams — both SQM and SQT states present
       expect(text).toContain('Pending');
       expect(text).toContain('Active');
       expect(text).toContain('Resolved');
+      expect(text).toContain('In Review'); // SQT state also present
+      expect(text).toMatch(/_states\[19\]/);
 
-      // States should NOT include SQT-only states
-      expect(text).not.toContain('In Review');
+      // Labels should still be filtered to SQM (teamIds override)
+      expect(text).toContain('Urgent'); // SQM label
+      expect(text).toContain('Needs Review'); // SQM label
 
       clearRegistry(baseContext.sessionId);
     } finally {
@@ -578,6 +584,153 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     // The parsed data should NOT contain `include`
     if (result.success) {
       expect((result.data as Record<string, unknown>).include).toBeUndefined();
+    }
+  });
+
+  it('shows all teams states regardless of DEFAULT_TEAM filter', async () => {
+    const { config } = await import('../../src/config/env.js');
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+
+    const originalDefaultTeam = config.DEFAULT_TEAM;
+
+    try {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = 'SQT';
+      clearRegistry(baseContext.sessionId);
+
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+      expect(result.isError).toBeFalsy();
+
+      const text = result.content[0].text;
+
+      // _states section should contain states from ALL teams (19 total)
+      expect(text).toMatch(/_states\[19\]/);
+
+      // SQT states present (including SQT-only "In Review")
+      expect(text).toContain('In Review');
+      expect(text).toContain('Backlog');
+      expect(text).toContain('Todo');
+
+      // SQM states present
+      expect(text).toContain('Pending');
+      expect(text).toContain('Active');
+      expect(text).toContain('Resolved');
+
+      // SQT states have clean (unprefixed) keys, other teams have prefixed keys
+      const statesSection = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+      expect(statesSection).not.toBeNull();
+      const stateLines = statesSection![1].trim().split('\n').map((l: string) => l.trim());
+
+      // SQT states: clean keys (s0, s1, s2, s3, s4, s5)
+      const sqtStates = stateLines.filter((l: string) => /^s\d+,/.test(l));
+      expect(sqtStates.length).toBe(6); // 6 SQT states
+
+      // SQM states: prefixed keys (sqm:s0, sqm:s1, sqm:s2)
+      const sqmStates = stateLines.filter((l: string) => l.startsWith('sqm:'));
+      expect(sqmStates.length).toBe(3); // 3 SQM states
+
+      // ENG states: prefixed keys (eng:s0, eng:s1, ...)
+      const engStates = stateLines.filter((l: string) => l.startsWith('eng:'));
+      expect(engStates.length).toBe(5); // 5 ENG states
+
+      // DES states: prefixed keys (des:s0, des:s1, ...)
+      const desStates = stateLines.filter((l: string) => l.startsWith('des:'));
+      expect(desStates.length).toBe(5); // 5 DES states
+    } finally {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = originalDefaultTeam;
+      clearRegistry(baseContext.sessionId);
+    }
+  });
+
+  it('shows all users with teams column', async () => {
+    const { config } = await import('../../src/config/env.js');
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+
+    const originalDefaultTeam = config.DEFAULT_TEAM;
+
+    try {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = 'SQT';
+      clearRegistry(baseContext.sessionId);
+
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+      expect(result.isError).toBeFalsy();
+
+      const text = result.content[0].text;
+
+      // All 3 users should appear
+      expect(text).toMatch(/_users\[3\]/);
+      expect(text).toContain('Test User');
+      expect(text).toContain('Jane Doe');
+      expect(text).toContain('Bob Smith');
+
+      // _users header should include `teams` field
+      expect(text).toMatch(/_users\[3\]\{key,name,displayName,email,role,teams\}/);
+
+      // User rows should include team membership
+      const usersSection = text.match(/_users\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+      expect(usersSection).not.toBeNull();
+      const userLines = usersSection![1].trim().split('\n').map((l: string) => l.trim());
+
+      // user-001 (Test User) is in SQT, ENG, DES
+      const user0Line = userLines.find((l: string) => l.startsWith('u0,'));
+      expect(user0Line).toBeDefined();
+      expect(user0Line).toContain('SQT');
+      expect(user0Line).toContain('ENG');
+      expect(user0Line).toContain('DES');
+
+      // user-002 (Jane Doe) is in SQT, ENG, SQM
+      const user1Line = userLines.find((l: string) => l.startsWith('u1,'));
+      expect(user1Line).toBeDefined();
+      expect(user1Line).toContain('SQT');
+      expect(user1Line).toContain('ENG');
+      expect(user1Line).toContain('SQM');
+
+      // user-003 (Bob Smith) is in SQT, ENG, SQM
+      const user2Line = userLines.find((l: string) => l.startsWith('u2,'));
+      expect(user2Line).toBeDefined();
+      expect(user2Line).toContain('SQT');
+      expect(user2Line).toContain('ENG');
+      expect(user2Line).toContain('SQM');
+    } finally {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = originalDefaultTeam;
+      clearRegistry(baseContext.sessionId);
+    }
+  });
+
+  it('keeps labels filtered to default team while showing all states', async () => {
+    const { config } = await import('../../src/config/env.js');
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+
+    const originalDefaultTeam = config.DEFAULT_TEAM;
+
+    try {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = 'SQT';
+      clearRegistry(baseContext.sessionId);
+
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+      expect(result.isError).toBeFalsy();
+
+      const text = result.content[0].text;
+
+      // _labels should contain SQT labels only (filtered to default team)
+      const labelsSection = text.match(/_labels\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+      expect(labelsSection).not.toBeNull();
+
+      // SQT labels present
+      expect(labelsSection![1]).toContain('Bug');
+      expect(labelsSection![1]).toContain('Feature');
+      expect(labelsSection![1]).toContain('Documentation');
+
+      // SQM labels NOT present (labels are still filtered)
+      expect(labelsSection![1]).not.toContain('Urgent');
+      expect(labelsSection![1]).not.toContain('Needs Review');
+
+      // But states should contain ALL teams' states (not filtered)
+      expect(text).toMatch(/_states\[19\]/);
+      expect(text).toContain('Pending'); // SQM state
+      expect(text).toContain('In Review'); // SQT state
+    } finally {
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = originalDefaultTeam;
+      clearRegistry(baseContext.sessionId);
     }
   });
 });

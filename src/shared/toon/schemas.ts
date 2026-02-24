@@ -34,9 +34,10 @@ import type { ToonSchema } from './types.js';
  */
 export const USER_LOOKUP_SCHEMA: ToonSchema = {
   name: '_users',
-  fields: ['key', 'name', 'displayName', 'email', 'role'],
+  fields: ['key', 'name', 'displayName', 'email', 'role', 'teams'],
   // key: u0, u1... | name: full name | displayName: nick | email: for identification
   // role: optional context from local config (e.g., "Overseer (no assignments)")
+  // teams: comma-separated team keys (e.g., "SQT" or "SQT,SQM")
 };
 
 /**

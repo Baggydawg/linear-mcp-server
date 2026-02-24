@@ -198,6 +198,7 @@ function buildCommentAuthorLookup(
         displayName: metadata?.displayName ?? '',
         email: metadata?.email ?? '',
         role: metadata?.role ?? '',
+        teams: metadata?.teams?.join(',') || '',
       });
       addedUserIds.add(uuid);
     }
@@ -220,6 +221,7 @@ function buildCommentAuthorLookup(
         displayName: '',
         email: '',
         role: '(external)', // Mark as external user
+        teams: '',
       });
 
       // Add to fallback map for use in commentToToonRow

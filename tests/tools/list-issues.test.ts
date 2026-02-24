@@ -460,7 +460,7 @@ describe('list_issues TOON output', () => {
 
     // Should have _users section that includes comment authors
     expect(textContent).toContain('_users[');
-    expect(textContent).toContain('{key,name,displayName,email,role}');
+    expect(textContent).toContain('{key,name,displayName,email,role,teams}');
   });
 });
 
