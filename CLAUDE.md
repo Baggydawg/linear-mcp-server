@@ -19,10 +19,10 @@ bun run lint              # Biome linting check
 bun run lint:fix          # Auto-fix linting issues
 bun run format            # Format code with Biome
 
-# Testing
-bun test                  # Run all unit tests (~4s)
-bun run test:watch        # Watch mode
-bun run test:integration  # Live API tests (~45s, requires LINEAR API key)
+# Testing (IMPORTANT: use "bun run test", not "bun test" — see Testing section below)
+bun run test              # Run all unit tests via vitest (~4s)
+bun run test:watch        # Watch mode via vitest
+bun run test:live         # Live API tests (~45s, requires LINEAR_ACCESS_TOKEN)
 
 # Build & Deploy
 bun run build             # Build production
@@ -92,14 +92,37 @@ From `docs/rules.md`:
 
 ## Testing
 
-Unit tests use mocked Linear API responses (`tests/mocks/linear-client.js`). Test files are in `tests/tools/`.
+### Test Commands
+
+**IMPORTANT:** `bun test` and `bun run test` are **different commands**:
+- `bun run test` → runs `vitest run` (respects `vitest.config.ts` exclude patterns) — **use this one**
+- `bun test` → runs bun's native test runner (ignores vitest config, picks up ALL `*.test.ts` files)
+
+```bash
+bun run test                    # Unit tests via vitest (~4s, 784 tests)
+bun run test:watch              # Watch mode via vitest
+bun run test:live               # Live API tests via vitest (~45s, requires LINEAR_ACCESS_TOKEN)
+bun run typecheck               # TypeScript type checking
+```
 
 Run a single test file:
 ```bash
-bun test tests/tools/list-issues.test.ts
+bun run test -- tests/tools/list-issues.test.ts
 ```
 
-Integration tests require a "Tests" team in Linear and `PROVIDER_API_KEY` in `.env`.
+### Test Architecture
+
+- **Unit tests** (`tests/tools/`, `tests/toon/`, `tests/config/`): Use mocked Linear API responses (`tests/mocks/linear-client.ts`). Run via `vitest.config.ts` which loads `tests/setup.ts` for mocking.
+- **Live tests** (`tests/live/`): Hit the real Linear API. Run via `vitest.live.config.ts` (no mocks, sequential execution, 60s timeouts). Require `LINEAR_ACCESS_TOKEN` in `.env`.
+- Live tests use `describe.skipIf(!canRunLiveTests)` — this works in both vitest and bun's native runner. Do NOT use `describe.runIf()` which is vitest-only.
+
+### Zombie Process Warning
+
+When running tests via sub-agents (e.g., opus-swarm), vitest spawns worker processes. If a sub-agent finishes or times out before vitest exits cleanly, those workers become orphaned and consume CPU/RAM invisibly. After running parallel sub-agents that execute tests, check for zombies:
+```bash
+ps aux | grep "vitest" | grep -v grep    # Check for orphaned vitest workers
+pkill -f "node.*vitest"                  # Kill them if found
+```
 
 ## Code Style
 

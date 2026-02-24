@@ -29,7 +29,7 @@ import { parseToonText } from './helpers/toon-parser.js';
 let context: ReturnType<typeof createLiveContext>;
 let issueIdentifiers: string[] = [];
 
-describe.runIf(canRunLiveTests)('get_issues live validation', () => {
+describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
   beforeAll(async () => {
     context = createLiveContext();
 

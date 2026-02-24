@@ -9,6 +9,7 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
+import type { File, Suite } from '@vitest/runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getSprintContextTool } from '../../src/shared/tools/linear/get-sprint-context.js';
 import {
@@ -19,6 +20,7 @@ import {
 import { expectFieldMatch, normalizeEmpty } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchIssue, fetchIssueRelations } from './helpers/linear-api.js';
+import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
 import type { ParsedToon } from './helpers/toon-parser.js';
 import { parseToonText } from './helpers/toon-parser.js';
 
@@ -28,12 +30,15 @@ import { parseToonText } from './helpers/toon-parser.js';
 
 const TEAM_KEY = process.env.DEFAULT_TEAM || 'SQT';
 
+let suiteRef: Readonly<Suite | File> | null = null;
 let context: ReturnType<typeof createLiveContext>;
 let currentParsed: ParsedToon;
 let currentRawText: string;
+const validatedSprintIssues: string[] = [];
 
-describe.runIf(canRunLiveTests)('get_sprint_context live validation', () => {
-  beforeAll(async () => {
+describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
+  beforeAll(async (suite) => {
+    suiteRef = suite;
     context = createLiveContext();
 
     const result = await getSprintContextTool.handler({ team: TEAM_KEY }, context);
@@ -51,7 +56,10 @@ describe.runIf(canRunLiveTests)('get_sprint_context live validation', () => {
     currentParsed = parseToonText(currentRawText);
   }, 60_000);
 
-  afterAll(() => {
+  afterAll((suite) => {
+    if (validatedSprintIssues.length > 0) {
+      reportEntitiesValidated(suite, 'sprintIssues', validatedSprintIssues);
+    }
     if (context) clearRegistry(context.sessionId);
   });
 
@@ -60,7 +68,15 @@ describe.runIf(canRunLiveTests)('get_sprint_context live validation', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   it('current sprint metadata and issues match API', async () => {
-    if (!currentRawText) return; // Skip if no active cycle
+    if (!currentRawText) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'current sprint metadata and issues match API',
+          'no active cycle',
+        );
+      return;
+    }
 
     // Verify _meta section
     expect(currentParsed.meta.team).toBe(TEAM_KEY);
@@ -74,7 +90,15 @@ describe.runIf(canRunLiveTests)('get_sprint_context live validation', () => {
 
     // Parse the issues section (sprint issues use SPRINT_ISSUE_SCHEMA with 13 fields)
     const issuesSection = currentParsed.sections.get('issues');
-    if (!issuesSection || issuesSection.rows.length === 0) return;
+    if (!issuesSection || issuesSection.rows.length === 0) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'current sprint metadata and issues match API',
+          'no issues in current sprint',
+        );
+      return;
+    }
 
     const registry = getStoredRegistry(context.sessionId);
 
@@ -82,6 +106,7 @@ describe.runIf(canRunLiveTests)('get_sprint_context live validation', () => {
     for (const toonIssue of issuesSection.rows) {
       const identifier = toonIssue.identifier;
       expect(identifier, 'issue identifier should not be empty').toBeTruthy();
+      validatedSprintIssues.push(identifier);
 
       const apiIssue = await fetchIssue(identifier);
       const ctx = { entity: 'Issue', identifier, field: '' };
@@ -189,7 +214,15 @@ describe.runIf(canRunLiveTests)('get_sprint_context live validation', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   it('previous sprint has different cycle number', async () => {
-    if (!currentRawText) return;
+    if (!currentRawText) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'previous sprint has different cycle number',
+          'no active cycle',
+        );
+      return;
+    }
 
     const prevResult = await getSprintContextTool.handler(
       { team: TEAM_KEY, cycle: 'previous' },
@@ -197,7 +230,15 @@ describe.runIf(canRunLiveTests)('get_sprint_context live validation', () => {
     );
 
     // May fail if there is no previous cycle - that's acceptable
-    if (prevResult.isError) return;
+    if (prevResult.isError) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'previous sprint has different cycle number',
+          'no previous cycle available',
+        );
+      return;
+    }
 
     const prevParsed = parseToonText(prevResult.content[0].text);
 
@@ -232,10 +273,26 @@ describe.runIf(canRunLiveTests)('get_sprint_context live validation', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   it('gap analysis matches independently computed values', async () => {
-    if (!currentRawText) return;
+    if (!currentRawText) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'gap analysis matches independently computed values',
+          'no active cycle',
+        );
+      return;
+    }
 
     const issuesSection = currentParsed.sections.get('issues');
-    if (!issuesSection || issuesSection.rows.length === 0) return;
+    if (!issuesSection || issuesSection.rows.length === 0) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'gap analysis matches independently computed values',
+          'no issues in current sprint',
+        );
+      return;
+    }
 
     // ─── Build raw issue data for independent gap computation ───
 
@@ -411,4 +468,86 @@ describe.runIf(canRunLiveTests)('get_sprint_context live validation', () => {
       }
     }
   }, 180_000);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 4. Sprint relations match API and cross-reference with gaps
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it('sprint relations match API and cross-reference with gaps', async () => {
+    if (!currentRawText) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'sprint relations match API and cross-reference with gaps',
+          'no active cycle',
+        );
+      return;
+    }
+
+    const relationsSection = currentParsed.sections.get('relations');
+    const gapsSection = currentParsed.sections.get('_gaps');
+
+    if (!relationsSection || relationsSection.rows.length === 0) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'sprint relations match API and cross-reference with gaps',
+          'no relations in sprint context',
+        );
+      return;
+    }
+
+    // Validate all relations have valid types
+    const validTypes = new Set(['blocks', 'duplicate', 'related']);
+    for (const relation of relationsSection.rows) {
+      expect(
+        validTypes.has(relation.type),
+        `Invalid relation type: ${relation.type}`,
+      ).toBe(true);
+    }
+
+    // Verify against API
+    const checkedIssues = new Set<string>();
+    for (const relation of relationsSection.rows) {
+      if (checkedIssues.has(relation.from)) continue;
+      checkedIssues.add(relation.from);
+
+      const apiIssue = await fetchIssue(relation.from);
+      const apiRelations = await fetchIssueRelations(apiIssue.id);
+
+      const toonRelsForIssue = relationsSection.rows.filter(
+        (r) => r.from === relation.from,
+      );
+      for (const toonRel of toonRelsForIssue) {
+        const apiTarget = apiRelations.find(
+          (ar) => ar.relatedIssue?.identifier === toonRel.to,
+        );
+        expect(
+          apiTarget,
+          `Sprint relation ${toonRel.from} -> ${toonRel.to} (${toonRel.type}) not found in API`,
+        ).toBeDefined();
+      }
+    }
+
+    // Cross-reference: if _gaps has "blocked" entries, those issues should appear in relations with "blocks" type
+    if (gapsSection) {
+      const blockedGap = gapsSection.rows.find((g) => g.type === 'blocked');
+      if (blockedGap && blockedGap.issues) {
+        const blockedIssueIds = blockedGap.issues
+          .split(',')
+          .map((s: string) => s.trim());
+        for (const blockedId of blockedIssueIds) {
+          // The blocked issue should appear as the "to" in a "blocks" relation
+          // OR the blocked issue could be the "from" with type "blocks"
+          const hasRelation = relationsSection.rows.some(
+            (r) => r.to === blockedId || r.from === blockedId,
+          );
+          expect(
+            hasRelation,
+            `Issue "${blockedId}" is in _gaps as "blocked" but has no corresponding relation`,
+          ).toBe(true);
+        }
+      }
+    }
+  }, 60_000);
 });

@@ -8,6 +8,7 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
+import type { File, Suite } from '@vitest/runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listCyclesTool } from '../../src/shared/tools/linear/cycles.js';
 import type { ToolContext } from '../../src/shared/tools/types.js';
@@ -20,14 +21,18 @@ import {
 } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchCycles, fetchTeams } from './helpers/linear-api.js';
+import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
-describe.runIf(canRunLiveTests)('list_cycles live data validation', () => {
+describe.skipIf(!canRunLiveTests)('list_cycles live data validation', () => {
+  let suiteRef: Readonly<Suite | File> | null = null;
   let context: ToolContext;
   let parsed: ParsedToon;
   let sqtTeamId: string;
+  const validatedCycleNums: string[] = [];
 
-  beforeAll(async () => {
+  beforeAll(async (suite) => {
+    suiteRef = suite;
     context = createLiveContext();
 
     // Resolve SQT team ID for direct API calls
@@ -45,7 +50,10 @@ describe.runIf(canRunLiveTests)('list_cycles live data validation', () => {
     parsed = parseToonText(text);
   }, 30000);
 
-  afterAll(() => {
+  afterAll((suite) => {
+    if (validatedCycleNums.length > 0) {
+      reportEntitiesValidated(suite, 'cycles', validatedCycleNums);
+    }
     if (context) {
       clearRegistry(context.sessionId);
     }
@@ -54,8 +62,12 @@ describe.runIf(canRunLiveTests)('list_cycles live data validation', () => {
   it('SQT cycles match API data', async () => {
     const cyclesSection = parsed.sections.get('cycles');
     if (!cyclesSection || cyclesSection.rows.length === 0) {
-      // No cycles in this team - skip gracefully
-      console.warn('No cycles found for SQT team, skipping validation');
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'SQT cycles match API data',
+          'no cycles found for SQT team',
+        );
       return;
     }
 
@@ -99,13 +111,20 @@ describe.runIf(canRunLiveTests)('list_cycles live data validation', () => {
         (apiCycle as unknown as { progress?: number }).progress,
         ctx('progress'),
       );
+
+      validatedCycleNums.push(String(cycleNum));
     }
   }, 30000);
 
   it('active flag is independently verified', () => {
     const cyclesSection = parsed.sections.get('cycles');
     if (!cyclesSection || cyclesSection.rows.length === 0) {
-      console.warn('No cycles found, skipping active flag validation');
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'active flag is independently verified',
+          'no cycles found',
+        );
       return;
     }
 
@@ -132,6 +151,12 @@ describe.runIf(canRunLiveTests)('list_cycles live data validation', () => {
   it('cycles are sorted by number descending', () => {
     const cyclesSection = parsed.sections.get('cycles');
     if (!cyclesSection || cyclesSection.rows.length < 2) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'cycles are sorted by number descending',
+          'fewer than 2 cycles found',
+        );
       return;
     }
 

@@ -8,6 +8,7 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
+import type { File, Suite } from '@vitest/runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listCommentsTool } from '../../src/shared/tools/linear/comments.js';
 import { listIssuesTool } from '../../src/shared/tools/linear/list-issues.js';
@@ -20,15 +21,19 @@ import {
 } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchComments, fetchUsers } from './helpers/linear-api.js';
+import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
-describe.runIf(canRunLiveTests)('list_comments live data validation', () => {
+describe.skipIf(!canRunLiveTests)('list_comments live data validation', () => {
+  let suiteRef: Readonly<Suite | File> | null = null;
   let context: ToolContext;
   let commentsParsed: ParsedToon | null = null;
   let issueIdentifier: string | null = null;
   let hasComments = false;
+  const validatedCommentIds: string[] = [];
 
-  beforeAll(async () => {
+  beforeAll(async (suite) => {
+    suiteRef = suite;
     context = createLiveContext();
 
     // First, call list_issues to find issues (we need one with comments)
@@ -43,6 +48,7 @@ describe.runIf(canRunLiveTests)('list_comments live data validation', () => {
 
     if (!issuesSection || issuesSection.rows.length === 0) {
       console.warn('No issues found, skipping comments tests');
+      // reportSkip deferred to individual tests via hasComments check
       return;
     }
 
@@ -74,7 +80,10 @@ describe.runIf(canRunLiveTests)('list_comments live data validation', () => {
     }
   }, 60000);
 
-  afterAll(() => {
+  afterAll((suite) => {
+    if (validatedCommentIds.length > 0) {
+      reportEntitiesValidated(suite, 'comments', validatedCommentIds);
+    }
     if (context) {
       clearRegistry(context.sessionId);
     }
@@ -82,7 +91,12 @@ describe.runIf(canRunLiveTests)('list_comments live data validation', () => {
 
   it('issue comments match API data', async () => {
     if (!hasComments || !commentsParsed || !issueIdentifier) {
-      console.warn('No comments found, skipping validation');
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'issue comments match API data',
+          'no issues with comments found',
+        );
       return;
     }
 
@@ -125,6 +139,8 @@ describe.runIf(canRunLiveTests)('list_comments live data validation', () => {
         `Comment id="${commentId}" from TOON not found in API response for issue ${issueIdentifier}`,
       ).toBeDefined();
       if (!apiComment) continue;
+
+      validatedCommentIds.push(commentId);
 
       const ctx = (field: string): FieldContext => ({
         entity: 'Comment',
@@ -170,7 +186,12 @@ describe.runIf(canRunLiveTests)('list_comments live data validation', () => {
 
   it('comment count matches API', async () => {
     if (!hasComments || !commentsParsed || !issueIdentifier) {
-      console.warn('No comments found, skipping count validation');
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'comment count matches API',
+          'no issues with comments found',
+        );
       return;
     }
 

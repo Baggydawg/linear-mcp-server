@@ -12,6 +12,7 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
+import type { File, Suite } from '@vitest/runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { workspaceMetadataTool } from '../../src/shared/tools/linear/workspace-metadata.js';
 import {
@@ -35,14 +36,23 @@ import {
   fetchTeams,
   fetchUsers,
 } from './helpers/linear-api.js';
+import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
-describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
+describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
+  let suiteRef: Readonly<Suite | File> | null = null;
   const context = createLiveContext();
   let parsed: ParsedToon;
   let toolText: string;
+  const validatedTeams: string[] = [];
+  const validatedUsers: string[] = [];
+  const validatedStates: string[] = [];
+  const validatedLabels: string[] = [];
+  const validatedProjects: string[] = [];
+  const validatedCycles: string[] = [];
 
-  beforeAll(async () => {
+  beforeAll(async (suite) => {
+    suiteRef = suite;
     try {
       const result = await workspaceMetadataTool.handler({}, context);
       expect(result.isError).not.toBe(true);
@@ -56,7 +66,19 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
     }
   }, 30000);
 
-  afterAll(() => {
+  afterAll((suite) => {
+    if (validatedTeams.length > 0)
+      reportEntitiesValidated(suite, 'teams', validatedTeams);
+    if (validatedUsers.length > 0)
+      reportEntitiesValidated(suite, 'users', validatedUsers);
+    if (validatedStates.length > 0)
+      reportEntitiesValidated(suite, 'states', validatedStates);
+    if (validatedLabels.length > 0)
+      reportEntitiesValidated(suite, 'labels', validatedLabels);
+    if (validatedProjects.length > 0)
+      reportEntitiesValidated(suite, 'projects', validatedProjects);
+    if (validatedCycles.length > 0)
+      reportEntitiesValidated(suite, 'cycles', validatedCycles);
     clearRegistry(context.sessionId);
   });
 
@@ -118,6 +140,8 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
           normalizeEmpty(toonRow.estimationType),
           `Team "${toonRow.key}" estimationType: TOON="${toonRow.estimationType}" vs API="${apiEstimationType}"`,
         ).toBe(normalizeEmpty(apiEstimationType));
+
+        validatedTeams.push(toonRow.key);
       }
     });
   });
@@ -154,6 +178,8 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
           normalizeEmpty(toonRow.email),
           `User "${toonRow.key}" email: TOON="${toonRow.email}" vs API="${apiUser!.email}"`,
         ).toBe(normalizeEmpty(apiUser!.email));
+
+        validatedUsers.push(toonRow.key);
       }
     });
 
@@ -257,6 +283,8 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
           typeMatch,
           `TOON state "${toonRow.key}" type "${toonRow.type}" should match one of the API states named "${toonRow.name}"`,
         ).toBe(true);
+
+        validatedStates.push(toonRow.key);
       }
     });
 
@@ -307,7 +335,8 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
     it('label names match API', async () => {
       const labelsSection = parsed.sections.get('_labels');
       if (!labelsSection || labelsSection.rows.length === 0) {
-        // No labels in workspace — skip
+        if (suiteRef)
+          reportSkip(suiteRef, 'label names match API', 'no labels in workspace');
         return;
       }
 
@@ -328,6 +357,7 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
           apiMatch,
           `TOON label "${toonRow.name}" should exist in API labels`,
         ).toBeDefined();
+        validatedLabels.push(toonRow.name);
       }
     });
   });
@@ -340,7 +370,8 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
     it('project fields match API', async () => {
       const projectsSection = parsed.sections.get('_projects');
       if (!projectsSection || projectsSection.rows.length === 0) {
-        // No projects — skip
+        if (suiteRef)
+          reportSkip(suiteRef, 'project fields match API', 'no projects in workspace');
         return;
       }
 
@@ -439,6 +470,8 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
         // targetDate
         ctx.field = 'targetDate';
         expectDateMatch(toonRow.targetDate, apiProject!.targetDate, ctx);
+
+        validatedProjects.push(toonRow.key);
       }
     });
   });
@@ -451,7 +484,8 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
     it('cycle fields match API', async () => {
       const cyclesSection = parsed.sections.get('_cycles');
       if (!cyclesSection || cyclesSection.rows.length === 0) {
-        // No cycles — skip
+        if (suiteRef)
+          reportSkip(suiteRef, 'cycle fields match API', 'no cycles in workspace');
         return;
       }
 
@@ -528,12 +562,20 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
           toonRow.active,
           `Cycle ${toonRow.team}#${toonNum} active: TOON="${toonRow.active}" vs computed="${expectedActive}"`,
         ).toBe(String(expectedActive));
+
+        validatedCycles.push(`${toonRow.team}#${toonNum}`);
       }
     });
 
     it('only shows current or upcoming cycles', () => {
       const cyclesSection = parsed.sections.get('_cycles');
       if (!cyclesSection || cyclesSection.rows.length === 0) {
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'only shows current or upcoming cycles',
+            'no cycles in workspace',
+          );
         return;
       }
 
@@ -624,7 +666,12 @@ describe.runIf(canRunLiveTests)('workspace_metadata live validation', () => {
       const registry = getStoredRegistry(context.sessionId)!;
 
       if (registry.projects.size === 0) {
-        // No projects in workspace — skip
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'every project short key resolves to a valid project',
+            'no projects in workspace registry',
+          );
         return;
       }
 

@@ -11,7 +11,8 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
-import { afterAll, describe, expect, it } from 'vitest';
+import type { File, Suite } from '@vitest/runner';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getIssuesTool } from '../../src/shared/tools/linear/get-issues.js';
 import { listIssuesTool } from '../../src/shared/tools/linear/list-issues.js';
 import { listProjectsTool } from '../../src/shared/tools/linear/projects.js';
@@ -19,11 +20,17 @@ import { workspaceMetadataTool } from '../../src/shared/tools/linear/workspace-m
 import { clearRegistry } from '../../src/shared/toon/registry.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchTeams } from './helpers/linear-api.js';
+import { reportSkip } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
-describe.runIf(canRunLiveTests)('edge cases live validation', () => {
+describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
+  let suiteRef: Readonly<Suite | File> | null = null;
   // Track all contexts for cleanup
   const contexts: Array<{ sessionId: string }> = [];
+
+  beforeAll((suite) => {
+    suiteRef = suite;
+  });
 
   afterAll(() => {
     for (const ctx of contexts) {
@@ -44,13 +51,23 @@ describe.runIf(canRunLiveTests)('edge cases live validation', () => {
       );
 
       if (!sqmTeam) {
-        // SQM team does not exist in this workspace -- skip gracefully
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'SQM issues use prefixed state keys, SQT uses clean keys',
+            'SQM team does not exist in workspace',
+          );
         return;
       }
 
       const defaultTeam = process.env.DEFAULT_TEAM;
       if (!defaultTeam) {
-        // Without DEFAULT_TEAM, prefixing logic is not active -- skip
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'SQM issues use prefixed state keys, SQT uses clean keys',
+            'DEFAULT_TEAM not set, prefixing logic not active',
+          );
         return;
       }
 
@@ -177,7 +194,12 @@ describe.runIf(canRunLiveTests)('edge cases live validation', () => {
       const paginationSection = parsed.sections.get('_pagination');
 
       if (fetchedCount === 0) {
-        // No issues at all -- pagination may or may not be present
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'respects limit and reports pagination correctly',
+            'no issues returned',
+          );
         return;
       }
 
@@ -232,7 +254,12 @@ describe.runIf(canRunLiveTests)('edge cases live validation', () => {
       const issuesSection = listParsed.sections.get('issues');
 
       if (!issuesSection || issuesSection.rows.length === 0) {
-        // No issues -- skip
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'list_issues truncates descriptions, get_issues does not',
+            'no issues returned',
+          );
         return;
       }
 
@@ -242,7 +269,12 @@ describe.runIf(canRunLiveTests)('edge cases live validation', () => {
       );
 
       if (!issueWithDesc) {
-        // No issues with descriptions -- skip gracefully
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'list_issues truncates descriptions, get_issues does not',
+            'no issues with descriptions found',
+          );
         return;
       }
 
@@ -318,7 +350,12 @@ describe.runIf(canRunLiveTests)('edge cases live validation', () => {
       const wmProjects = wmParsed.sections.get('_projects');
 
       if (!wmProjects || wmProjects.rows.length === 0) {
-        // No projects -- skip
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'workspace_metadata rounds progress, list_projects does not',
+            'no projects in workspace_metadata',
+          );
         return;
       }
 
@@ -350,7 +387,12 @@ describe.runIf(canRunLiveTests)('edge cases live validation', () => {
       const lpProjects = lpParsed.sections.get('projects');
 
       if (!lpProjects || lpProjects.rows.length === 0) {
-        // No projects from list_projects -- can't compare
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'workspace_metadata rounds progress, list_projects does not',
+            'no projects from list_projects',
+          );
         return;
       }
 
@@ -398,7 +440,12 @@ describe.runIf(canRunLiveTests)('edge cases live validation', () => {
       const usersSection = parsed.sections.get('_users');
 
       if (!usersSection || usersSection.rows.length === 0) {
-        // No users in lookup -- skip
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'external users have preserved names',
+            'no users in lookup',
+          );
         return;
       }
 
@@ -406,7 +453,12 @@ describe.runIf(canRunLiveTests)('edge cases live validation', () => {
       const extUsers = usersSection.rows.filter((r) => r.key.startsWith('ext'));
 
       if (extUsers.length === 0) {
-        // No external users found in this workspace -- skip gracefully
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'external users have preserved names',
+            'no external users found in workspace',
+          );
         return;
       }
 

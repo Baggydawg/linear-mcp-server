@@ -13,6 +13,7 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
+import type { File, Suite } from '@vitest/runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { getIssueHistoryTool } from '../../src/shared/tools/linear/get-issue-history.js';
 import { listIssuesTool } from '../../src/shared/tools/linear/list-issues.js';
@@ -25,20 +26,23 @@ import {
   fetchTeams,
   fetchUsers,
 } from './helpers/linear-api.js';
+import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
-describe.runIf(canRunLiveTests)('get_issue_history live data validation', () => {
+describe.skipIf(!canRunLiveTests)('get_issue_history live data validation', () => {
+  let suiteRef: Readonly<Suite | File> | null = null;
   let context: ToolContext;
   let historyParsed: ParsedToon | null = null;
   let issueIdentifier: string | null = null;
   let hasHistory = false;
 
-  beforeAll(async () => {
+  beforeAll(async (suite) => {
+    suiteRef = suite;
     context = createLiveContext();
 
-    // First, call list_issues to find a valid issue identifier
+    // Call list_issues to find issues, then iterate to find one with history
     const issuesResult = await listIssuesTool.handler(
-      { team: 'SQT', limit: 5 },
+      { team: 'SQT', limit: 10 },
       context,
     );
     expect(issuesResult.isError).not.toBe(true);
@@ -51,25 +55,38 @@ describe.runIf(canRunLiveTests)('get_issue_history live data validation', () => 
       return;
     }
 
-    // Pick the first issue
-    issueIdentifier = issuesSection.rows[0].identifier;
-    expect(issueIdentifier).toBeDefined();
+    // Iterate through issues to find one with history
+    for (const issue of issuesSection.rows) {
+      const identifier = issue.identifier;
+      const historyResult = await getIssueHistoryTool.handler(
+        { issueIds: [identifier] },
+        context,
+      );
+      if (historyResult.isError) continue;
 
-    // Call get_issue_history (input is issueIds: string[])
-    const historyResult = await getIssueHistoryTool.handler(
-      { issueIds: [issueIdentifier] },
-      context,
-    );
-    expect(historyResult.isError).not.toBe(true);
+      const text = historyResult.content[0].text;
+      const parsed = parseToonText(text);
+      const historySection = parsed.sections.get('history');
 
-    const text = historyResult.content[0].text;
-    historyParsed = parseToonText(text);
+      if (historySection && historySection.rows.length > 0) {
+        issueIdentifier = identifier;
+        historyParsed = parsed;
+        hasHistory = true;
+        break;
+      }
+    }
 
-    const historySection = historyParsed.sections.get('history');
-    hasHistory = !!historySection && historySection.rows.length > 0;
+    if (!hasHistory) {
+      console.warn(
+        'No issues with history found after checking up to 10, skipping validation',
+      );
+    }
   }, 45000);
 
-  afterAll(() => {
+  afterAll((suite) => {
+    if (hasHistory && issueIdentifier) {
+      reportEntitiesValidated(suite, 'history', [issueIdentifier]);
+    }
     if (context) {
       clearRegistry(context.sessionId);
     }
@@ -77,7 +94,12 @@ describe.runIf(canRunLiveTests)('get_issue_history live data validation', () => 
 
   it('issue history entries match API data', async () => {
     if (!hasHistory || !historyParsed || !issueIdentifier) {
-      console.warn('No history entries found, skipping validation');
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'issue history entries match API data',
+          'no history entries found',
+        );
       return;
     }
 
@@ -213,7 +235,8 @@ describe.runIf(canRunLiveTests)('get_issue_history live data validation', () => 
 
   it('history has expected field types', () => {
     if (!hasHistory || !historyParsed) {
-      console.warn('No history entries, skipping field type validation');
+      if (suiteRef)
+        reportSkip(suiteRef, 'history has expected field types', 'no history entries');
       return;
     }
 

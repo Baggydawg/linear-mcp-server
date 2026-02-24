@@ -67,6 +67,7 @@ test-results/
 cypress/videos/
 cypress/screenshots/
 cypress/downloads/
+tests/live/reports/*.md
 
 ## Environment files
 .env

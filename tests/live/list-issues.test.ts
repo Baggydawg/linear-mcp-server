@@ -8,6 +8,7 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
+import type { File, Suite } from '@vitest/runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listIssuesTool } from '../../src/shared/tools/linear/list-issues.js';
 import { stripMarkdownImages } from '../../src/shared/toon/encoder.js';
@@ -18,7 +19,12 @@ import {
 } from '../../src/shared/toon/registry.js';
 import { expectFieldMatch, normalizeEmpty } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
-import { fetchIssue } from './helpers/linear-api.js';
+import {
+  fetchComments,
+  fetchIssue,
+  fetchIssueRelations,
+} from './helpers/linear-api.js';
+import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
 import type { ParsedToon } from './helpers/toon-parser.js';
 import { parseToonText } from './helpers/toon-parser.js';
 
@@ -26,12 +32,15 @@ import { parseToonText } from './helpers/toon-parser.js';
 // Shared state across tests
 // ─────────────────────────────────────────────────────────────────────────────
 
+let suiteRef: Readonly<Suite | File> | null = null;
 let context: ReturnType<typeof createLiveContext>;
 let parsed: ParsedToon;
 let rawText: string;
+const validatedIssueIds: string[] = [];
 
-describe.runIf(canRunLiveTests)('list_issues live validation', () => {
-  beforeAll(async () => {
+describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
+  beforeAll(async (suite) => {
+    suiteRef = suite;
     context = createLiveContext();
 
     const result = await listIssuesTool.handler({}, context);
@@ -42,7 +51,10 @@ describe.runIf(canRunLiveTests)('list_issues live validation', () => {
     parsed = parseToonText(rawText);
   }, 60_000);
 
-  afterAll(() => {
+  afterAll((suite) => {
+    if (validatedIssueIds.length > 0) {
+      reportEntitiesValidated(suite, 'issues', validatedIssueIds);
+    }
     if (context) clearRegistry(context.sessionId);
   });
 
@@ -62,6 +74,7 @@ describe.runIf(canRunLiveTests)('list_issues live validation', () => {
 
     // Validate each issue against direct API
     for (const toonIssue of issues) {
+      validatedIssueIds.push(toonIssue.identifier);
       const identifier = toonIssue.identifier;
       expect(identifier, 'issue identifier should not be empty').toBeTruthy();
 
@@ -176,7 +189,15 @@ describe.runIf(canRunLiveTests)('list_issues live validation', () => {
 
   it('_users section contains only referenced users', async () => {
     const usersSection = parsed.sections.get('_users');
-    if (!usersSection) return; // No users section is valid if no issues reference users
+    if (!usersSection) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          '_users section contains only referenced users',
+          'no _users section in output',
+        );
+      return;
+    }
 
     const issuesSection = parsed.sections.get('issues');
     const commentsSection = parsed.sections.get('comments');
@@ -228,7 +249,15 @@ describe.runIf(canRunLiveTests)('list_issues live validation', () => {
 
   it('_states section contains only referenced states', async () => {
     const statesSection = parsed.sections.get('_states');
-    if (!statesSection) return;
+    if (!statesSection) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          '_states section contains only referenced states',
+          'no _states section in output',
+        );
+      return;
+    }
 
     const issuesSection = parsed.sections.get('issues');
     if (!issuesSection) return;
@@ -278,11 +307,27 @@ describe.runIf(canRunLiveTests)('list_issues live validation', () => {
     );
 
     // May fail if team has no active cycle - that's acceptable
-    if (cycleResult.isError) return;
+    if (cycleResult.isError) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'current cycle filter returns only current sprint issues',
+          'no active cycle for team',
+        );
+      return;
+    }
 
     const cycleParsed = parseToonText(cycleResult.content[0].text);
     const cycleIssues = cycleParsed.sections.get('issues');
-    if (!cycleIssues || cycleIssues.rows.length === 0) return;
+    if (!cycleIssues || cycleIssues.rows.length === 0) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'current cycle filter returns only current sprint issues',
+          'no issues in current cycle',
+        );
+      return;
+    }
 
     // All issues should have the same cycle number
     const cycleValues = new Set<string>();
@@ -318,4 +363,137 @@ describe.runIf(canRunLiveTests)('list_issues live validation', () => {
       }
     }
   }, 120_000);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 5. Inline comments match API and are properly truncated
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it('inline comments match API and are properly truncated', async () => {
+    const commentsSection = parsed.sections.get('comments');
+    if (!commentsSection || commentsSection.rows.length === 0) {
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'inline comments match API and are properly truncated',
+          'no inline comments in output',
+        );
+      return;
+    }
+
+    // Inline comments use COMMENT_SCHEMA (no 'id' field)
+    expect(commentsSection.fields).not.toContain('id');
+
+    // Build users lookup from _users section
+    const usersSection = parsed.sections.get('_users');
+    const shortKeyToUserName = new Map<string, string>();
+    if (usersSection) {
+      for (const row of usersSection.rows) {
+        shortKeyToUserName.set(row.key, row.name);
+      }
+    }
+
+    // Group comments by issue
+    const commentsByIssue = new Map<string, typeof commentsSection.rows>();
+    for (const comment of commentsSection.rows) {
+      if (!commentsByIssue.has(comment.issue)) {
+        commentsByIssue.set(comment.issue, []);
+      }
+      commentsByIssue.get(comment.issue)!.push(comment);
+    }
+
+    // Validate a sample of comments
+    for (const [issueIdentifier, toonComments] of commentsByIssue) {
+      // Fetch API comments
+      const apiIssue = await fetchIssue(issueIdentifier);
+      const apiComments = await fetchComments(apiIssue.id);
+
+      for (const toonComment of toonComments) {
+        // Verify createdAt and body match an API comment
+        const apiMatch = apiComments.find((ac) => {
+          const apiDate = new Date(ac.createdAt).toISOString();
+          return toonComment.createdAt === apiDate;
+        });
+
+        if (!apiMatch) continue; // Timing issues, skip
+
+        // Verify truncation: if API body > 500 chars, TOON should be truncated
+        const apiBody = apiMatch.body ?? '';
+        if (apiBody.length > 500) {
+          expect(
+            toonComment.body.length,
+            `Comment on ${issueIdentifier} should be truncated to ~500 chars, got ${toonComment.body.length}`,
+          ).toBeLessThanOrEqual(503); // 500 + "..."
+          expect(
+            toonComment.body.endsWith('...'),
+            `Truncated comment on ${issueIdentifier} should end with "..."`,
+          ).toBe(true);
+        } else {
+          expect(
+            normalizeEmpty(toonComment.body),
+            `Comment on ${issueIdentifier} body should match API`,
+          ).toBe(normalizeEmpty(apiBody));
+        }
+
+        // Verify user short key resolves correctly
+        if (normalizeEmpty(toonComment.user)) {
+          const toonUserName = shortKeyToUserName.get(toonComment.user);
+          const apiUser = await (apiMatch as any).user;
+          if (apiUser && toonUserName) {
+            expect(
+              toonUserName,
+              `Comment user "${toonComment.user}" should resolve to "${apiUser.name}"`,
+            ).toBe(apiUser.name);
+          }
+        }
+      }
+    }
+  }, 120_000);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 6. Relations match API
+  // ─────────────────────────────────────────────────────────────────────────
+
+  it('relations match API', async () => {
+    const relationsSection = parsed.sections.get('relations');
+    if (!relationsSection || relationsSection.rows.length === 0) {
+      if (suiteRef)
+        reportSkip(suiteRef, 'relations match API', 'no relations in output');
+      return;
+    }
+
+    // Validate relation types
+    const validTypes = new Set(['blocks', 'duplicate', 'related']);
+    for (const relation of relationsSection.rows) {
+      expect(
+        validTypes.has(relation.type),
+        `Relation type "${relation.type}" should be one of: blocks, duplicate, related`,
+      ).toBe(true);
+    }
+
+    // Verify a sample of relations against API
+    const checkedIssues = new Set<string>();
+    for (const relation of relationsSection.rows) {
+      if (checkedIssues.has(relation.from)) continue;
+      checkedIssues.add(relation.from);
+
+      const apiIssue = await fetchIssue(relation.from);
+      const apiRelations = await fetchIssueRelations(apiIssue.id);
+
+      // Check that the TOON relation exists in API relations
+      const relationsForThisIssue = relationsSection.rows.filter(
+        (r) => r.from === relation.from,
+      );
+      for (const toonRel of relationsForThisIssue) {
+        // Note: relation type mapping may differ (API uses camelCase like "blocks", "isBlocking", etc.)
+        // Just verify the target issue exists in API relations
+        const apiTarget = apiRelations.find(
+          (ar) => ar.relatedIssue?.identifier === toonRel.to,
+        );
+        expect(
+          apiTarget,
+          `Relation ${toonRel.from} -> ${toonRel.to} (${toonRel.type}) not found in API`,
+        ).toBeDefined();
+      }
+    }
+  }, 60_000);
 });

@@ -8,6 +8,7 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
+import type { File, Suite } from '@vitest/runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listProjectUpdatesTool } from '../../src/shared/tools/linear/project-updates.js';
 import { listProjectsTool } from '../../src/shared/tools/linear/projects.js';
@@ -25,18 +26,22 @@ import {
   fetchTeams,
   fetchUsers,
 } from './helpers/linear-api.js';
+import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
-describe.runIf(canRunLiveTests)('list_project_updates live data validation', () => {
+describe.skipIf(!canRunLiveTests)('list_project_updates live data validation', () => {
+  let suiteRef: Readonly<Suite | File> | null = null;
   let context: ToolContext;
   let updatesParsed: ParsedToon | null = null;
   let projectUuid: string | null = null;
   let hasUpdates = false;
+  const validatedUpdateIds: string[] = [];
 
-  beforeAll(async () => {
+  beforeAll(async (suite) => {
+    suiteRef = suite;
     context = createLiveContext();
 
-    // First, call list_projects to establish registry and find the first project
+    // First, call list_projects to establish registry and find projects
     const projectsResult = await listProjectsTool.handler({ team: 'SQT' }, context);
     expect(projectsResult.isError).not.toBe(true);
 
@@ -48,37 +53,46 @@ describe.runIf(canRunLiveTests)('list_project_updates live data validation', () 
       return;
     }
 
-    // Get the first project's short key and name so we can look up its UUID
-    const firstProject = projectsSection.rows[0];
-    const projectName = firstProject.name;
-    const projectShortKey = firstProject.key;
-
-    // Resolve project UUID via direct API
+    // Resolve SQT team for UUID lookups
     const teams = await fetchTeams();
     const sqtTeam = teams.find((t) => (t as unknown as { key?: string }).key === 'SQT');
     if (!sqtTeam) return;
 
     const apiProjects = await fetchProjects(sqtTeam.id);
-    const matchedProject = apiProjects.find((p) => p.name === projectName);
-    if (!matchedProject) return;
-    projectUuid = matchedProject.id;
 
-    // Call list_project_updates with the actual short key from the first project
-    const updatesResult = await listProjectUpdatesTool.handler(
-      { project: projectShortKey },
-      context,
-    );
-    expect(updatesResult.isError).not.toBe(true);
+    // Iterate projects to find one with updates
+    for (const project of projectsSection.rows) {
+      const shortKey = project.key;
+      const updatesResult = await listProjectUpdatesTool.handler(
+        { project: shortKey },
+        context,
+      );
+      if (updatesResult.isError) continue;
 
-    const text = updatesResult.content[0].text;
-    updatesParsed = parseToonText(text);
+      const text = updatesResult.content[0].text;
+      const parsed = parseToonText(text);
+      const updatesSection = parsed.sections.get('projectUpdates');
 
-    // Check if there are any updates
-    const updatesSection = updatesParsed.sections.get('projectUpdates');
-    hasUpdates = !!updatesSection && updatesSection.rows.length > 0;
+      if (updatesSection && updatesSection.rows.length > 0) {
+        const matched = apiProjects.find((p) => p.name === project.name);
+        if (matched) {
+          projectUuid = matched.id;
+          updatesParsed = parsed;
+          hasUpdates = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasUpdates) {
+      console.warn('No projects with updates found, skipping validation');
+    }
   }, 45000);
 
-  afterAll(() => {
+  afterAll((suite) => {
+    if (validatedUpdateIds.length > 0) {
+      reportEntitiesValidated(suite, 'projectUpdates', validatedUpdateIds);
+    }
     if (context) {
       clearRegistry(context.sessionId);
     }
@@ -86,7 +100,12 @@ describe.runIf(canRunLiveTests)('list_project_updates live data validation', () 
 
   it('project updates match API data', async () => {
     if (!hasUpdates || !updatesParsed || !projectUuid) {
-      console.warn('No project updates found for first project, skipping validation');
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'project updates match API data',
+          'no projects with updates found',
+        );
       return;
     }
 
@@ -124,6 +143,8 @@ describe.runIf(canRunLiveTests)('list_project_updates live data validation', () 
         `Project update id="${updateId}" from TOON not found in API response`,
       ).toBeDefined();
       if (!apiUpdate) continue;
+
+      validatedUpdateIds.push(updateId);
 
       const ctx = (field: string): FieldContext => ({
         entity: 'ProjectUpdate',

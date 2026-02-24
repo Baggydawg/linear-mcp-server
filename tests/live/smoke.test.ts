@@ -16,7 +16,7 @@ import { clearRegistry } from '../../src/shared/toon/registry.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { parseToonText } from './helpers/toon-parser.js';
 
-describe.runIf(canRunLiveTests)('live test harness smoke test', () => {
+describe.skipIf(!canRunLiveTests)('live test harness smoke test', () => {
   it('can call workspace_metadata with real API token', async () => {
     const context = createLiveContext();
 

@@ -365,3 +365,24 @@ export async function fetchProjectUpdates(
   });
   return conn.nodes;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cleanup Operations
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Permanently delete an issue. Uses the `permanentlyDelete` flag
+ * to bypass the 30-day trash retention period.
+ */
+export async function deleteIssue(id: string): Promise<void> {
+  const client = getDirectClient();
+  await client.deleteIssue(id, { permanentlyDelete: true });
+}
+
+/**
+ * Delete a project update by its UUID.
+ */
+export async function deleteProjectUpdate(id: string): Promise<void> {
+  const client = getDirectClient();
+  await client.deleteProjectUpdate(id);
+}

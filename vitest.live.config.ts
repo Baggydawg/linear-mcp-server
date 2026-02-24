@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { MarkdownReporter } from './tests/live/helpers/markdown-reporter.js';
 
 export default defineConfig({
   test: {
@@ -14,6 +15,8 @@ export default defineConfig({
 
     testTimeout: 60000,
     hookTimeout: 60000,
+
+    reporters: ['default', new MarkdownReporter()],
   },
   resolve: {
     alias: {

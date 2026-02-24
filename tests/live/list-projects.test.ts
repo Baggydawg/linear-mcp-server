@@ -8,6 +8,7 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
+import type { File, Suite } from '@vitest/runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listProjectsTool } from '../../src/shared/tools/linear/projects.js';
 import type { ToolContext } from '../../src/shared/tools/types.js';
@@ -19,14 +20,18 @@ import {
 } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchProjects, fetchTeams, fetchUsers } from './helpers/linear-api.js';
+import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
-describe.runIf(canRunLiveTests)('list_projects live data validation', () => {
+describe.skipIf(!canRunLiveTests)('list_projects live data validation', () => {
+  let suiteRef: Readonly<Suite | File> | null = null;
   let context: ToolContext;
   let parsed: ParsedToon;
   let sqtTeamId: string;
+  const validatedProjectNames: string[] = [];
 
-  beforeAll(async () => {
+  beforeAll(async (suite) => {
+    suiteRef = suite;
     context = createLiveContext();
 
     // Resolve SQT team ID for direct API calls
@@ -44,7 +49,10 @@ describe.runIf(canRunLiveTests)('list_projects live data validation', () => {
     parsed = parseToonText(text);
   }, 30000);
 
-  afterAll(() => {
+  afterAll((suite) => {
+    if (validatedProjectNames.length > 0) {
+      reportEntitiesValidated(suite, 'projects', validatedProjectNames);
+    }
     if (context) {
       clearRegistry(context.sessionId);
     }
@@ -53,7 +61,12 @@ describe.runIf(canRunLiveTests)('list_projects live data validation', () => {
   it('default team projects match API data', async () => {
     const projectsSection = parsed.sections.get('projects');
     if (!projectsSection || projectsSection.rows.length === 0) {
-      console.warn('No projects found for SQT team, skipping validation');
+      if (suiteRef)
+        reportSkip(
+          suiteRef,
+          'default team projects match API data',
+          'no projects found for SQT team',
+        );
       return;
     }
 
@@ -156,6 +169,8 @@ describe.runIf(canRunLiveTests)('list_projects live data validation', () => {
       const apiTargetDate = (apiProject as unknown as { targetDate?: string })
         .targetDate;
       expectDateMatch(toonRow.targetDate, apiTargetDate, ctx('targetDate'));
+
+      validatedProjectNames.push(toonRow.name);
     }
   }, 30000);
 });
