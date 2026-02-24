@@ -638,9 +638,7 @@ export const createIssuesTool = defineTool({
         if (it.cycle !== undefined) {
           // Check if input is a natural language selector
           const selectorValue =
-            typeof it.cycle === 'string'
-              ? normalizeCycleSelector(it.cycle)
-              : null;
+            typeof it.cycle === 'string' ? normalizeCycleSelector(it.cycle) : null;
 
           let cycleNumber: number;
 

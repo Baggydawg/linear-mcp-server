@@ -1,0 +1,444 @@
+/**
+ * Live data validation for edge cases and cross-tool behavior.
+ *
+ * Tests: cross-team state prefixes, empty results, pagination,
+ * description truncation, progress rounding, and external/deactivated users.
+ *
+ * These tests are more likely to encounter unexpected data shapes, so
+ * they are written defensively with graceful skips when conditions aren't met.
+ *
+ * Run with: bun test tests/live/edge-cases.test.ts
+ * Requires LINEAR_ACCESS_TOKEN environment variable.
+ */
+
+import { afterAll, describe, expect, it } from 'vitest';
+import { getIssuesTool } from '../../src/shared/tools/linear/get-issues.js';
+import { listIssuesTool } from '../../src/shared/tools/linear/list-issues.js';
+import { listProjectsTool } from '../../src/shared/tools/linear/projects.js';
+import { workspaceMetadataTool } from '../../src/shared/tools/linear/workspace-metadata.js';
+import { clearRegistry } from '../../src/shared/toon/registry.js';
+import { canRunLiveTests, createLiveContext } from './helpers/context.js';
+import { fetchTeams } from './helpers/linear-api.js';
+import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
+
+describe.runIf(canRunLiveTests)('edge cases live validation', () => {
+  // Track all contexts for cleanup
+  const contexts: Array<{ sessionId: string }> = [];
+
+  afterAll(() => {
+    for (const ctx of contexts) {
+      clearRegistry(ctx.sessionId);
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 1. Cross-team state prefixes
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('cross-team state prefixes', () => {
+    it('SQM issues use prefixed state keys, SQT uses clean keys', async () => {
+      // Check if SQM team exists
+      const apiTeams = await fetchTeams();
+      const sqmTeam = apiTeams.find(
+        (t) => (t as unknown as { key?: string }).key === 'SQM',
+      );
+
+      if (!sqmTeam) {
+        // SQM team does not exist in this workspace -- skip gracefully
+        return;
+      }
+
+      const defaultTeam = process.env.DEFAULT_TEAM;
+      if (!defaultTeam) {
+        // Without DEFAULT_TEAM, prefixing logic is not active -- skip
+        return;
+      }
+
+      // Call list_issues for SQM team
+      const sqmContext = createLiveContext();
+      contexts.push(sqmContext);
+
+      const sqmResult = await listIssuesTool.handler(
+        { team: 'SQM', limit: 5 },
+        sqmContext,
+      );
+      expect(sqmResult.isError).not.toBe(true);
+
+      const sqmParsed = parseToonText(sqmResult.content[0].text);
+      const sqmStates = sqmParsed.sections.get('_states');
+
+      if (sqmStates && sqmStates.rows.length > 0) {
+        // SQM states should use prefixed keys (sqm:s0, sqm:s1, ...)
+        for (const row of sqmStates.rows) {
+          expect(
+            row.key,
+            `SQM state "${row.name}" key should be prefixed with "sqm:" but got "${row.key}"`,
+          ).toMatch(/^sqm:s\d+$/);
+        }
+      }
+
+      // Call list_issues for SQT (default team)
+      const sqtContext = createLiveContext();
+      contexts.push(sqtContext);
+
+      const sqtResult = await listIssuesTool.handler(
+        { team: 'SQT', limit: 5 },
+        sqtContext,
+      );
+      expect(sqtResult.isError).not.toBe(true);
+
+      const sqtParsed = parseToonText(sqtResult.content[0].text);
+      const sqtStates = sqtParsed.sections.get('_states');
+
+      if (sqtStates && sqtStates.rows.length > 0) {
+        // SQT (default team) states should use clean keys (s0, s1, ...)
+        for (const row of sqtStates.rows) {
+          expect(
+            row.key,
+            `SQT state "${row.name}" key should be clean (no prefix) but got "${row.key}"`,
+          ).toMatch(/^s\d+$/);
+        }
+      }
+    }, 60000);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 2. Empty results
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('empty results', () => {
+    it('returns clean response with no matching issues', async () => {
+      const context = createLiveContext();
+      contexts.push(context);
+
+      // Use a filter combination unlikely to match any issues
+      const result = await listIssuesTool.handler(
+        {
+          filter: {
+            labels: { name: { in: ['NONEXISTENT_LABEL_12345_XYZZY'] } },
+          },
+        },
+        context,
+      );
+
+      // Should not be an error
+      expect(result.isError, 'Empty results should not be an error').not.toBe(true);
+
+      const text = result.content[0].text;
+      expect(text).toBeDefined();
+      expect(text.length).toBeGreaterThan(0);
+
+      // Should be parseable TOON
+      const parsed = parseToonText(text);
+
+      // The issues section should have 0 rows or be absent
+      const issuesSection = parsed.sections.get('issues');
+      if (issuesSection) {
+        expect(
+          issuesSection.rows.length,
+          'Issues section should have 0 rows for empty results',
+        ).toBe(0);
+        expect(issuesSection.count, 'Issues section count should be 0').toBe(0);
+      }
+
+      // Meta section should exist and report count of 0
+      expect(parsed.meta.count, '_meta count should be "0"').toBe('0');
+
+      // Should not contain error indicators
+      expect(text).not.toContain('error');
+      expect(text).not.toContain('ERROR');
+    }, 30000);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 3. Pagination
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('pagination', () => {
+    it('respects limit and reports pagination correctly', async () => {
+      const context = createLiveContext();
+      contexts.push(context);
+
+      const result = await listIssuesTool.handler({ limit: 2 }, context);
+
+      expect(result.isError).not.toBe(true);
+
+      const parsed = parseToonText(result.content[0].text);
+      const issuesSection = parsed.sections.get('issues');
+
+      // Fetched count should be <= 2
+      const fetchedCount = issuesSection?.rows.length ?? 0;
+      expect(
+        fetchedCount,
+        `Should fetch at most 2 issues, got ${fetchedCount}`,
+      ).toBeLessThanOrEqual(2);
+
+      // Parse _pagination section
+      const paginationSection = parsed.sections.get('_pagination');
+
+      if (fetchedCount === 0) {
+        // No issues at all -- pagination may or may not be present
+        return;
+      }
+
+      // fetched should match actual number of rows
+      if (paginationSection && paginationSection.rows.length > 0) {
+        const pRow = paginationSection.rows[0];
+
+        expect(pRow.fetched, `_pagination fetched should be "${fetchedCount}"`).toBe(
+          String(fetchedCount),
+        );
+
+        // hasMore should be a boolean string
+        expect(
+          ['true', 'false'],
+          `_pagination hasMore should be "true" or "false", got "${pRow.hasMore}"`,
+        ).toContain(pRow.hasMore);
+
+        // If hasMore is true, cursor should be non-empty
+        if (pRow.hasMore === 'true') {
+          expect(
+            pRow.cursor,
+            '_pagination cursor should be non-empty when hasMore is true',
+          ).toBeTruthy();
+          expect(
+            pRow.cursor.length,
+            '_pagination cursor should be a non-trivial string',
+          ).toBeGreaterThan(0);
+        }
+      }
+
+      // The _meta count should match fetched
+      expect(parsed.meta.count, `_meta count should be "${fetchedCount}"`).toBe(
+        String(fetchedCount),
+      );
+    }, 30000);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 4. Description truncation comparison
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('description truncation', () => {
+    it('list_issues truncates descriptions, get_issues does not', async () => {
+      // Step 1: Call list_issues to find an issue with a non-empty description
+      const listContext = createLiveContext();
+      contexts.push(listContext);
+
+      const listResult = await listIssuesTool.handler({ limit: 20 }, listContext);
+      expect(listResult.isError).not.toBe(true);
+
+      const listParsed = parseToonText(listResult.content[0].text);
+      const issuesSection = listParsed.sections.get('issues');
+
+      if (!issuesSection || issuesSection.rows.length === 0) {
+        // No issues -- skip
+        return;
+      }
+
+      // Find an issue with a non-empty description
+      const issueWithDesc = issuesSection.rows.find(
+        (r) => r.desc && r.desc.trim().length > 0,
+      );
+
+      if (!issueWithDesc) {
+        // No issues with descriptions -- skip gracefully
+        return;
+      }
+
+      const identifier = issueWithDesc.identifier;
+      const listDesc = issueWithDesc.desc;
+
+      // Step 2: Call get_issues for the same issue
+      const getContext = createLiveContext();
+      contexts.push(getContext);
+
+      const getResult = await getIssuesTool.handler({ ids: [identifier] }, getContext);
+      expect(getResult.isError).not.toBe(true);
+
+      const getParsed = parseToonText(getResult.content[0].text);
+      const getIssuesSection = getParsed.sections.get('issues');
+      expect(
+        getIssuesSection,
+        'get_issues should return an issues section',
+      ).toBeDefined();
+
+      const getIssue = getIssuesSection!.rows.find((r) => r.identifier === identifier);
+      expect(getIssue, `get_issues should return issue ${identifier}`).toBeDefined();
+
+      const getDesc = getIssue!.desc;
+
+      // Step 3: Compare descriptions
+      if (listDesc.endsWith('... [truncated]')) {
+        // list_issues truncated the description
+        // The truncated prefix should be a prefix of the full description
+        const truncatedContent = listDesc.replace(/\.\.\. \[truncated\]$/, '');
+        expect(
+          getDesc.startsWith(truncatedContent),
+          `Truncated list_issues desc should be a prefix of get_issues desc for ${identifier}`,
+        ).toBe(true);
+
+        // get_issues should have more content
+        expect(
+          getDesc.length,
+          `get_issues desc should be longer than list_issues desc for ${identifier}`,
+        ).toBeGreaterThan(listDesc.length);
+
+        // get_issues should NOT be truncated
+        expect(
+          getDesc.endsWith('... [truncated]'),
+          `get_issues desc should NOT be truncated for ${identifier}`,
+        ).toBe(false);
+      } else {
+        // Short description -- both should match (or the get_issues desc might
+        // differ only by image stripping; be lenient)
+        // Note: both tools strip markdown images, so we compare what we got
+        expect(
+          listDesc,
+          `Short desc should match between list_issues and get_issues for ${identifier}`,
+        ).toBe(getDesc);
+      }
+    }, 60000);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 5. Progress rounding validation
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('progress rounding', () => {
+    it('workspace_metadata rounds progress, list_projects does not', async () => {
+      // Step 1: Call workspace_metadata and parse _projects
+      const wmContext = createLiveContext();
+      contexts.push(wmContext);
+
+      const wmResult = await workspaceMetadataTool.handler({}, wmContext);
+      expect(wmResult.isError).not.toBe(true);
+
+      const wmParsed = parseToonText(wmResult.content[0].text);
+      const wmProjects = wmParsed.sections.get('_projects');
+
+      if (!wmProjects || wmProjects.rows.length === 0) {
+        // No projects -- skip
+        return;
+      }
+
+      // For workspace_metadata projects with progress values,
+      // verify they look like properly rounded values (at most 2 decimal places)
+      for (const row of wmProjects.rows) {
+        if (row.progress && row.progress !== '') {
+          const progressNum = parseFloat(row.progress);
+          if (!Number.isNaN(progressNum)) {
+            // Rounding to 2 decimal places means the value should survive
+            // a round-trip: Math.round(x * 100) / 100 === x
+            const rounded = Math.round(progressNum * 100) / 100;
+            expect(
+              progressNum,
+              `workspace_metadata project "${row.name}" progress ${row.progress} should be rounded to 2 decimals`,
+            ).toBe(rounded);
+          }
+        }
+      }
+
+      // Step 2: Call list_projects and parse projects
+      const lpContext = createLiveContext();
+      contexts.push(lpContext);
+
+      const lpResult = await listProjectsTool.handler({ team: 'SQT' }, lpContext);
+      expect(lpResult.isError).not.toBe(true);
+
+      const lpParsed = parseToonText(lpResult.content[0].text);
+      const lpProjects = lpParsed.sections.get('projects');
+
+      if (!lpProjects || lpProjects.rows.length === 0) {
+        // No projects from list_projects -- can't compare
+        return;
+      }
+
+      // For list_projects, the progress value is the raw API value.
+      // We just verify it's a valid number (we can't verify it's NOT rounded
+      // since the raw value might happen to already be rounded).
+      for (const row of lpProjects.rows) {
+        if (row.progress && row.progress !== '' && row.progress !== '0') {
+          const progressNum = parseFloat(row.progress);
+          expect(
+            Number.isNaN(progressNum),
+            `list_projects project "${row.name}" progress "${row.progress}" should be a valid number`,
+          ).toBe(false);
+
+          // Compare against workspace_metadata for the same project (by name)
+          const wmRow = wmProjects.rows.find((r) => r.name === row.name);
+          if (wmRow && wmRow.progress && wmRow.progress !== '') {
+            const wmProgressNum = parseFloat(wmRow.progress);
+            // The workspace_metadata rounded value should equal
+            // Math.round(rawValue * 100) / 100 applied to the list_projects value
+            const expectedRounded = Math.round(progressNum * 100) / 100;
+            expect(
+              wmProgressNum,
+              `workspace_metadata progress for "${row.name}" (${wmRow.progress}) should be Math.round(${row.progress} * 100) / 100 = ${expectedRounded}`,
+            ).toBe(expectedRounded);
+          }
+        }
+      }
+    }, 60000);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 6. External/deactivated users (conditional)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('external/deactivated users', () => {
+    it('external users have preserved names', async () => {
+      const context = createLiveContext();
+      contexts.push(context);
+
+      const result = await listIssuesTool.handler({ limit: 50 }, context);
+      expect(result.isError).not.toBe(true);
+
+      const parsed = parseToonText(result.content[0].text);
+      const usersSection = parsed.sections.get('_users');
+
+      if (!usersSection || usersSection.rows.length === 0) {
+        // No users in lookup -- skip
+        return;
+      }
+
+      // Scan for any user with an "ext" prefix key
+      const extUsers = usersSection.rows.filter((r) => r.key.startsWith('ext'));
+
+      if (extUsers.length === 0) {
+        // No external users found in this workspace -- skip gracefully
+        return;
+      }
+
+      // For each external user, verify the name is preserved (not empty)
+      for (const extUser of extUsers) {
+        expect(
+          extUser.name,
+          `External user "${extUser.key}" should have a non-empty name`,
+        ).toBeTruthy();
+        expect(
+          extUser.name.length,
+          `External user "${extUser.key}" name should be non-trivial`,
+        ).toBeGreaterThan(0);
+        expect(
+          extUser.name,
+          `External user "${extUser.key}" name should not be "Unknown User"`,
+        ).not.toBe('Unknown User');
+      }
+
+      // Also verify ext users are referenced in at least one issue
+      const issuesSection = parsed.sections.get('issues');
+      if (issuesSection) {
+        for (const extUser of extUsers) {
+          const referencedInIssue = issuesSection.rows.some(
+            (r) => r.assignee === extUser.key || r.creator === extUser.key,
+          );
+          expect(
+            referencedInIssue,
+            `External user "${extUser.key}" (${extUser.name}) should be referenced by at least one issue`,
+          ).toBe(true);
+        }
+      }
+    }, 30000);
+  });
+});

@@ -53,7 +53,7 @@ export interface UserMetadata {
 export interface StateMetadata {
   name: string;
   type: string;
-  teamId: string;  // Required for getShortKey() to determine team prefix
+  teamId: string; // Required for getShortKey() to determine team prefix
 }
 
 /**
@@ -265,11 +265,13 @@ export function getTeamPrefix(
  * - "eng:u5" -> { teamPrefix: "eng", type: "user", index: 5 }
  * Returns undefined for invalid formats.
  */
-export function parseShortKey(key: string): {
-  teamPrefix?: string;
-  type: 'user' | 'state' | 'project';
-  index: number;
-} | undefined {
+export function parseShortKey(key: string):
+  | {
+      teamPrefix?: string;
+      type: 'user' | 'state' | 'project';
+      index: number;
+    }
+  | undefined {
   // Check for team prefix (format: "team:key")
   let teamPrefix: string | undefined;
   let shortKey = key;
@@ -474,7 +476,7 @@ function buildStateMetadata(states: RegistryStateEntity[]): Map<string, StateMet
     metadata.set(state.id, {
       name: state.name,
       type: state.type,
-      teamId: state.teamId ?? '',  // Preserve teamId for prefix lookup
+      teamId: state.teamId ?? '', // Preserve teamId for prefix lookup
     });
   }
   return metadata;

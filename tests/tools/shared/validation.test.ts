@@ -394,11 +394,7 @@ describe('validateStateKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // sqt:s0 is also valid for SQT (flexible input)
-      const result = validateStateKeyPrefix(
-        'sqt:s0',
-        'team-sqt',
-        registry,
-      );
+      const result = validateStateKeyPrefix('sqt:s0', 'team-sqt', registry);
 
       expect(result.valid).toBe(true);
     });
@@ -407,11 +403,7 @@ describe('validateStateKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // Invalid format - should pass prefix check (let resolution handle it)
-      const result = validateStateKeyPrefix(
-        'invalid-key',
-        'team-sqt',
-        registry,
-      );
+      const result = validateStateKeyPrefix('invalid-key', 'team-sqt', registry);
 
       expect(result.valid).toBe(true);
     });
@@ -420,11 +412,7 @@ describe('validateStateKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // User key - not a state, should pass prefix check
-      const result = validateStateKeyPrefix(
-        'u0',
-        'team-sqt',
-        registry,
-      );
+      const result = validateStateKeyPrefix('u0', 'team-sqt', registry);
 
       expect(result.valid).toBe(true);
     });
@@ -464,11 +452,7 @@ describe('validateStateKeyPrefix', () => {
     it('suggests correct prefix format in error for mismatched prefix', () => {
       const registry = createMultiTeamRegistry();
 
-      const result = validateStateKeyPrefix(
-        'sqm:s0',
-        'team-sqt',
-        registry,
-      );
+      const result = validateStateKeyPrefix('sqm:s0', 'team-sqt', registry);
 
       expect(result.valid).toBe(false);
       expect(result.suggestion).toBeDefined();
@@ -480,11 +464,7 @@ describe('validateStateKeyPrefix', () => {
     it('suggests correct prefix format in error for clean key on wrong team', () => {
       const registry = createMultiTeamRegistry();
 
-      const result = validateStateKeyPrefix(
-        's0',
-        'team-sqm',
-        registry,
-      );
+      const result = validateStateKeyPrefix('s0', 'team-sqm', registry);
 
       expect(result.valid).toBe(false);
       expect(result.suggestion).toBeDefined();
@@ -525,11 +505,7 @@ describe('validateStateKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // Uppercase prefix should still work
-      const result = validateStateKeyPrefix(
-        'SQM:s0',
-        'team-sqm',
-        registry,
-      );
+      const result = validateStateKeyPrefix('SQM:s0', 'team-sqm', registry);
 
       expect(result.valid).toBe(true);
     });
@@ -546,11 +522,7 @@ describe('validateLabelKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // Plain label name without prefix - could be workspace label
-      const result = validateLabelKeyPrefix(
-        'Bug',
-        'team-sqt',
-        registry,
-      );
+      const result = validateLabelKeyPrefix('Bug', 'team-sqt', registry);
 
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
@@ -560,11 +532,7 @@ describe('validateLabelKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // sqt:Feature for SQT team
-      const result = validateLabelKeyPrefix(
-        'sqt:Feature',
-        'team-sqt',
-        registry,
-      );
+      const result = validateLabelKeyPrefix('sqt:Feature', 'team-sqt', registry);
 
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
@@ -573,11 +541,7 @@ describe('validateLabelKeyPrefix', () => {
     it('returns valid for SQM prefix on SQM issue', () => {
       const registry = createMultiTeamRegistry();
 
-      const result = validateLabelKeyPrefix(
-        'sqm:Priority',
-        'team-sqm',
-        registry,
-      );
+      const result = validateLabelKeyPrefix('sqm:Priority', 'team-sqm', registry);
 
       expect(result.valid).toBe(true);
     });
@@ -586,11 +550,7 @@ describe('validateLabelKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // Labels starting with ":" are not team-prefixed
-      const result = validateLabelKeyPrefix(
-        ':Special:Label',
-        'team-sqt',
-        registry,
-      );
+      const result = validateLabelKeyPrefix(':Special:Label', 'team-sqt', registry);
 
       expect(result.valid).toBe(true);
     });
@@ -601,11 +561,7 @@ describe('validateLabelKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // sqm:Feature on SQT issue
-      const result = validateLabelKeyPrefix(
-        'sqm:Feature',
-        'team-sqt',
-        registry,
-      );
+      const result = validateLabelKeyPrefix('sqm:Feature', 'team-sqt', registry);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("Label 'sqm:Feature' has team prefix SQM");
@@ -615,11 +571,7 @@ describe('validateLabelKeyPrefix', () => {
     it('returns error for SQT prefix on SQM issue', () => {
       const registry = createMultiTeamRegistry();
 
-      const result = validateLabelKeyPrefix(
-        'sqt:Urgent',
-        'team-sqm',
-        registry,
-      );
+      const result = validateLabelKeyPrefix('sqt:Urgent', 'team-sqm', registry);
 
       expect(result.valid).toBe(false);
       expect(result.error).toContain("Label 'sqt:Urgent' has team prefix SQT");
@@ -629,11 +581,7 @@ describe('validateLabelKeyPrefix', () => {
     it('suggests correct label format in error', () => {
       const registry = createMultiTeamRegistry();
 
-      const result = validateLabelKeyPrefix(
-        'sqm:Feature',
-        'team-sqt',
-        registry,
-      );
+      const result = validateLabelKeyPrefix('sqm:Feature', 'team-sqt', registry);
 
       expect(result.valid).toBe(false);
       expect(result.suggestion).toBeDefined();
@@ -648,11 +596,7 @@ describe('validateLabelKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // Uppercase prefix should still be checked correctly
-      const result = validateLabelKeyPrefix(
-        'SQM:Feature',
-        'team-sqm',
-        registry,
-      );
+      const result = validateLabelKeyPrefix('SQM:Feature', 'team-sqm', registry);
 
       expect(result.valid).toBe(true);
     });
@@ -661,11 +605,7 @@ describe('validateLabelKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // sqt:Priority:High - prefix is "sqt", label name is "Priority:High"
-      const result = validateLabelKeyPrefix(
-        'sqt:Priority:High',
-        'team-sqt',
-        registry,
-      );
+      const result = validateLabelKeyPrefix('sqt:Priority:High', 'team-sqt', registry);
 
       expect(result.valid).toBe(true);
     });
@@ -674,11 +614,7 @@ describe('validateLabelKeyPrefix', () => {
       const registry = createMultiTeamRegistry();
 
       // Empty string - no prefix
-      const result = validateLabelKeyPrefix(
-        '',
-        'team-sqt',
-        registry,
-      );
+      const result = validateLabelKeyPrefix('', 'team-sqt', registry);
 
       expect(result.valid).toBe(true);
     });

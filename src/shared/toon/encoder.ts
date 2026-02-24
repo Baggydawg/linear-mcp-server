@@ -167,7 +167,7 @@ export function stripMarkdownImages(text: string | null | undefined): string | n
   let result = text.replace(imagePattern, '');
 
   // Clean up multiple consecutive spaces left by removal
-  result = result.replace(/  +/g, ' ');
+  result = result.replace(/ {2,}/g, ' ');
 
   // Append count
   const suffix = imageCount === 1 ? '[1 image]' : `[${imageCount} images]`;

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ToonRegistryError,
   ToonResolutionError,
@@ -1512,9 +1512,7 @@ describe('getTeamPrefix', () => {
   });
 
   it('returns empty string when teamId not found in teamKeys', () => {
-    const teamKeys = new Map([
-      ['team-sqt-uuid', 'sqt'],
-    ]);
+    const teamKeys = new Map([['team-sqt-uuid', 'sqt']]);
     // Unknown team ID
     const result = getTeamPrefix('team-unknown-uuid', 'team-sqt-uuid', teamKeys);
     expect(result).toBe('');

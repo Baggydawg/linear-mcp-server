@@ -9,14 +9,14 @@
 import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
+import { getLinearClient } from '../../../services/linear/client.js';
+import { resolveTeamId } from '../../../utils/resolvers.js';
 import {
   formatProfileForToon,
   getUserProfile,
   loadUserProfiles,
   type UserProfilesConfig,
 } from '../../config/user-profiles.js';
-import { getLinearClient } from '../../../services/linear/client.js';
-import { resolveTeamId } from '../../../utils/resolvers.js';
 // Note: config is still imported for USER_PROFILES_* settings
 import {
   buildRegistry,
@@ -355,7 +355,7 @@ export const workspaceMetadataTool = defineTool({
     // ─────────────────────────────────────────────────────────────────────────
 
     let defaultTeamUuid: string | undefined;
-    let teamIdsFilter = new Set<string>();
+    const teamIdsFilter = new Set<string>();
 
     // Always resolve DEFAULT_TEAM for registry key prefixing (clean keys vs prefixed)
     if (config.DEFAULT_TEAM) {

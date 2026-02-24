@@ -550,10 +550,16 @@ describe('TOON Tier 1 vs Tier 2 Output', () => {
 
     // Step 4: Verify state keys from the TOON text output match the registry
     const text = result.content[0].text;
-    const statesMatch = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+    const statesMatch = text.match(
+      /_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+    );
     expect(statesMatch).not.toBeNull();
 
-    const stateLines = statesMatch![1].trim().split('\n').map((l: string) => l.trim()).filter(Boolean);
+    const stateLines = statesMatch![1]
+      .trim()
+      .split('\n')
+      .map((l: string) => l.trim())
+      .filter(Boolean);
     for (const line of stateLines) {
       const key = line.split(',')[0];
       // Each key from the output should resolve via the registry

@@ -22,6 +22,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run tests/integration/",
+    "test:live": "vitest run --config vitest.live.config.ts",
     "test:client": "bun run scripts/test-client.ts"
   },
   "keywords": [

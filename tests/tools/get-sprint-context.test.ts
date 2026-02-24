@@ -458,9 +458,7 @@ describe('get_sprint_context handler', () => {
         description: 'Add OAuth2 authentication flow',
         priority: 1,
         estimate: null,
-        updatedAt: new Date(
-          Date.now() - 10 * 24 * 60 * 60 * 1000,
-        ).toISOString(),
+        updatedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
         state: { id: 'state-sqt-todo', name: 'Todo', type: 'unstarted' },
         project: { id: 'project-001', name: 'Q1 Release' },
         assignee: { id: 'user-001', name: 'Test User' },

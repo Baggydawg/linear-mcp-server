@@ -240,7 +240,9 @@ describe('workspace_metadata handler', () => {
     expect(text).toMatch(/_teams\[4\]/);
 
     // States now show ALL teams (not filtered) — 19 total states
-    const statesSection = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+    const statesSection = text.match(
+      /_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+    );
     expect(statesSection).not.toBeNull();
     expect(statesSection![1]).toContain('In Review'); // SQT state present
     expect(statesSection![1]).toContain('Pending'); // SQM state present
@@ -292,10 +294,16 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
 
     // Extract state keys from the _states section in TOON output
     // The _states section has lines like: s0,Backlog,backlog
-    const statesMatch = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+    const statesMatch = text.match(
+      /_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+    );
     expect(statesMatch).not.toBeNull();
 
-    const stateLines = statesMatch![1].trim().split('\n').map((l: string) => l.trim()).filter(Boolean);
+    const stateLines = statesMatch![1]
+      .trim()
+      .split('\n')
+      .map((l: string) => l.trim())
+      .filter(Boolean);
     expect(stateLines.length).toBeGreaterThan(0);
 
     // Each state key in the output should exist in the registry's statesByUuid values
@@ -355,7 +363,8 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     };
 
     // Override both teams' projects() to return the same project
-    const originalSqtProjects = mockClient._config.teams?.[0]?.projects ?? (mockClient as any).teams;
+    const originalSqtProjects =
+      mockClient._config.teams?.[0]?.projects ?? (mockClient as any).teams;
     const sqtTeam = (await mockClient.teams()).nodes[0];
     const engTeam = (await mockClient.teams()).nodes[1];
 
@@ -374,12 +383,14 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
       const text = result.content[0].text;
 
       // Count occurrences of the shared project name in the _projects section
-      const projectsSectionMatch = text.match(/_projects\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+      const projectsSectionMatch = text.match(
+        /_projects\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+      );
       expect(projectsSectionMatch).not.toBeNull();
 
       const projectLines = projectsSectionMatch![1].trim().split('\n').filter(Boolean);
-      const sharedProjectOccurrences = projectLines.filter(
-        (line: string) => line.includes('Cross-Team Project'),
+      const sharedProjectOccurrences = projectLines.filter((line: string) =>
+        line.includes('Cross-Team Project'),
       );
       // Project should appear exactly once (deduplicated)
       expect(sharedProjectOccurrences.length).toBe(1);
@@ -466,12 +477,17 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     const { clearRegistry } = await import('../../src/shared/toon/registry.js');
     clearRegistry(baseContext.sessionId);
 
-    const result = await workspaceMetadataTool.handler({ teamIds: ['ENG'] }, baseContext);
+    const result = await workspaceMetadataTool.handler(
+      { teamIds: ['ENG'] },
+      baseContext,
+    );
     expect(result.isError).toBeFalsy();
     const text = result.content[0].text;
 
     // States now show ALL teams (not filtered) — 19 total
-    const statesSection = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+    const statesSection = text.match(
+      /_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+    );
     expect(statesSection).not.toBeNull();
     expect(statesSection![1]).toContain('In Review'); // SQT state present
     expect(statesSection![1]).toContain('Pending'); // SQM state present
@@ -578,7 +594,9 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
   it('include parameter is stripped from input schema (removed)', () => {
     // The `include` parameter was removed from InputSchema.
     // Zod should strip the unknown key and parse successfully.
-    const result = workspaceMetadataTool.inputSchema.safeParse({ include: ['profile'] });
+    const result = workspaceMetadataTool.inputSchema.safeParse({
+      include: ['profile'],
+    });
     expect(result.success).toBe(true);
 
     // The parsed data should NOT contain `include`
@@ -616,9 +634,14 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
       expect(text).toContain('Resolved');
 
       // SQT states have clean (unprefixed) keys, other teams have prefixed keys
-      const statesSection = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+      const statesSection = text.match(
+        /_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+      );
       expect(statesSection).not.toBeNull();
-      const stateLines = statesSection![1].trim().split('\n').map((l: string) => l.trim());
+      const stateLines = statesSection![1]
+        .trim()
+        .split('\n')
+        .map((l: string) => l.trim());
 
       // SQT states: clean keys (s0, s1, s2, s3, s4, s5)
       const sqtStates = stateLines.filter((l: string) => /^s\d+,/.test(l));
@@ -666,9 +689,14 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
       expect(text).toMatch(/_users\[3\]\{key,name,displayName,email,role,teams\}/);
 
       // User rows should include team membership
-      const usersSection = text.match(/_users\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+      const usersSection = text.match(
+        /_users\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+      );
       expect(usersSection).not.toBeNull();
-      const userLines = usersSection![1].trim().split('\n').map((l: string) => l.trim());
+      const userLines = usersSection![1]
+        .trim()
+        .split('\n')
+        .map((l: string) => l.trim());
 
       // user-001 (Test User) is in SQT, ENG, DES
       const user0Line = userLines.find((l: string) => l.startsWith('u0,'));
@@ -712,7 +740,9 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
       const text = result.content[0].text;
 
       // _labels should contain SQT labels only (filtered to default team)
-      const labelsSection = text.match(/_labels\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+      const labelsSection = text.match(
+        /_labels\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+      );
       expect(labelsSection).not.toBeNull();
 
       // SQT labels present

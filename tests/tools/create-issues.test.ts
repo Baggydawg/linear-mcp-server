@@ -631,7 +631,11 @@ describe('create_issues TOON output', () => {
 describe('cycle selector support', () => {
   it('resolves "current" selector when creating an issue', async () => {
     const result = await createIssuesTool.handler(
-      { items: [{ teamId: 'team-sqt', title: 'Test with current cycle', cycle: 'current' }] },
+      {
+        items: [
+          { teamId: 'team-sqt', title: 'Test with current cycle', cycle: 'current' },
+        ],
+      },
       baseContext,
     );
 

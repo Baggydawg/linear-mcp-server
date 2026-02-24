@@ -239,11 +239,7 @@ export const updateIssuesTool = defineTool({
         if (it.state && registry) {
           // Pre-validate state key prefix before resolution (if we have teamId)
           if (teamId) {
-            const prefixValidation = validateStateKeyPrefix(
-              it.state,
-              teamId,
-              registry,
-            );
+            const prefixValidation = validateStateKeyPrefix(it.state, teamId, registry);
             if (!prefixValidation.valid) {
               results.push({
                 index: i,
@@ -753,9 +749,7 @@ export const updateIssuesTool = defineTool({
 
             // Check if input is a natural language selector
             const selectorValue =
-              typeof it.cycle === 'string'
-                ? normalizeCycleSelector(it.cycle)
-                : null;
+              typeof it.cycle === 'string' ? normalizeCycleSelector(it.cycle) : null;
 
             let cycleNumber: number;
 
@@ -1175,7 +1169,6 @@ export const updateIssuesTool = defineTool({
               });
             }
           }
-
         }
       } catch (error) {
         await logger.error('update_issues', {

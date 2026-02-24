@@ -24,11 +24,11 @@ import {
   PROJECT_SCHEMA,
   PROJECT_WRITE_RESULT_SCHEMA,
   type RegistryBuildData,
+  registerNewProject,
   type ShortKeyRegistry,
   type ToonResponse,
   type ToonRow,
   type ToonSection,
-  registerNewProject,
   tryGetShortKey,
   tryResolveShortKey,
   USER_LOOKUP_SCHEMA,
@@ -558,7 +558,7 @@ export const createProjectsTool = defineTool({
 
         // Resolve team(s) from key or UUID (with batch-level caching)
         // Supports both teamId (single, backward compat) and teamIds (multiple)
-        let resolvedTeamIds: string[] = [];
+        const resolvedTeamIds: string[] = [];
 
         if (it.teamId && it.teamIds && it.teamIds.length > 0) {
           results.push({

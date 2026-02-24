@@ -105,7 +105,10 @@ function buildCyclesToonResponse(
 }
 
 const InputSchema = z.object({
-  teamId: z.string().optional().describe('Team UUID or key. Defaults to DEFAULT_TEAM if configured.'),
+  teamId: z
+    .string()
+    .optional()
+    .describe('Team UUID or key. Defaults to DEFAULT_TEAM if configured.'),
   limit: z.number().int().min(1).max(100).optional(),
   cursor: z.string().optional(),
   includeArchived: z.boolean().optional(),
@@ -130,8 +133,13 @@ export const listCyclesTool = defineTool({
     if (!teamIdInput) {
       return {
         isError: true,
-        content: [{ type: 'text', text: 'teamId is required (no DEFAULT_TEAM configured)' }],
-        structuredContent: { error: 'TEAM_REQUIRED', hint: 'Provide teamId or set DEFAULT_TEAM env var' },
+        content: [
+          { type: 'text', text: 'teamId is required (no DEFAULT_TEAM configured)' },
+        ],
+        structuredContent: {
+          error: 'TEAM_REQUIRED',
+          hint: 'Provide teamId or set DEFAULT_TEAM env var',
+        },
       };
     }
 
@@ -140,7 +148,10 @@ export const listCyclesTool = defineTool({
       return {
         isError: true,
         content: [{ type: 'text', text: resolvedResult.error }],
-        structuredContent: { error: 'TEAM_RESOLUTION_FAILED', message: resolvedResult.error },
+        structuredContent: {
+          error: 'TEAM_RESOLUTION_FAILED',
+          message: resolvedResult.error,
+        },
       };
     }
     const resolvedTeamId = resolvedResult.value;
