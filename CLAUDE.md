@@ -163,11 +163,11 @@ Write tools validate that states/labels belong to the target issue's team:
 ### When DEFAULT_TEAM Not Set
 
 If `DEFAULT_TEAM` is not configured:
-- All team-scoped entities use prefixed keys (no "home" team)
-- States: `sqt:s0`, `sqm:s0`, `eng:s0` (all prefixed)
-- Labels: `sqt:Bug`, `sqm:Bugs` (all prefixed)
+- States use flat sequential keys across all teams: `s0, s1, s2...` (no team prefix)
+- Labels use their names without team prefix
 - Users and projects remain global: `u0`, `pr0`
-- Workspace labels remain unprefixed: `Idea`, `Board`
+- There is no "home" team distinction
+- **Recommendation:** Set `DEFAULT_TEAM` for multi-team workspaces to get proper team-prefixed keys
 
 ### TOON Format Example
 

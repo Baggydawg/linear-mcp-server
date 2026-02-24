@@ -36,27 +36,6 @@ import {
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 
 const InputSchema = z.object({
-  include: z
-    .array(
-      z.enum([
-        'profile',
-        'teams',
-        'workflow_states',
-        'labels',
-        'projects',
-        'favorites',
-      ]),
-    )
-    .optional()
-    .describe(
-      "What to include. Defaults to ['profile','teams','workflow_states','labels','projects']. " +
-        "'profile' returns viewer (id, name, email, timezone). " +
-        "'teams' returns team list with cyclesEnabled flag. " +
-        "'workflow_states' returns workflowStatesByTeam[teamId] with state id/name/type. " +
-        "'labels' returns labelsByTeam[teamId]. " +
-        "'projects' returns project list. " +
-        "'favorites' returns user favorites.",
-    ),
   teamIds: z
     .array(z.string())
     .optional()
@@ -228,7 +207,11 @@ interface WorkspaceData {
  */
 function buildToonResponse(
   data: WorkspaceData,
-  registry: { usersByUuid: Map<string, string>; projectsByUuid: Map<string, string> },
+  registry: {
+    usersByUuid: Map<string, string>;
+    projectsByUuid: Map<string, string>;
+    statesByUuid: Map<string, string>;
+  },
   defaultTeamKey?: string,
 ): ToonResponse {
   const sections: ToonSection[] = [];
@@ -257,23 +240,15 @@ function buildToonResponse(
     sections.push({ schema: USER_LOOKUP_SCHEMA, items: userItems });
   }
 
-  // _states section - ALL states
+  // _states section - ALL states (keys from registry for consistency with downstream tools)
   if (data.states.length > 0) {
-    // Group states by team, then sort by createdAt for consistent key assignment
-    const statesSorted = [...data.states].sort((a, b) => {
-      const dateA =
-        a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt ?? 0);
-      const dateB =
-        b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt ?? 0);
-      return dateA.getTime() - dateB.getTime();
-    });
-
-    // Assign short keys s0, s1, s2...
-    const stateItems: ToonRow[] = statesSorted.map((s, index) => ({
-      key: `s${index}`,
-      name: s.name,
-      type: s.type ?? '',
-    }));
+    const stateItems: ToonRow[] = data.states
+      .map((s) => ({
+        key: registry.statesByUuid.get(s.id) ?? '',
+        name: s.name,
+        type: s.type ?? '',
+      }))
+      .filter((s) => s.key !== '');
     sections.push({ schema: STATE_LOOKUP_SCHEMA, items: stateItems });
   }
 
@@ -311,9 +286,11 @@ function buildToonResponse(
     sections.push({ schema: PROJECT_LOOKUP_SCHEMA, items: projectItems });
   }
 
-  // _cycles section - current + upcoming cycles
+  // _cycles section - current + upcoming cycles (includes team key for disambiguation)
   if (data.cycles.length > 0) {
+    const teamIdToKey = new Map(data.teams.map((t) => [t.id, t.key ?? t.name]));
     const cycleItems: ToonRow[] = data.cycles.map((c) => ({
+      team: teamIdToKey.get(c.teamId) ?? '',
       num: c.number ?? null,
       name: c.name ?? '',
       start: c.startsAt ? formatDate(c.startsAt) : '',
@@ -364,11 +341,8 @@ export const workspaceMetadataTool = defineTool({
   },
 
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
-    // forceRefresh is accepted as input but currently unused
-    // Will be used in the future to force registry rebuild even if one exists
-    const _forceRefresh = args.forceRefresh ?? false;
-    // Note: 'include' parameter is accepted for backwards compatibility but ignored
-    // TOON format always returns all entity types
+    // forceRefresh: workspace_metadata always rebuilds the registry.
+    // The parameter is retained for API compatibility but has no conditional effect.
 
     const client = await getLinearClient(context);
 
@@ -447,8 +421,7 @@ export const workspaceMetadataTool = defineTool({
         filteredTeams = allTeams;
       }
 
-      // workspaceData.teams shows ALL teams so Claude knows workspace structure
-      workspaceData.teams = allTeams.map((t) => ({
+      workspaceData.teams = filteredTeams.map((t) => ({
         id: t.id,
         key: t.key ?? undefined,
         name: t.name,
@@ -591,6 +564,14 @@ export const workspaceMetadataTool = defineTool({
       }
     }
 
+    // Deduplicate projects (a project may appear under multiple teams)
+    const seenProjectIds = new Set<string>();
+    workspaceData.projects = workspaceData.projects.filter((p) => {
+      if (seenProjectIds.has(p.id)) return false;
+      seenProjectIds.add(p.id);
+      return true;
+    });
+
     // ─────────────────────────────────────────────────────────────────────────
     // Fetch cycles from filtered teams
     // ─────────────────────────────────────────────────────────────────────────
@@ -659,6 +640,10 @@ export const workspaceMetadataTool = defineTool({
         createdAt: p.createdAt ?? new Date(0),
         name: p.name,
         state: p.state ?? '',
+        priority: p.priority,
+        progress: p.progress,
+        leadId: p.leadId,
+        targetDate: p.targetDate,
       })),
       // ALL teams for multi-team key resolution
       teams: allTeams.map((t) => ({

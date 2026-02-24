@@ -60,6 +60,10 @@ export interface StateMetadata {
 export interface ProjectMetadata {
   name: string;
   state: string;
+  priority?: number;
+  progress?: number;
+  leadId?: string;
+  targetDate?: string;
 }
 
 /**
@@ -119,6 +123,14 @@ export interface RegistryProjectEntity extends RegistryEntity {
   name: string;
   /** Project state (e.g., "planned", "started", "completed", "canceled") */
   state: string;
+  /** Priority level (0-4, where 0=none, 1=urgent, 4=low) */
+  priority?: number;
+  /** Completion progress (0 to 1 ratio) */
+  progress?: number;
+  /** UUID of the project lead user */
+  leadId?: string;
+  /** Target completion date (YYYY-MM-DD) */
+  targetDate?: string;
 }
 
 /**
@@ -477,6 +489,10 @@ function buildProjectMetadata(
     metadata.set(project.id, {
       name: project.name,
       state: project.state,
+      priority: project.priority,
+      progress: project.progress,
+      leadId: project.leadId,
+      targetDate: project.targetDate,
     });
   }
   return metadata;

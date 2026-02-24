@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import { delay, withRetry } from '../../../utils/limits.js';
@@ -72,10 +73,10 @@ async function fetchWorkspaceDataForRegistry(
 
   // Fetch workflow states via teams with full metadata
   const teamsConn = await client.teams({ first: 100 });
-  const teams = teamsConn.nodes ?? [];
+  const teamsNodes = teamsConn.nodes ?? [];
   const states: RegistryBuildData['states'] = [];
 
-  for (const team of teams) {
+  for (const team of teamsNodes) {
     const statesConn = await (
       team as unknown as {
         states: () => Promise<{
@@ -113,7 +114,23 @@ async function fetchWorkspaceDataForRegistry(
   const viewerOrg = viewer as unknown as { organization?: { id?: string } };
   const workspaceId = viewerOrg?.organization?.id ?? 'unknown';
 
-  return { users, states, projects, workspaceId };
+  const teams = teamsNodes.map((t) => ({
+    id: t.id,
+    key: (t as unknown as { key?: string }).key ?? t.id,
+  }));
+
+  let defaultTeamId: string | undefined;
+  if (config.DEFAULT_TEAM) {
+    const defaultTeamKey = config.DEFAULT_TEAM.toLowerCase();
+    const matchedTeam = teamsNodes.find(
+      (t) =>
+        (t as unknown as { key?: string }).key?.toLowerCase() === defaultTeamKey ||
+        t.id === config.DEFAULT_TEAM,
+    );
+    defaultTeamId = matchedTeam?.id;
+  }
+
+  return { users, states, projects, workspaceId, teams, defaultTeamId };
 }
 
 /**

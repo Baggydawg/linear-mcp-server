@@ -257,3 +257,216 @@ describe('workspace_metadata output schema compliance', () => {
     expect(textContent).toContain('_states[');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 8: Bug Fix Verification Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('workspace_metadata bug fix verification (Phase 8)', () => {
+  it('state keys match registry (registry-based assignment)', async () => {
+    const { getStoredRegistry, clearRegistry } = await import(
+      '../../src/shared/toon/registry.js'
+    );
+
+    clearRegistry(baseContext.sessionId);
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+    expect(result.isError).toBeFalsy();
+
+    const registry = getStoredRegistry(baseContext.sessionId);
+    expect(registry).toBeDefined();
+
+    const text = result.content[0].text;
+
+    // Extract state keys from the _states section in TOON output
+    // The _states section has lines like: s0,Backlog,backlog
+    const statesMatch = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+    expect(statesMatch).not.toBeNull();
+
+    const stateLines = statesMatch![1].trim().split('\n').map((l: string) => l.trim()).filter(Boolean);
+    expect(stateLines.length).toBeGreaterThan(0);
+
+    // Each state key in the output should exist in the registry's statesByUuid values
+    const registryStateKeys = new Set(registry!.statesByUuid.values());
+    for (const line of stateLines) {
+      const key = line.split(',')[0];
+      expect(registryStateKeys).toContain(key);
+    }
+
+    clearRegistry(baseContext.sessionId);
+  });
+
+  it('teams filtered to DEFAULT_TEAM when set', async () => {
+    const { config } = await import('../../src/config/env.js');
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+
+    const originalDefaultTeam = config.DEFAULT_TEAM;
+
+    try {
+      // Set DEFAULT_TEAM to SQT
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = 'SQT';
+
+      clearRegistry(baseContext.sessionId);
+
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+      expect(result.isError).toBeFalsy();
+
+      const text = result.content[0].text;
+
+      // The _teams section should contain SQT
+      expect(text).toContain('SQT');
+      expect(text).toContain('Squad Testing');
+
+      // Extract the _teams section and verify it only contains the filtered team
+      const teamsMatch = text.match(/_teams\[(\d+)\]/);
+      expect(teamsMatch).not.toBeNull();
+      // With DEFAULT_TEAM=SQT, only 1 team should be shown
+      expect(teamsMatch![1]).toBe('1');
+
+      // ENG and DES teams should NOT appear in the _teams section
+      // Find the _teams section content
+      const teamsSectionMatch = text.match(/_teams\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+      expect(teamsSectionMatch).not.toBeNull();
+      const teamsContent = teamsSectionMatch![1];
+      expect(teamsContent).not.toContain('ENG');
+      expect(teamsContent).not.toContain('DES');
+    } finally {
+      // Restore original config
+      (config as { DEFAULT_TEAM?: string }).DEFAULT_TEAM = originalDefaultTeam;
+      clearRegistry(baseContext.sessionId);
+    }
+  });
+
+  it('projects are deduplicated across teams', async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+
+    // Create a shared project that appears in BOTH SQT and ENG teams
+    const sharedProject = {
+      id: 'project-shared',
+      name: 'Cross-Team Project',
+      state: 'started',
+      lead: { id: 'user-001' },
+      leadId: 'user-001',
+      createdAt: new Date('2024-10-01T00:00:00Z'),
+    };
+
+    // Override both teams' projects() to return the same project
+    const originalSqtProjects = mockClient._config.teams?.[0]?.projects ?? (mockClient as any).teams;
+    const sqtTeam = (await mockClient.teams()).nodes[0];
+    const engTeam = (await mockClient.teams()).nodes[1];
+
+    const originalSqtProjectsFn = sqtTeam.projects;
+    const originalEngProjectsFn = engTeam.projects;
+
+    sqtTeam.projects = () => Promise.resolve({ nodes: [sharedProject] });
+    engTeam.projects = () => Promise.resolve({ nodes: [sharedProject] });
+
+    try {
+      clearRegistry(baseContext.sessionId);
+
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+      expect(result.isError).toBeFalsy();
+
+      const text = result.content[0].text;
+
+      // Count occurrences of the shared project name in the _projects section
+      const projectsSectionMatch = text.match(/_projects\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+      expect(projectsSectionMatch).not.toBeNull();
+
+      const projectLines = projectsSectionMatch![1].trim().split('\n').filter(Boolean);
+      const sharedProjectOccurrences = projectLines.filter(
+        (line: string) => line.includes('Cross-Team Project'),
+      );
+      // Project should appear exactly once (deduplicated)
+      expect(sharedProjectOccurrences.length).toBe(1);
+    } finally {
+      // Restore original project functions
+      sqtTeam.projects = originalSqtProjectsFn;
+      engTeam.projects = originalEngProjectsFn;
+      clearRegistry(baseContext.sessionId);
+    }
+  });
+
+  it('PROJECT_LOOKUP_SCHEMA has all 7 fields', async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+
+    clearRegistry(baseContext.sessionId);
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+    expect(result.isError).toBeFalsy();
+
+    const text = result.content[0].text;
+
+    // Verify _projects header contains all 7 fields
+    const projectsHeader = text.match(/_projects\[\d+\]\{([^}]+)\}/);
+    expect(projectsHeader).not.toBeNull();
+
+    const fields = projectsHeader![1].split(',');
+    expect(fields).toContain('key');
+    expect(fields).toContain('name');
+    expect(fields).toContain('state');
+    expect(fields).toContain('priority');
+    expect(fields).toContain('progress');
+    expect(fields).toContain('lead');
+    expect(fields).toContain('targetDate');
+    expect(fields.length).toBe(7);
+
+    clearRegistry(baseContext.sessionId);
+  });
+
+  it('cycle output includes team key for disambiguation', async () => {
+    // Override cycles to be active (default mock dates are in the past)
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const weekAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const activeCycles = [
+      {
+        id: 'cycle-active-sqt',
+        name: 'Active Sprint',
+        number: 5,
+        startsAt: weekAgo,
+        endsAt: weekAhead,
+        progress: 0.4,
+        team: { id: 'team-sqt' },
+      },
+    ];
+
+    // Get the SQT team mock and override its cycles (save original to restore)
+    const teams = (await mockClient.teams({ first: 100 })).nodes;
+    const sqtTeam = teams.find((t: { id: string }) => t.id === 'team-sqt');
+    const originalCycles = sqtTeam!.cycles;
+    sqtTeam!.cycles = () =>
+      Promise.resolve({ nodes: activeCycles, pageInfo: { hasNextPage: false } });
+
+    try {
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+      const text = result.content[0].text;
+
+      // Verify _cycles header includes team field
+      const cycleHeaderMatch = text.match(/_cycles\[\d+\]\{([^}]+)\}/);
+      expect(cycleHeaderMatch).not.toBeNull();
+      const cycleFields = cycleHeaderMatch![1].split(',');
+      expect(cycleFields).toContain('team');
+      expect(cycleFields).toContain('num');
+
+      // Verify cycle rows contain team keys
+      const cyclesSection = text.slice(text.indexOf('_cycles['));
+      expect(cyclesSection).toContain('SQT');
+    } finally {
+      // Restore original cycles to avoid polluting other tests
+      sqtTeam!.cycles = originalCycles;
+    }
+  });
+
+  it('include parameter is stripped from input schema (removed)', () => {
+    // The `include` parameter was removed from InputSchema.
+    // Zod should strip the unknown key and parse successfully.
+    const result = workspaceMetadataTool.inputSchema.safeParse({ include: ['profile'] });
+    expect(result.success).toBe(true);
+
+    // The parsed data should NOT contain `include`
+    if (result.success) {
+      expect((result.data as Record<string, unknown>).include).toBeUndefined();
+    }
+  });
+});

@@ -522,6 +522,46 @@ describe('TOON Tier 1 vs Tier 2 Output', () => {
     expect(tier1Text).toContain('_users[');
     expect(tier2Text).toContain('_states[');
   });
+
+  it('state key consistency: workspace_metadata output matches registry resolution (Phase 8)', async () => {
+    // Step 1: Call workspace_metadata to build registry
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+    expect(result.isError).toBeFalsy();
+
+    // Step 2: Get the registry
+    const registry = getStoredRegistry(SESSION_ID);
+    expect(registry).toBeDefined();
+    if (!registry) throw new Error('Registry should be defined');
+
+    // Step 3: Verify every state key in the registry resolves to a valid UUID
+    const stateKeys = Array.from(registry.states.keys());
+    expect(stateKeys.length).toBeGreaterThan(0);
+
+    for (const key of stateKeys) {
+      const uuid = resolveShortKey(registry, 'state', key);
+      expect(uuid).toBeDefined();
+      expect(typeof uuid).toBe('string');
+      expect(uuid.length).toBeGreaterThan(0);
+
+      // Verify the UUID maps back to the same key (bidirectional consistency)
+      const reverseKey = registry.statesByUuid.get(uuid);
+      expect(reverseKey).toBe(key);
+    }
+
+    // Step 4: Verify state keys from the TOON text output match the registry
+    const text = result.content[0].text;
+    const statesMatch = text.match(/_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/);
+    expect(statesMatch).not.toBeNull();
+
+    const stateLines = statesMatch![1].trim().split('\n').map((l: string) => l.trim()).filter(Boolean);
+    for (const line of stateLines) {
+      const key = line.split(',')[0];
+      // Each key from the output should resolve via the registry
+      expect(text).toContain(key);
+      const uuid = resolveShortKey(registry, 'state', key);
+      expect(uuid).toBeDefined();
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

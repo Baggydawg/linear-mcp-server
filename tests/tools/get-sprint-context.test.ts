@@ -631,3 +631,28 @@ describe('get_sprint_context output structure', () => {
     expect(textContent).not.toContain('relations[');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Project Lookup Field Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('project lookup field population', () => {
+  it('populates all 7 project fields from registry metadata', async () => {
+    const result = await getSprintContextTool.handler({ cycle: 2 }, baseContext);
+    const text = result.content[0].text;
+
+    // Verify _projects header has all 7 fields
+    const projectHeaderMatch = text.match(/_projects\[\d+\]\{([^}]+)\}/);
+    expect(projectHeaderMatch).not.toBeNull();
+    const fields = projectHeaderMatch![1].split(',');
+    expect(fields).toEqual([
+      'key',
+      'name',
+      'state',
+      'priority',
+      'progress',
+      'lead',
+      'targetDate',
+    ]);
+  });
+});

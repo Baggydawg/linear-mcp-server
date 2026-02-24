@@ -545,7 +545,15 @@ function buildProjectLookup(
       items.push({
         key: shortKey,
         name: metadata?.name ?? issueInfo?.name ?? '',
-        state: metadata?.state ?? '', // Now from registry!
+        state: metadata?.state ?? '',
+        priority: metadata?.priority ?? null,
+        progress: metadata?.progress !== undefined
+          ? Math.round(metadata.progress * 100) / 100
+          : null,
+        lead: metadata?.leadId
+          ? tryGetShortKey(registry, 'user', metadata.leadId) ?? ''
+          : '',
+        targetDate: metadata?.targetDate ?? '',
       });
     }
   }
@@ -622,6 +630,10 @@ async function fetchWorkspaceDataForRegistry(
     createdAt: (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
     name: p.name,
     state: (p as unknown as { state?: string }).state ?? '',
+    priority: (p as unknown as { priority?: number }).priority,
+    progress: (p as unknown as { progress?: number }).progress,
+    leadId: (p as unknown as { lead?: { id?: string } }).lead?.id,
+    targetDate: (p as unknown as { targetDate?: string }).targetDate,
   }));
 
   // Get workspace ID from viewer

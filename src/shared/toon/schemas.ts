@@ -76,8 +76,9 @@ export const STATE_LOOKUP_SCHEMA: ToonSchema = {
  */
 export const PROJECT_LOOKUP_SCHEMA: ToonSchema = {
   name: '_projects',
-  fields: ['key', 'name', 'state'],
+  fields: ['key', 'name', 'state', 'priority', 'progress', 'lead', 'targetDate'],
   // key: pr0, pr1... | name: project name | state: backlog/planned/started/paused/completed/canceled
+  // priority: 0-4 | progress: 0-1 ratio | lead: user short key | targetDate: YYYY-MM-DD
 };
 
 /**
@@ -110,8 +111,8 @@ export const TEAM_LOOKUP_SCHEMA: ToonSchema = {
  */
 export const CYCLE_LOOKUP_SCHEMA: ToonSchema = {
   name: '_cycles',
-  fields: ['num', 'name', 'start', 'end', 'active', 'progress'],
-  // num: 5 (natural) | name: custom name | start/end: dates | active: bool | progress: 0-1
+  fields: ['team', 'num', 'name', 'start', 'end', 'active', 'progress'],
+  // team: SQT (team key) | num: 5 (natural) | name: custom name | start/end: dates | active: bool | progress: 0-1
 };
 
 /**

@@ -60,6 +60,8 @@ export interface MockProject {
   id: string;
   name: string;
   state?: string;
+  priority?: number;
+  progress?: number;
   lead?: { id?: string };
   leadId?: string;
   teamId?: string;
@@ -230,6 +232,8 @@ export const defaultMockProjects: MockProject[] = [
     id: 'project-001',
     name: 'Q1 Release',
     state: 'started',
+    priority: 2,
+    progress: 0.45,
     lead: { id: 'user-001' },
     leadId: 'user-001',
     teamId: 'team-sqt',
@@ -240,6 +244,9 @@ export const defaultMockProjects: MockProject[] = [
     id: 'project-002',
     name: 'Infrastructure',
     state: 'planned',
+    priority: 1,
+    progress: 0.1,
+    lead: { id: 'user-002' },
     leadId: 'user-002',
     teamId: 'team-eng',
     createdAt: new Date('2024-11-01T00:00:00Z'),
