@@ -3,7 +3,7 @@
  * Verifies: project listing, creation, updates, filtering, output shapes.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createProjectsTool,
   listProjectsTool,
@@ -14,6 +14,7 @@ import {
   createMockLinearClient,
   defaultMockProjects,
   type MockLinearClient,
+  type MockProject,
   resetMockCalls,
 } from '../mocks/linear-client.js';
 
@@ -816,5 +817,252 @@ describe('list_projects project parameter (direct lookup)', () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("Cannot specify 'project'");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Departed User Handling Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_projects departed user handling', () => {
+  afterEach(async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/index.js');
+    clearRegistry('test-session');
+  });
+
+  it('creates ext0 entry for project lead not in registry', async () => {
+    const projectsWithDepartedLead: MockProject[] = [
+      {
+        id: 'project-departed-001',
+        name: 'Legacy Project',
+        state: 'started',
+        priority: 1,
+        progress: 0.5,
+        leadId: 'departed-user-001',
+        lead: { id: 'departed-user-001' } as MockProject['lead'],
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-10-01T00:00:00Z'),
+      },
+    ];
+
+    mockClient = createMockLinearClient({ projects: projectsWithDepartedLead });
+    resetMockCalls(mockClient);
+
+    const result = await listProjectsTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have _users section with ext0 entry
+    expect(textContent).toContain('_users[');
+    expect(textContent).toContain('ext0');
+    // Default fallback name when lead.name is not available
+    expect(textContent).toContain('Former User');
+
+    // Project row should reference ext0 as its lead
+    const lines = textContent.split('\n');
+    const projectLine = lines.find(
+      (line: string) => line.includes('Legacy Project'),
+    );
+    expect(projectLine).toBeDefined();
+    expect(projectLine).toContain('ext0');
+  });
+
+  it('uses actual name from lead when available for ext entry', async () => {
+    const projectsWithNamedDepartedLead: MockProject[] = [
+      {
+        id: 'project-departed-002',
+        name: 'Named Lead Project',
+        state: 'planned',
+        priority: 2,
+        progress: 0.2,
+        leadId: 'departed-user-002',
+        // Cast to include name which RawProjectData supports but MockProject interface doesn't declare
+        lead: { id: 'departed-user-002', name: 'Alice Former' } as unknown as MockProject['lead'],
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-10-01T00:00:00Z'),
+      },
+    ];
+
+    mockClient = createMockLinearClient({ projects: projectsWithNamedDepartedLead });
+    resetMockCalls(mockClient);
+
+    const result = await listProjectsTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have ext0 entry with the actual name, not "Former User"
+    expect(textContent).toContain('_users[');
+    expect(textContent).toContain('ext0');
+    expect(textContent).toContain('Alice Former');
+    expect(textContent).not.toContain('Former User');
+  });
+
+  it('deduplicates ext entries for multiple projects sharing same departed lead', async () => {
+    const departedLeadId = 'departed-user-shared';
+    const projectsWithSharedDepartedLead: MockProject[] = [
+      {
+        id: 'project-shared-001',
+        name: 'Shared Lead Project A',
+        state: 'started',
+        priority: 1,
+        progress: 0.3,
+        leadId: departedLeadId,
+        lead: { id: departedLeadId } as MockProject['lead'],
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-10-01T00:00:00Z'),
+      },
+      {
+        id: 'project-shared-002',
+        name: 'Shared Lead Project B',
+        state: 'planned',
+        priority: 2,
+        progress: 0.1,
+        leadId: departedLeadId,
+        lead: { id: departedLeadId } as MockProject['lead'],
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-11-01T00:00:00Z'),
+      },
+    ];
+
+    mockClient = createMockLinearClient({ projects: projectsWithSharedDepartedLead });
+    resetMockCalls(mockClient);
+
+    const result = await listProjectsTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have exactly one ext entry (ext0), not two
+    expect(textContent).toContain('ext0');
+    expect(textContent).not.toContain('ext1');
+
+    // Both project rows should reference ext0
+    const lines = textContent.split('\n');
+    const projectLines = lines.filter(
+      (line: string) =>
+        line.includes('Shared Lead Project A') || line.includes('Shared Lead Project B'),
+    );
+    expect(projectLines.length).toBe(2);
+    for (const line of projectLines) {
+      expect(line).toContain('ext0');
+    }
+  });
+
+  it('distinguishes project with no lead from project with departed lead', async () => {
+    const projectsWithMixedLeads: MockProject[] = [
+      {
+        id: 'project-no-lead',
+        name: 'No Lead Project',
+        state: 'started',
+        priority: 1,
+        progress: 0.4,
+        // No leadId, no lead — truly no lead assigned
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-10-01T00:00:00Z'),
+      },
+      {
+        id: 'project-departed-lead',
+        name: 'Departed Lead Project',
+        state: 'planned',
+        priority: 2,
+        progress: 0.1,
+        leadId: 'departed-user-003',
+        lead: { id: 'departed-user-003' } as MockProject['lead'],
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-11-01T00:00:00Z'),
+      },
+    ];
+
+    mockClient = createMockLinearClient({ projects: projectsWithMixedLeads });
+    resetMockCalls(mockClient);
+
+    const result = await listProjectsTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have ext0 entry for departed lead
+    expect(textContent).toContain('ext0');
+
+    // The project with no lead should have null/empty lead field, not ext0
+    const lines = textContent.split('\n');
+    const noLeadLine = lines.find((line: string) => line.includes('No Lead Project'));
+    const departedLeadLine = lines.find(
+      (line: string) => line.includes('Departed Lead Project'),
+    );
+
+    expect(noLeadLine).toBeDefined();
+    expect(departedLeadLine).toBeDefined();
+
+    // Departed lead project should have ext0
+    expect(departedLeadLine).toContain('ext0');
+
+    // No lead project should NOT have ext0
+    expect(noLeadLine).not.toContain('ext0');
+  });
+
+  it('sorts registered users (u*) before ext entries in _users section', async () => {
+    const projectsWithMixedLeads: MockProject[] = [
+      {
+        id: 'project-registered-lead',
+        name: 'Registered Lead Project',
+        state: 'started',
+        priority: 1,
+        progress: 0.5,
+        leadId: 'user-001', // This user exists in defaultMockUsers
+        lead: { id: 'user-001' } as MockProject['lead'],
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-10-01T00:00:00Z'),
+      },
+      {
+        id: 'project-departed-lead',
+        name: 'Departed Lead Project',
+        state: 'planned',
+        priority: 2,
+        progress: 0.1,
+        leadId: 'departed-user-004',
+        lead: { id: 'departed-user-004' } as MockProject['lead'],
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-11-01T00:00:00Z'),
+      },
+    ];
+
+    mockClient = createMockLinearClient({ projects: projectsWithMixedLeads });
+    resetMockCalls(mockClient);
+
+    const result = await listProjectsTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have both u* and ext* entries in _users
+    expect(textContent).toContain('_users[');
+    expect(textContent).toMatch(/u\d+/);
+    expect(textContent).toContain('ext0');
+
+    // Verify ordering: u* entries come before ext* entries
+    const lines = textContent.split('\n');
+    const usersHeaderIndex = lines.findIndex((line: string) => line.includes('_users['));
+    expect(usersHeaderIndex).toBeGreaterThan(-1);
+
+    // Find the user entry lines (indented lines after _users header, before next section)
+    const userEntryLines: string[] = [];
+    for (let i = usersHeaderIndex + 1; i < lines.length; i++) {
+      if (lines[i].startsWith('  ') && !lines[i].startsWith('  _')) {
+        userEntryLines.push(lines[i]);
+      } else if (lines[i].length > 0 && !lines[i].startsWith('  ')) {
+        break;
+      }
+    }
+
+    // Find position of u* and ext* entries
+    const uIndex = userEntryLines.findIndex((line) => /^\s+u\d+,/.test(line));
+    const extIndex = userEntryLines.findIndex((line) => /^\s+ext\d+,/.test(line));
+
+    expect(uIndex).toBeGreaterThan(-1);
+    expect(extIndex).toBeGreaterThan(-1);
+    expect(uIndex).toBeLessThan(extIndex);
   });
 });

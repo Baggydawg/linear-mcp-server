@@ -460,7 +460,7 @@ function buildProjectLookup(
             ? Math.round(metadata.progress * 100) / 100
             : null,
         lead: metadata?.leadId
-          ? (tryGetShortKey(registry, 'user', metadata.leadId) ?? '')
+          ? (tryGetShortKey(registry, 'user', metadata.leadId) ?? '(departed)')
           : '',
         targetDate: metadata?.targetDate ?? '',
       });

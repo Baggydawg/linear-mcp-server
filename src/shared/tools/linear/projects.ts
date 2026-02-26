@@ -50,7 +50,7 @@ interface RawProjectData {
   priority?: number;
   progress?: number;
   leadId?: string;
-  lead?: { id?: string } | null;
+  lead?: { id?: string; name?: string } | null;
   teams?: Array<{ key?: string }>;
   startDate?: string | null;
   targetDate?: string | null;
@@ -64,14 +64,18 @@ interface RawProjectData {
 function projectToToonRow(
   project: RawProjectData,
   registry: ShortKeyRegistry | null,
+  fallbackUserMap?: Map<string, string>,
 ): ToonRow {
   // Get short keys from registry
   const projectKey = registry
     ? tryGetShortKey(registry, 'project', project.id)
     : undefined;
   const leadId = project.leadId ?? project.lead?.id;
-  const leadKey =
+  let leadKey =
     registry && leadId ? tryGetShortKey(registry, 'user', leadId) : undefined;
+  if (!leadKey && leadId && fallbackUserMap) {
+    leadKey = fallbackUserMap.get(leadId);
+  }
 
   // Format teams as comma-separated keys
   // SDK doesn't eagerly load teams, so fall back to registry metadata
@@ -103,11 +107,15 @@ function projectToToonRow(
 
 /**
  * Build user lookup table with only project leads (Tier 2).
+ * Creates ext entries for users not in the registry (e.g., departed leads).
+ *
+ * @returns section for TOON output, plus fallbackMap (uuid -> ext key) for
+ *          unregistered users so projectToToonRow can resolve them.
  */
 function buildProjectLeadLookup(
   registry: ShortKeyRegistry,
   projects: RawProjectData[],
-): ToonSection {
+): { section: ToonSection; fallbackMap: Map<string, string> } {
   // Collect unique lead IDs from projects
   const userIds = new Set<string>();
   for (const project of projects) {
@@ -117,11 +125,26 @@ function buildProjectLeadLookup(
     }
   }
 
+  // Build a name lookup from project lead data
+  const leadNameMap = new Map<string, string>();
+  for (const project of projects) {
+    const leadId = project.leadId ?? project.lead?.id;
+    const leadName = project.lead?.name;
+    if (leadId && leadName) {
+      leadNameMap.set(leadId, leadName);
+    }
+  }
+
   // Build lookup items
   const items: ToonRow[] = [];
+  const fallbackMap = new Map<string, string>();
+  let extCounter = 0;
+
   for (const uuid of userIds) {
     const shortKey = registry.usersByUuid.get(uuid);
+
     if (shortKey) {
+      // Registered user - use full metadata
       const metadata = getUserMetadata(registry, uuid);
       items.push({
         key: shortKey,
@@ -131,18 +154,36 @@ function buildProjectLeadLookup(
         role: metadata?.role ?? '',
         teams: metadata?.teams?.join(',') || '',
       });
+    } else {
+      // Unregistered user - create ext entry with fallback name
+      const extKey = `ext${extCounter++}`;
+      const name = leadNameMap.get(uuid) ?? 'Former User';
+      fallbackMap.set(uuid, extKey);
+      items.push({
+        key: extKey,
+        name,
+        displayName: '',
+        email: '',
+        role: '',
+        teams: '',
+      });
     }
-    // No ext fallback needed for project leads
   }
 
-  // Sort by key number for consistent output
+  // Sort: u* keys before ext* keys, then by number
   items.sort((a, b) => {
-    const numA = parseInt(String(a.key).replace('u', ''), 10);
-    const numB = parseInt(String(b.key).replace('u', ''), 10);
+    const keyA = String(a.key);
+    const keyB = String(b.key);
+    const isExtA = keyA.startsWith('ext');
+    const isExtB = keyB.startsWith('ext');
+    // Sort u* keys before ext* keys
+    if (isExtA !== isExtB) return isExtA ? 1 : -1;
+    const numA = parseInt(keyA.replace(/^(u|ext)/, ''), 10);
+    const numB = parseInt(keyB.replace(/^(u|ext)/, ''), 10);
     return numA - numB;
   });
 
-  return { schema: USER_LOOKUP_SCHEMA, items };
+  return { section: { schema: USER_LOOKUP_SCHEMA, items }, fallbackMap };
 }
 
 /**
@@ -156,15 +197,19 @@ function buildProjectsToonResponse(
   const lookups: ToonSection[] = [];
 
   // Add user lookup if we have a registry and projects with leads
+  let fallbackMap: Map<string, string> | undefined;
   if (registry) {
-    const userLookup = buildProjectLeadLookup(registry, projects);
-    if (userLookup.items.length > 0) {
-      lookups.push(userLookup);
+    const userResult = buildProjectLeadLookup(registry, projects);
+    fallbackMap = userResult.fallbackMap;
+    if (userResult.section.items.length > 0) {
+      lookups.push(userResult.section);
     }
   }
 
   // Convert projects to TOON rows
-  const projectRows = projects.map((project) => projectToToonRow(project, registry));
+  const projectRows = projects.map((project) =>
+    projectToToonRow(project, registry, fallbackMap),
+  );
 
   // Build data sections
   const data: ToonSection[] = [{ schema: PROJECT_SCHEMA, items: projectRows }];
@@ -386,7 +431,7 @@ export const listProjectsTool = defineTool({
       priority: (p as unknown as { priority?: number }).priority,
       progress: (p as unknown as { progress?: number }).progress,
       leadId: (p as unknown as { leadId?: string }).leadId,
-      lead: (p as unknown as { lead?: { id?: string } }).lead,
+      lead: (p as unknown as { lead?: { id?: string; name?: string } }).lead,
       teams: (p as unknown as { teams?: { nodes?: Array<{ key?: string }> } }).teams
         ?.nodes,
       startDate: (p as unknown as { startDate?: string }).startDate,

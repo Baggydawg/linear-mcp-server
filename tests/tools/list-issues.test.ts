@@ -9,7 +9,9 @@ import type { ToolContext } from '../../src/shared/tools/types.js';
 import listIssuesFixtures from '../fixtures/tool-inputs/list-issues.json';
 import {
   createMockLinearClient,
+  defaultMockIssues,
   type MockLinearClient,
+  type MockProject,
   resetMockCalls,
 } from '../mocks/linear-client.js';
 
@@ -515,5 +517,66 @@ describe('list_issues enhancement features', () => {
     const call = mockClient._calls.rawRequest[0];
     const filter = call.variables?.filter as Record<string, unknown>;
     expect(filter.team).toEqual({ id: { eq: 'team-eng' } });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Departed User in _projects Lookup Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_issues departed user in _projects lookup', () => {
+  beforeEach(async () => {
+    // Clear registry so it re-initializes with our custom mock data
+    const { clearRegistry } = await import('../../src/shared/toon/index.js');
+    clearRegistry('test-session');
+  });
+
+  afterEach(async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/index.js');
+    clearRegistry('test-session');
+  });
+
+  it('shows (departed) for project lead not in user registry', async () => {
+    // Create a project with a leadId that is NOT in the mock users list
+    const projectsWithDepartedLead: MockProject[] = [
+      {
+        id: 'project-departed-lead',
+        name: 'Departed Lead Project',
+        state: 'started',
+        priority: 1,
+        progress: 0.5,
+        leadId: 'departed-user-001',
+        lead: { id: 'departed-user-001' } as MockProject['lead'],
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-10-01T00:00:00Z'),
+      },
+    ];
+
+    // Create issues that reference this project
+    const issuesWithDepartedProject = [
+      {
+        ...defaultMockIssues[0],
+        project: Promise.resolve({
+          id: 'project-departed-lead',
+          name: 'Departed Lead Project',
+        }),
+      },
+    ];
+
+    mockClient = createMockLinearClient({
+      projects: projectsWithDepartedLead,
+      issues: issuesWithDepartedProject,
+    });
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // The _projects lookup section should contain (departed) for the lead
+    // since 'departed-user-001' is not a registered user
+    expect(textContent).toContain('_projects[');
+    expect(textContent).toContain('(departed)');
   });
 });

@@ -277,7 +277,7 @@ function buildToonResponse(
   // _projects section - ALL projects
   if (data.projects.length > 0) {
     const projectItems: ToonRow[] = data.projects.map((p) => {
-      const leadKey = p.leadId ? (registry.usersByUuid.get(p.leadId) ?? '') : '';
+      const leadKey = p.leadId ? (registry.usersByUuid.get(p.leadId) ?? '(departed)') : '';
       return {
         key: registry.projectsByUuid.get(p.id) ?? '',
         name: p.name,
