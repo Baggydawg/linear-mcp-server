@@ -10,6 +10,7 @@ import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import {
+  createErrorFromException,
   createToolError,
   formatErrorMessage,
   validateFilter,
@@ -38,6 +39,7 @@ import {
   type ToonRow,
   type ToonSection,
   tryGetShortKey,
+  tryResolveShortKey,
   USER_LOOKUP_SCHEMA,
 } from '../../toon/index.js';
 import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
@@ -65,7 +67,16 @@ const InputSchema = z.object({
         "{ title: { containsIgnoreCase: 'search' } }.",
     ),
   teamId: z.string().optional().describe('Filter by team UUID.'),
-  projectId: z.string().optional().describe('Filter by project UUID.'),
+  project: z
+    .string()
+    .optional()
+    .describe(
+      'Project short key (pr0, pr1...) from workspace_metadata. Preferred over projectId.',
+    ),
+  projectId: z
+    .string()
+    .optional()
+    .describe('Project UUID. Use project (short key) instead when possible.'),
   cycle: z
     .union([z.enum(['current', 'next', 'previous']), z.number().int().positive()])
     .optional()
@@ -719,9 +730,49 @@ export const listIssuesTool = defineTool({
       filter = { ...filter, cycle: { number: { eq: cycleResult.value } } };
     }
 
-    // Apply projectId filter
-    if (args.projectId) {
-      filter = { ...filter, project: { id: { eq: args.projectId } } };
+    // Apply project filter (project > projectId priority chain)
+    const projectInput = args.project ?? args.projectId;
+    if (projectInput) {
+      let resolvedProjectId = projectInput;
+      if (/^pr\d+$/.test(projectInput)) {
+        // Short key detected — resolve via registry
+        let earlyRegistry: ShortKeyRegistry | null = null;
+        try {
+          earlyRegistry = await getOrInitRegistry(
+            { sessionId: context.sessionId, transport: 'stdio' },
+            () => fetchWorkspaceDataForRegistry(client),
+          );
+        } catch (error) {
+          console.error('Registry initialization failed:', error);
+        }
+
+        if (!earlyRegistry) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Cannot resolve project key '${projectInput}' — registry not available. Call workspace_metadata first, or use projectId with a UUID.`,
+              },
+            ],
+          };
+        }
+
+        const uuid = tryResolveShortKey(earlyRegistry, 'project', projectInput);
+        if (!uuid) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Unknown project key '${projectInput}'. Call workspace_metadata to see available project keys.`,
+              },
+            ],
+          };
+        }
+        resolvedProjectId = uuid;
+      }
+      filter = { ...filter, project: { id: { eq: resolvedProjectId } } };
     }
 
     // Apply assignedToMe filter
@@ -837,85 +888,104 @@ export const listIssuesTool = defineTool({
       includeRelations,
     } as Record<string, unknown>;
 
-    const resp = await client.client.rawRequest(QUERY, variables);
-    const conn = (
-      resp as unknown as {
-        data?: {
-          issues?: {
-            nodes?: Array<Record<string, unknown>>;
-            pageInfo?: { hasNextPage?: boolean; endCursor?: string };
+    let conn: {
+      nodes?: Array<Record<string, unknown>>;
+      pageInfo?: { hasNextPage?: boolean; endCursor?: string };
+    };
+    let rawIssues: RawIssueData[];
+    const rawComments: RawCommentData[] = [];
+    const rawRelations: RawRelationData[] = [];
+
+    try {
+      const resp = await client.client.rawRequest(QUERY, variables);
+      conn = (
+        resp as unknown as {
+          data?: {
+            issues?: {
+              nodes?: Array<Record<string, unknown>>;
+              pageInfo?: { hasNextPage?: boolean; endCursor?: string };
+            };
           };
-        };
+        }
+      ).data?.issues ?? { nodes: [], pageInfo: {} };
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // TOON Output Format
+      // ─────────────────────────────────────────────────────────────────────────
+
+      // Convert raw GraphQL response to RawIssueData for TOON processing
+      rawIssues = (conn.nodes ?? []).map((i) => ({
+        id: String(i.id ?? ''),
+        identifier: (i.identifier as string) ?? undefined,
+        title: String(i.title ?? ''),
+        description: (i.description as string | null) ?? undefined,
+        priority: (i.priority as number) ?? undefined,
+        estimate: (i.estimate as number | null) ?? undefined,
+        state: i.state as { id: string; name: string; type?: string } | undefined,
+        project: i.project as { id: string; name?: string } | null | undefined,
+        assignee: i.assignee as { id: string; name?: string } | null | undefined,
+        creator: i.creator as { id: string; name?: string } | null | undefined,
+        team: i.team as { id: string; key?: string } | undefined,
+        cycle: i.cycle as { number?: number } | null | undefined,
+        parent: i.parent as { identifier?: string } | null | undefined,
+        createdAt: (i.createdAt as string | Date) ?? '',
+        updatedAt: (i.updatedAt as string | Date) ?? '',
+        archivedAt: (i.archivedAt as string | null) ?? undefined,
+        dueDate: (i.dueDate as string | null) ?? undefined,
+        url: (i.url as string) ?? undefined,
+        labels: i.labels as { nodes?: Array<{ id: string; name: string }> } | undefined,
+      }));
+
+      // Parse comments from raw response
+      if (includeComments) {
+        for (const node of conn.nodes ?? []) {
+          const issueIdentifier = (node.identifier as string) ?? '';
+          const commentNodes =
+            (node.comments as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
+          for (const c of commentNodes) {
+            rawComments.push({
+              id: String(c.id ?? ''),
+              body: String(c.body ?? ''),
+              createdAt: String(c.createdAt ?? ''),
+              issueIdentifier,
+              user: c.user as { id: string; name?: string } | null | undefined,
+            });
+          }
+        }
       }
-    ).data?.issues ?? { nodes: [], pageInfo: {} };
+
+      // Parse relations from raw response
+      if (includeRelations) {
+        for (const node of conn.nodes ?? []) {
+          const issueIdentifier = (node.identifier as string) ?? '';
+          const relationNodes =
+            (node.relations as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
+          for (const r of relationNodes) {
+            const relatedIssue = r.relatedIssue as { identifier?: string } | undefined;
+            rawRelations.push({
+              type: String(r.type ?? ''),
+              issueIdentifier,
+              relatedIssueIdentifier: relatedIssue?.identifier ?? '',
+            });
+          }
+        }
+      }
+    } catch (error) {
+      const toolError = createErrorFromException(error as Error);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: formatErrorMessage(toolError) }],
+        structuredContent: {
+          error: toolError.code,
+          message: toolError.message,
+          hint: toolError.hint,
+        },
+      };
+    }
 
     const pageInfo = conn.pageInfo ?? {};
     const hasMore = pageInfo.hasNextPage ?? false;
     const nextCursor = hasMore ? (pageInfo.endCursor ?? undefined) : undefined;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // TOON Output Format
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // Convert raw GraphQL response to RawIssueData for TOON processing
-    const rawIssues: RawIssueData[] = (conn.nodes ?? []).map((i) => ({
-      id: String(i.id ?? ''),
-      identifier: (i.identifier as string) ?? undefined,
-      title: String(i.title ?? ''),
-      description: (i.description as string | null) ?? undefined,
-      priority: (i.priority as number) ?? undefined,
-      estimate: (i.estimate as number | null) ?? undefined,
-      state: i.state as { id: string; name: string; type?: string } | undefined,
-      project: i.project as { id: string; name?: string } | null | undefined,
-      assignee: i.assignee as { id: string; name?: string } | null | undefined,
-      creator: i.creator as { id: string; name?: string } | null | undefined,
-      team: i.team as { id: string; key?: string } | undefined,
-      cycle: i.cycle as { number?: number } | null | undefined,
-      parent: i.parent as { identifier?: string } | null | undefined,
-      createdAt: (i.createdAt as string | Date) ?? '',
-      updatedAt: (i.updatedAt as string | Date) ?? '',
-      archivedAt: (i.archivedAt as string | null) ?? undefined,
-      dueDate: (i.dueDate as string | null) ?? undefined,
-      url: (i.url as string) ?? undefined,
-      labels: i.labels as { nodes?: Array<{ id: string; name: string }> } | undefined,
-    }));
-
-    // Parse comments from raw response
-    const rawComments: RawCommentData[] = [];
-    if (includeComments) {
-      for (const node of conn.nodes ?? []) {
-        const issueIdentifier = (node.identifier as string) ?? '';
-        const commentNodes =
-          (node.comments as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
-        for (const c of commentNodes) {
-          rawComments.push({
-            id: String(c.id ?? ''),
-            body: String(c.body ?? ''),
-            createdAt: String(c.createdAt ?? ''),
-            issueIdentifier,
-            user: c.user as { id: string; name?: string } | null | undefined,
-          });
-        }
-      }
-    }
-
-    // Parse relations from raw response
-    const rawRelations: RawRelationData[] = [];
-    if (includeRelations) {
-      for (const node of conn.nodes ?? []) {
-        const issueIdentifier = (node.identifier as string) ?? '';
-        const relationNodes =
-          (node.relations as { nodes?: Array<Record<string, unknown>> })?.nodes ?? [];
-        for (const r of relationNodes) {
-          const relatedIssue = r.relatedIssue as { identifier?: string } | undefined;
-          rawRelations.push({
-            type: String(r.type ?? ''),
-            issueIdentifier,
-            relatedIssueIdentifier: relatedIssue?.identifier ?? '',
-          });
-        }
-      }
-    }
 
     // Initialize registry if needed (lazy init)
     // When registry is unavailable, TOON output will use names/UUIDs instead of short keys
@@ -942,7 +1012,7 @@ export const listIssuesTool = defineTool({
         cursor: nextCursor,
         fetched: rawIssues.length,
       },
-      { filter, teamId: resolvedTeamId, projectId: args.projectId },
+      { filter, teamId: resolvedTeamId, projectId: args.project ?? args.projectId },
       rawComments,
       rawRelations,
     );

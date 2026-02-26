@@ -14,7 +14,7 @@ export const serverMetadata = {
 
 Quick start
 - Call 'workspace_metadata' first to fetch canonical identifiers you will reuse across tools. It will include your viewer id: use that as 'assigneeId' when you want to assign items to yourself.
-- Then use 'list_issues' with teamId/projectId and filters (or q/keywords) to locate targets. Use 'list_issues' for both discovery and precise lookups (including by id/identifier) — prefer orderBy='updatedAt'.
+- Then use 'list_issues' with teamId/project (short key) and filters (or q/keywords) to locate targets. Use 'list_issues' for both discovery and precise lookups (including by id/identifier) — prefer orderBy='updatedAt'.
 - To modify, use 'update_issues' / 'update_projects', then verify with 'list_issues'.
 - For teams with cycles enabled, use 'list_cycles' to browse planning cycles.
 
@@ -38,7 +38,7 @@ Account identifiers (returned by 'workspace_metadata')
 
 How to chain safely
 - teamId: filter in 'list_issues'; pass to 'create_issues'; use workflowStatesByTeam[teamId] to find stateId for 'update_issues'.
-- projectId: filter in 'list_issues'; pass to create/update issue payloads.
+- project (short key) or projectId (UUID): filter in 'list_issues'; pass to create/update issue payloads.
 - stateId: set via 'update_issues'. Resolve by name → id using workflowStatesByTeam.
 - labelIds: pass to create/update; resolve from labelsByTeam.
 
@@ -82,7 +82,7 @@ export const toolsMetadata = {
     name: 'list_issues',
     title: 'List Issues',
     description:
-      "List issues with filtering. Inputs: teamId?, projectId?, filter?, q?, keywords?, matchMode?, includeArchived?, orderBy?(updatedAt|createdAt), detail?(minimal|standard|full), limit?, cursor?, assignedToMe?.\n\n⚠️ orderBy only supports updatedAt or createdAt. DO NOT use orderBy:\"priority\" - use filter instead!\n\nKEYWORD SEARCH (q/keywords):\n- q: Extract 2-4 significant keywords from user intent. Avoid short/common words.\n- matchMode: 'all' (default, precise) requires ALL tokens; 'any' (broad) requires at least ONE.\n- Example: user says \"find cursor workshop task\" → q: \"cursor workshop\"\n\nFILTERING:\n- High priority: filter: { priority: { lte: 2 } } (1=Urgent, 2=High, 3=Medium, 4=Low)\n- Active issues: filter: { state: { type: { neq: 'completed' } } }\n- In progress: filter: { state: { type: { eq: 'started' } } }\n- My issues: assignedToMe: true\n\nDETAIL LEVELS: minimal (id,title,state), standard (default, +priority,assignee,project), full (+labels,description).\n\nReturns: { items[], pagination, meta }.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities in lookups (_users, _states, _projects). Use short keys from output (u0, s1, pr0) in update_issues calls.",
+      "List issues with filtering. Inputs: teamId?, project? (short key, preferred), projectId?, filter?, q?, keywords?, matchMode?, includeArchived?, orderBy?(updatedAt|createdAt), detail?(minimal|standard|full), limit?, cursor?, assignedToMe?.\n\n⚠️ orderBy only supports updatedAt or createdAt. DO NOT use orderBy:\"priority\" - use filter instead!\n\nKEYWORD SEARCH (q/keywords):\n- q: Extract 2-4 significant keywords from user intent. Avoid short/common words.\n- matchMode: 'all' (default, precise) requires ALL tokens; 'any' (broad) requires at least ONE.\n- Example: user says \"find cursor workshop task\" → q: \"cursor workshop\"\n\nFILTERING:\n- High priority: filter: { priority: { lte: 2 } } (1=Urgent, 2=High, 3=Medium, 4=Low)\n- Active issues: filter: { state: { type: { neq: 'completed' } } }\n- In progress: filter: { state: { type: { eq: 'started' } } }\n- My issues: assignedToMe: true\n\nDETAIL LEVELS: minimal (id,title,state), standard (default, +priority,assignee,project), full (+labels,description).\n\nReturns: { items[], pagination, meta }.\n\nTOON Output (when enabled): Tier 2 - includes only REFERENCED entities in lookups (_users, _states, _projects). Use short keys from output (u0, s1, pr0) in update_issues calls.",
   },
 
   get_issues: {

@@ -629,9 +629,177 @@ describe('list_issues deleted project name fallback', () => {
     // Verify the issue row contains the project name (look for it in the data rows)
     const lines = textContent.split('\n');
     const issueDataLine = lines.find(
-      (line: string) => line.includes('SQT-123') && line.includes('Fix authentication bug'),
+      (line: string) =>
+        line.includes('SQT-123') && line.includes('Fix authentication bug'),
     );
     expect(issueDataLine).toBeDefined();
     expect(issueDataLine).toContain('Archived Alpha Project');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Project Short Key Resolution Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_issues project short key resolution', () => {
+  beforeEach(async () => {
+    const { clearRegistry, storeRegistry } = await import(
+      '../../src/shared/toon/index.js'
+    );
+    type ShortKeyRegistry = import('../../src/shared/toon/index.js').ShortKeyRegistry;
+    clearRegistry('test-session');
+
+    const mockRegistry: ShortKeyRegistry = {
+      users: new Map([['u0', 'user-001']]),
+      states: new Map(),
+      projects: new Map([
+        ['pr0', 'project-001'],
+        ['pr1', 'project-002'],
+      ]),
+      usersByUuid: new Map([['user-001', 'u0']]),
+      statesByUuid: new Map(),
+      projectsByUuid: new Map([
+        ['project-001', 'pr0'],
+        ['project-002', 'pr1'],
+      ]),
+      userMetadata: new Map([
+        [
+          'user-001',
+          {
+            name: 'Test User',
+            displayName: 'Test',
+            email: 'test@test.com',
+            active: true,
+          },
+        ],
+      ]),
+      stateMetadata: new Map(),
+      projectMetadata: new Map(),
+      generatedAt: new Date(),
+      workspaceId: 'ws-123',
+    };
+
+    storeRegistry('test-session', mockRegistry);
+  });
+
+  afterEach(async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/index.js');
+    clearRegistry('test-session');
+  });
+
+  it('resolves project short key via project param', async () => {
+    const result = await listIssuesTool.handler({ project: 'pr0' }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.project).toEqual({ id: { eq: 'project-001' } });
+  });
+
+  it('resolves project short key via projectId param (backward compat)', async () => {
+    const result = await listIssuesTool.handler({ projectId: 'pr0' }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.project).toEqual({ id: { eq: 'project-001' } });
+  });
+
+  it('project param takes priority over projectId', async () => {
+    const result = await listIssuesTool.handler(
+      { project: 'pr0', projectId: 'some-uuid' },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.project).toEqual({ id: { eq: 'project-001' } });
+  });
+
+  it('passes UUID directly when projectId is not a short key', async () => {
+    const result = await listIssuesTool.handler(
+      { projectId: 'some-uuid-value' },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.project).toEqual({ id: { eq: 'some-uuid-value' } });
+  });
+
+  it('passes non-short-key string via project as UUID', async () => {
+    const result = await listIssuesTool.handler(
+      { project: 'some-uuid-value' },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.project).toEqual({ id: { eq: 'some-uuid-value' } });
+  });
+
+  it('returns error for unknown project short key', async () => {
+    const result = await listIssuesTool.handler({ project: 'pr99' }, baseContext);
+
+    expect(result.isError).toBe(true);
+    const text = result.content[0].text;
+    expect(text).toContain('pr99');
+    expect(text).toContain('workspace_metadata');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Error Handling Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_issues error handling', () => {
+  beforeEach(async () => {
+    // Pre-populate registry so handler doesn't trigger init during the test
+    const { clearRegistry, storeRegistry } = await import(
+      '../../src/shared/toon/index.js'
+    );
+    type ShortKeyRegistry = import('../../src/shared/toon/index.js').ShortKeyRegistry;
+    clearRegistry('test-session');
+
+    const mockRegistry: ShortKeyRegistry = {
+      users: new Map(),
+      states: new Map(),
+      projects: new Map(),
+      usersByUuid: new Map(),
+      statesByUuid: new Map(),
+      projectsByUuid: new Map(),
+      userMetadata: new Map(),
+      stateMetadata: new Map(),
+      projectMetadata: new Map(),
+      generatedAt: new Date(),
+      workspaceId: 'ws-123',
+    };
+
+    storeRegistry('test-session', mockRegistry);
+  });
+
+  afterEach(async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/index.js');
+    clearRegistry('test-session');
+  });
+
+  it('returns structured error when rawRequest throws', async () => {
+    (mockClient.client.rawRequest as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('Argument Validation Error'),
+    );
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBe(true);
+    const text = result.content[0].text;
+    expect(text).toContain('Argument Validation Error');
   });
 });

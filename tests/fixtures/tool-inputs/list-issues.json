@@ -16,6 +16,11 @@
       "description": "Filter issues by project ID"
     },
     {
+      "name": "with_project_short_key",
+      "input": { "project": "pr0" },
+      "description": "Filter issues by project short key"
+    },
+    {
       "name": "with_keyword_search",
       "input": { "q": "authentication bug" },
       "description": "Free-text search splits into keywords"
