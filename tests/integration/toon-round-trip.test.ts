@@ -471,9 +471,13 @@ describe('TOON Tier 1 vs Tier 2 Output', () => {
     // Text should contain all short keys from u0 to uN
     const textContent = result.content[0].text;
 
-    // Verify Tier 1 includes all users section
+    // Verify Tier 1 includes all active users section
+    // (deactivated users are excluded from short key assignment)
     expect(textContent).toContain('_users[');
-    for (let i = 0; i < defaultMockUsers.length; i++) {
+    const activeUsers = defaultMockUsers.filter(
+      (u) => (u.active ?? true) !== false,
+    );
+    for (let i = 0; i < activeUsers.length; i++) {
       expect(textContent).toContain(`u${i}`);
     }
   });

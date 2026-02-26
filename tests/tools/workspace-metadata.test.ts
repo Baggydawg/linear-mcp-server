@@ -724,6 +724,58 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     }
   });
 
+  it('shows (deactivated) label in _projects lead column for deactivated project lead', async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
+
+    clearRegistry(baseContext.sessionId);
+
+    // Create a project with a deactivated user as lead
+    const deactivatedLeadProject = {
+      id: 'project-deactivated-lead',
+      name: 'Deactivated Lead Project',
+      state: 'started',
+      lead: { id: 'user-deactivated' },
+      leadId: 'user-deactivated',
+      createdAt: new Date('2024-10-01T00:00:00Z'),
+    };
+
+    // Override the SQT team's projects() to include our project
+    const sqtTeam = (await mockClient.teams()).nodes[0];
+    const originalProjectsFn = sqtTeam.projects;
+    sqtTeam.projects = () =>
+      Promise.resolve({ nodes: [deactivatedLeadProject] });
+
+    try {
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+      expect(result.isError).toBeFalsy();
+
+      const text = result.content[0].text;
+
+      // The _projects section should have the project with (deactivated) as lead
+      const projectsSection = text.match(
+        /_projects\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+      );
+      expect(projectsSection).not.toBeNull();
+
+      const projectLine = projectsSection![1]
+        .trim()
+        .split('\n')
+        .find((l: string) => l.includes('Deactivated Lead Project'));
+      expect(projectLine).toBeDefined();
+      expect(projectLine).toContain('(deactivated)');
+
+      // Deactivated user should NOT appear in _users section (active users only)
+      const usersSection = text.match(
+        /_users\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+      );
+      expect(usersSection).not.toBeNull();
+      expect(usersSection![1]).not.toContain('Deactivated Dave');
+    } finally {
+      sqtTeam.projects = originalProjectsFn;
+      clearRegistry(baseContext.sessionId);
+    }
+  });
+
   it('keeps labels filtered to default team while showing all states', async () => {
     const { config } = await import('../../src/config/env.js');
     const { clearRegistry } = await import('../../src/shared/toon/registry.js');

@@ -21,6 +21,7 @@ import {
   encodeToon,
   getOrInitRegistry,
   getUserMetadata,
+  getUserStatusLabel,
   PROJECT_CHANGES_SCHEMA,
   PROJECT_SCHEMA,
   PROJECT_WRITE_RESULT_SCHEMA,
@@ -157,7 +158,8 @@ function buildProjectLeadLookup(
     } else {
       // Unregistered user - create ext entry with fallback name
       const extKey = `ext${extCounter++}`;
-      const name = leadNameMap.get(uuid) ?? 'Former User';
+      const meta = getUserMetadata(registry, uuid);
+      const name = leadNameMap.get(uuid) ?? meta?.name ?? 'Former User';
       fallbackMap.set(uuid, extKey);
       items.push({
         key: extKey,
@@ -1003,11 +1005,11 @@ export const updateProjectsTool = defineTool({
             // Convert lead UUID to short key for TOON output
             const beforeLeadKey =
               registry && beforeSnapshot.leadId
-                ? (tryGetShortKey(registry, 'user', beforeSnapshot.leadId) ?? '(departed)')
+                ? (tryGetShortKey(registry, 'user', beforeSnapshot.leadId) ?? getUserStatusLabel(registry, beforeSnapshot.leadId))
                 : beforeSnapshot.leadId;
             const afterLeadKey =
               registry && afterSnapshot.leadId
-                ? (tryGetShortKey(registry, 'user', afterSnapshot.leadId) ?? '(departed)')
+                ? (tryGetShortKey(registry, 'user', afterSnapshot.leadId) ?? getUserStatusLabel(registry, afterSnapshot.leadId))
                 : afterSnapshot.leadId;
             changes.push({
               field: 'lead',

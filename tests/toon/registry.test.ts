@@ -15,6 +15,7 @@ import {
   getShortKey,
   getStoredRegistry,
   getTeamPrefix,
+  getUserStatusLabel,
   hasShortKey,
   hasUuid,
   isStale,
@@ -24,6 +25,7 @@ import {
   type ProjectMetadata,
   type RegistryBuildData,
   type RegistryEntity,
+  type RegistryUserEntity,
   registerNewProject,
   resolveShortKey,
   type ShortKeyRegistry,
@@ -2508,5 +2510,101 @@ describe('deterministic project ordering', () => {
     expect(withStrings.projects.get('pr1')).toBe('project-b');
     expect(withDates.projects.get('pr0')).toBe('project-a');
     expect(withDates.projects.get('pr1')).toBe('project-b');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests: Deactivated User Handling
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('deactivated user handling', () => {
+  const createDeactivatedUserBuildData = (): RegistryBuildData => {
+    const users: RegistryUserEntity[] = [
+      {
+        id: 'user-alice',
+        createdAt: new Date('2024-01-02'),
+        name: 'Alice Active',
+        displayName: 'alice',
+        email: 'alice@test.com',
+        active: true,
+      },
+      {
+        id: 'user-deactivated',
+        createdAt: new Date('2024-01-01'), // oldest — would steal u0 if not filtered
+        name: 'Deactivated Dave',
+        displayName: 'dave',
+        email: 'dave@test.com',
+        active: false,
+      },
+      {
+        id: 'user-bob',
+        createdAt: new Date('2024-01-03'),
+        name: 'Bob Builder',
+        displayName: 'bob',
+        email: 'bob@test.com',
+        active: true,
+      },
+    ];
+
+    return {
+      users,
+      states: [],
+      projects: [],
+      workspaceId: 'test-workspace',
+    };
+  };
+
+  it('disabled users are excluded from short key assignment', () => {
+    const data = createDeactivatedUserBuildData();
+    const registry = buildRegistry(data);
+
+    // Only 2 active users should have short keys
+    expect(registry.users.size).toBe(2);
+
+    // Alice (oldest active, 2024-01-02) = u0, Bob (2024-01-03) = u1
+    expect(registry.users.get('u0')).toBe('user-alice');
+    expect(registry.users.get('u1')).toBe('user-bob');
+    expect(registry.users.has('u2')).toBe(false);
+
+    // Deactivated user should NOT appear in reverse map
+    expect(registry.usersByUuid.has('user-deactivated')).toBe(false);
+
+    // Active users should be in reverse map
+    expect(registry.usersByUuid.get('user-alice')).toBe('u0');
+    expect(registry.usersByUuid.get('user-bob')).toBe('u1');
+  });
+
+  it('disabled users are present in userMetadata with active: false', () => {
+    const data = createDeactivatedUserBuildData();
+    const registry = buildRegistry(data);
+
+    // Deactivated user should be in userMetadata
+    const meta = registry.userMetadata.get('user-deactivated');
+    expect(meta).toBeDefined();
+    expect(meta?.active).toBe(false);
+    expect(meta?.name).toBe('Deactivated Dave');
+    expect(meta?.displayName).toBe('dave');
+    expect(meta?.email).toBe('dave@test.com');
+
+    // Active users should also be in userMetadata with active: true
+    const aliceMeta = registry.userMetadata.get('user-alice');
+    expect(aliceMeta).toBeDefined();
+    expect(aliceMeta?.active).toBe(true);
+    expect(aliceMeta?.name).toBe('Alice Active');
+  });
+
+  it('getUserStatusLabel returns (deactivated) for disabled user', () => {
+    const data = createDeactivatedUserBuildData();
+    const registry = buildRegistry(data);
+
+    // Deactivated user in metadata with active: false
+    expect(getUserStatusLabel(registry, 'user-deactivated')).toBe(
+      '(deactivated)',
+    );
+
+    // Totally unknown UUID not in metadata at all
+    expect(getUserStatusLabel(registry, 'totally-unknown-uuid')).toBe(
+      '(departed)',
+    );
   });
 });

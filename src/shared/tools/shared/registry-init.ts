@@ -82,7 +82,7 @@ export async function fetchWorkspaceDataForRegistry(
   client: LinearClient,
 ): Promise<RegistryBuildData> {
   // Fetch users with full metadata (200 to cover large workspaces)
-  const usersConn = await client.users({ first: 200 });
+  const usersConn = await client.users({ first: 200, includeDisabled: true });
   const users = (usersConn.nodes ?? []).map((u) => {
     const admin = (u as unknown as { admin?: boolean }).admin ?? false;
     return {

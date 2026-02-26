@@ -22,6 +22,7 @@ import {
   buildRegistry,
   CYCLE_LOOKUP_SCHEMA,
   encodeResponse,
+  getUserStatusLabel,
   LABEL_LOOKUP_SCHEMA,
   PROJECT_LOOKUP_SCHEMA,
   type RegistryBuildData,
@@ -32,6 +33,7 @@ import {
   type ToonRow,
   type ToonSection,
   USER_LOOKUP_SCHEMA,
+  type UserMetadata,
 } from '../../toon/index.js';
 import { fetchGlobalProjects } from '../shared/registry-init.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
@@ -215,6 +217,7 @@ function buildToonResponse(
     usersByUuid: Map<string, string>;
     projectsByUuid: Map<string, string>;
     statesByUuid: Map<string, string>;
+    userMetadata: Map<string, UserMetadata>;
   },
   defaultTeamKey?: string,
 ): ToonResponse {
@@ -232,9 +235,10 @@ function buildToonResponse(
     sections.push({ schema: TEAM_LOOKUP_SCHEMA, items: teamItems });
   }
 
-  // _users section - ALL users
+  // _users section - active users only (deactivated users filtered out)
   if (data.users.length > 0) {
-    const userItems: ToonRow[] = data.users.map((u) => ({
+    const activeDisplayUsers = data.users.filter((u) => u.active !== false);
+    const userItems: ToonRow[] = activeDisplayUsers.map((u) => ({
       key: registry.usersByUuid.get(u.id) ?? '',
       name: u.name ?? '',
       displayName: u.displayName ?? '',
@@ -277,7 +281,9 @@ function buildToonResponse(
   // _projects section - ALL projects
   if (data.projects.length > 0) {
     const projectItems: ToonRow[] = data.projects.map((p) => {
-      const leadKey = p.leadId ? (registry.usersByUuid.get(p.leadId) ?? '(departed)') : '';
+      const leadKey = p.leadId
+        ? (registry.usersByUuid.get(p.leadId) ?? (registry.userMetadata.get(p.leadId)?.active === false ? '(deactivated)' : '(departed)'))
+        : '';
       return {
         key: registry.projectsByUuid.get(p.id) ?? '',
         name: p.name,
@@ -474,7 +480,7 @@ export const workspaceMetadataTool = defineTool({
       });
 
       // Always fetch ALL workspace users for the registry
-      const usersConn = (await client.users({ first: 200 })) as unknown as {
+      const usersConn = (await client.users({ first: 200, includeDisabled: true })) as unknown as {
         nodes: UserLike[];
       };
 
@@ -682,6 +688,7 @@ export const workspaceMetadataTool = defineTool({
       usersByUuid: builtRegistry.usersByUuid,
       projectsByUuid: builtRegistry.projectsByUuid,
       statesByUuid: builtRegistry.statesByUuid,
+      userMetadata: builtRegistry.userMetadata,
     };
 
     // ─────────────────────────────────────────────────────────────────────────

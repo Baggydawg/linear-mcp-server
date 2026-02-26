@@ -46,6 +46,7 @@ import {
   getOrInitRegistry,
   getProjectMetadata,
   getUserMetadata,
+  getUserStatusLabel,
   ISSUE_SCHEMA,
   LABEL_LOOKUP_SCHEMA,
   PROJECT_LOOKUP_SCHEMA,
@@ -348,7 +349,7 @@ function buildProjectLookup(
             ? Math.round(metadata.progress * 100) / 100
             : null,
         lead: metadata?.leadId
-          ? (tryGetShortKey(registry, 'user', metadata.leadId) ?? '(departed)')
+          ? (tryGetShortKey(registry, 'user', metadata.leadId) ?? getUserStatusLabel(registry, metadata.leadId))
           : '',
         targetDate: metadata?.targetDate ?? '',
       });

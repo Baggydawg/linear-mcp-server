@@ -103,6 +103,9 @@ export interface MockUser {
   email?: string;
   displayName?: string;
   avatarUrl?: string;
+  active?: boolean;
+  admin?: boolean;
+  createdAt?: Date;
 }
 
 export interface MockComment {
@@ -504,6 +507,15 @@ export const defaultMockUsers: MockUser[] = [
   },
   { id: 'user-002', name: 'Jane Doe', email: 'jane@example.com', displayName: 'Jane' },
   { id: 'user-003', name: 'Bob Smith', email: 'bob@example.com', displayName: 'Bob' },
+  {
+    id: 'user-deactivated',
+    name: 'Deactivated Dave',
+    displayName: 'Dave',
+    email: 'dave@example.com',
+    active: false,
+    admin: false,
+    createdAt: new Date('2024-01-01'), // old date — would steal u0 if not filtered
+  },
 ];
 
 export const defaultMockCycles: MockCycle[] = [
@@ -587,7 +599,7 @@ export interface MockLinearClient {
   team: (id: string) => Promise<MockTeam | null>;
   issues: (args?: Record<string, unknown>) => Promise<MockConnection<MockIssue>>;
   issue: (id: string) => Promise<MockIssue | null>;
-  users: (args?: { first?: number }) => Promise<MockConnection<MockUser>>;
+  users: (args?: { first?: number; includeDisabled?: boolean }) => Promise<MockConnection<MockUser>>;
   favorites: (args?: { first?: number }) => Promise<MockConnection<unknown>>;
   projects: (args?: {
     first?: number;
@@ -716,10 +728,15 @@ export function createMockLinearClient(
       return issues.find((i) => i.id === id || i.identifier === id) ?? null;
     }),
 
-    users: vi.fn(async (args?: { first?: number }) => ({
-      nodes: users.slice(0, args?.first ?? users.length),
-      pageInfo: { hasNextPage: false },
-    })),
+    users: vi.fn(async (args?: { first?: number; includeDisabled?: boolean }) => {
+      const filtered = args?.includeDisabled
+        ? users
+        : users.filter((u) => (u.active ?? true) !== false);
+      return {
+        nodes: filtered.slice(0, args?.first ?? filtered.length),
+        pageInfo: { hasNextPage: false },
+      };
+    }),
 
     favorites: vi.fn(async () => ({
       nodes: favorites,

@@ -191,6 +191,7 @@ export {
   getStoredRegistry,
   getTeamPrefix,
   getUserMetadata,
+  getUserStatusLabel,
   hasShortKey,
   hasUuid,
   isStale,

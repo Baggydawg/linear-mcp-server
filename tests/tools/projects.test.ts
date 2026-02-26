@@ -1068,6 +1068,93 @@ describe('list_projects departed user handling', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Deactivated User Handling Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_projects deactivated user handling', () => {
+  afterEach(async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/index.js');
+    clearRegistry('test-session');
+  });
+
+  it('deactivated project lead uses real name from metadata in ext entry', async () => {
+    const {
+      clearRegistry,
+      storeRegistry,
+    } = await import('../../src/shared/toon/index.js');
+    type ShortKeyRegistry = import('../../src/shared/toon/index.js').ShortKeyRegistry;
+    clearRegistry('test-session');
+
+    // Create a registry where user-001 is active but 'deactivated-lead-uuid' is
+    // in userMetadata with active: false (deactivated user — known name, no short key)
+    const mockRegistry: ShortKeyRegistry = {
+      users: new Map([['u0', 'user-001']]),
+      states: new Map(),
+      projects: new Map([['pr0', 'project-deactivated-lead']]),
+      usersByUuid: new Map([['user-001', 'u0']]),
+      statesByUuid: new Map(),
+      projectsByUuid: new Map([['project-deactivated-lead', 'pr0']]),
+      userMetadata: new Map([
+        [
+          'user-001',
+          {
+            name: 'Active User',
+            displayName: 'Active',
+            email: 'active@test.com',
+            active: true,
+          },
+        ],
+        [
+          'deactivated-lead-uuid',
+          {
+            name: 'Deactivated Diana',
+            displayName: 'Diana',
+            email: 'diana@test.com',
+            active: false,
+          },
+        ],
+      ]),
+      stateMetadata: new Map(),
+      projectMetadata: new Map(),
+      generatedAt: new Date(),
+      workspaceId: 'ws-123',
+    };
+
+    storeRegistry('test-session', mockRegistry);
+
+    const projectsWithDeactivatedLead: MockProject[] = [
+      {
+        id: 'project-deactivated-lead',
+        name: 'Deactivated Lead Project',
+        state: 'started',
+        priority: 1,
+        progress: 0.5,
+        leadId: 'deactivated-lead-uuid',
+        lead: { id: 'deactivated-lead-uuid' } as MockProject['lead'],
+        teamId: 'team-sqt',
+        createdAt: new Date('2024-10-01T00:00:00Z'),
+      },
+    ];
+
+    mockClient = createMockLinearClient({ projects: projectsWithDeactivatedLead });
+    resetMockCalls(mockClient);
+
+    const result = await listProjectsTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // Should have _users section with ext0 entry
+    expect(textContent).toContain('_users[');
+    expect(textContent).toContain('ext0');
+
+    // The ext entry should use the real name from userMetadata, NOT "Former User"
+    expect(textContent).toContain('Deactivated Diana');
+    expect(textContent).not.toContain('Former User');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Departed Lead Fallback in update_projects Change Diffs
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1099,6 +1186,12 @@ describe('update_projects departed lead diff fallback', () => {
       ]),
       statesByUuid: new Map(),
       projectsByUuid: new Map([['project-lead-change', 'pr0']]),
+      userMetadata: new Map([
+        ['user-001', { name: 'User One', displayName: 'User One', email: 'u1@test.com', active: true }],
+        ['user-002', { name: 'User Two', displayName: 'User Two', email: 'u2@test.com', active: true }],
+      ]),
+      stateMetadata: new Map(),
+      projectMetadata: new Map(),
       generatedAt: new Date(),
       workspaceId: 'ws-123',
     };

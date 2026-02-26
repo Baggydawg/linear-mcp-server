@@ -538,7 +538,8 @@ export function buildRegistry(data: RegistryBuildData): ShortKeyRegistry {
     : data.states;
 
   // Users and projects are global (no team prefix)
-  const [users, usersByUuid] = buildMapsForType(data.users, KEY_PREFIXES.user);
+  const activeUsers = data.users.filter((u) => u.active !== false);
+  const [users, usersByUuid] = buildMapsForType(activeUsers, KEY_PREFIXES.user);
   const [projects, projectsByUuid] = buildMapsForType(
     data.projects,
     KEY_PREFIXES.project,
@@ -889,6 +890,23 @@ export function getProjectMetadata(
   uuid: string,
 ): ProjectMetadata | undefined {
   return registry.projectMetadata.get(uuid);
+}
+
+/**
+ * Returns a human-readable label for a user UUID that couldn't be resolved
+ * to a short key. Checks registry metadata to distinguish deactivated users
+ * (confirmed inactive, still in workspace data) from departed users (not in
+ * workspace at all).
+ *
+ * Note: Result reflects registry state at last refresh. A reactivated user
+ * will still show '(deactivated)' until `workspace_metadata({ forceRefresh: true })`.
+ */
+export function getUserStatusLabel(
+  registry: ShortKeyRegistry,
+  uuid: string,
+): '(deactivated)' | '(departed)' {
+  const meta = registry.userMetadata.get(uuid);
+  return meta?.active === false ? '(deactivated)' : '(departed)';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

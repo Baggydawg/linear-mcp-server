@@ -23,6 +23,7 @@ import {
   getOrInitRegistry,
   getProjectMetadata,
   getUserMetadata,
+  getUserStatusLabel,
   PROJECT_LOOKUP_SCHEMA,
   RELATION_SCHEMA,
   type ShortKeyRegistry,
@@ -594,7 +595,7 @@ function buildProjectLookup(
             ? Math.round(metadata.progress * 100) / 100
             : null,
         lead: metadata?.leadId
-          ? (tryGetShortKey(registry, 'user', metadata.leadId) ?? '(departed)')
+          ? (tryGetShortKey(registry, 'user', metadata.leadId) ?? getUserStatusLabel(registry, metadata.leadId))
           : '',
         targetDate: metadata?.targetDate ?? '',
       });
