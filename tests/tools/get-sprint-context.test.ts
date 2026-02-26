@@ -732,6 +732,75 @@ describe('get_sprint_context error handling', () => {
   });
 });
 
+describe('get_sprint_context API error handling', () => {
+  it('returns structured error when cycles query fails', async () => {
+    mockClient.client.rawRequest = vi.fn().mockRejectedValue(
+      new Error('Network timeout'),
+    );
+
+    const result = await getSprintContextTool.handler(
+      { cycle: 'current' },
+      baseContext,
+    );
+
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { type: string; text: string }).text;
+    expect(text).toContain('Error');
+    expect(result.structuredContent).toBeDefined();
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.error).toBeDefined();
+    expect(structured.hint).toBeDefined();
+  });
+
+  it('returns structured error when sprint context query fails', async () => {
+    // First call (cycles query) succeeds, second call (sprint context) fails
+    let callCount = 0;
+    mockClient.client.rawRequest = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          data: {
+            team: {
+              id: 'team-sqt',
+              cycles: { nodes: mockCycles },
+              activeCycle: { number: 2 },
+            },
+          },
+        };
+      }
+      throw new Error('Rate limit exceeded');
+    });
+
+    const result = await getSprintContextTool.handler(
+      { cycle: 'current' },
+      baseContext,
+    );
+
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { type: string; text: string }).text;
+    expect(text).toContain('Error');
+    expect(result.structuredContent).toBeDefined();
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.error).toBeDefined();
+    expect(structured.hint).toBeDefined();
+  });
+
+  it('does not hit cycles query for direct cycle number', async () => {
+    mockClient.client.rawRequest = vi
+      .fn()
+      .mockRejectedValue(new Error('API failure'));
+
+    const result = await getSprintContextTool.handler(
+      { cycle: 5 },
+      baseContext,
+    );
+
+    // Should fail on the sprint context query (only call), not cycles query
+    expect(result.isError).toBe(true);
+    expect(mockClient.client.rawRequest).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Cycle Navigation Tests
 // ─────────────────────────────────────────────────────────────────────────────

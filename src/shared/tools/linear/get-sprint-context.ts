@@ -12,6 +12,10 @@
 import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
+import {
+  createErrorFromException,
+  formatErrorMessage,
+} from '../../../utils/errors.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import {
   COMMENT_SCHEMA,
@@ -836,9 +840,23 @@ export const getSprintContextTool = defineTool({
       targetCycleNumber = cycleSelector;
     } else {
       // Fetch cycles to find relative position
-      const cyclesResp = await client.client.rawRequest(CYCLES_QUERY, {
-        teamId: team.id,
-      });
+      let cyclesResp;
+      try {
+        cyclesResp = await client.client.rawRequest(CYCLES_QUERY, {
+          teamId: team.id,
+        });
+      } catch (error) {
+        const toolError = createErrorFromException(error as Error);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: formatErrorMessage(toolError) }],
+          structuredContent: {
+            error: toolError.code,
+            message: toolError.message,
+            hint: toolError.hint,
+          },
+        };
+      }
 
       const cyclesData = (
         cyclesResp as unknown as {
@@ -944,12 +962,26 @@ export const getSprintContextTool = defineTool({
     const includeComments = args.includeComments !== false;
     const includeRelations = args.includeRelations !== false;
 
-    const resp = await client.client.rawRequest(SPRINT_CONTEXT_QUERY, {
-      teamId: team.id,
-      cycleNumber: targetCycleNumber,
-      includeComments,
-      includeRelations,
-    });
+    let resp;
+    try {
+      resp = await client.client.rawRequest(SPRINT_CONTEXT_QUERY, {
+        teamId: team.id,
+        cycleNumber: targetCycleNumber,
+        includeComments,
+        includeRelations,
+      });
+    } catch (error) {
+      const toolError = createErrorFromException(error as Error);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: formatErrorMessage(toolError) }],
+        structuredContent: {
+          error: toolError.code,
+          message: toolError.message,
+          hint: toolError.hint,
+        },
+      };
+    }
 
     const teamData = (
       resp as unknown as {
