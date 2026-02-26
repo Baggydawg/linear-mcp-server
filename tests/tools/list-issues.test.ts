@@ -580,3 +580,58 @@ describe('list_issues departed user in _projects lookup', () => {
     expect(textContent).toContain('(departed)');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Deleted Project Name Fallback Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_issues deleted project name fallback', () => {
+  beforeEach(async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/index.js');
+    clearRegistry('test-session');
+  });
+
+  afterEach(async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/index.js');
+    clearRegistry('test-session');
+  });
+
+  it('shows project name when project ID is not in registry', async () => {
+    // Create an issue whose project has an ID NOT registered in any team's projects
+    // but WITH a name in the GraphQL response. The registry will NOT contain
+    // 'project-deleted-999' because no team.projects() returns it.
+    const issuesWithDeletedProject = [
+      {
+        ...defaultMockIssues[0],
+        project: Promise.resolve({
+          id: 'project-deleted-999',
+          name: 'Archived Alpha Project',
+        }),
+      },
+    ];
+
+    // Use default projects (project-001, project-002) — 'project-deleted-999' won't be in registry
+    mockClient = createMockLinearClient({
+      issues: issuesWithDeletedProject,
+    });
+    resetMockCalls(mockClient);
+
+    const result = await listIssuesTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // The issue row should show the project name 'Archived Alpha Project'
+    // as a fallback since the project ID is not in the registry (no short key available)
+    expect(textContent).toContain('Archived Alpha Project');
+
+    // Should NOT show it as blank — the name fallback should kick in
+    // Verify the issue row contains the project name (look for it in the data rows)
+    const lines = textContent.split('\n');
+    const issueDataLine = lines.find(
+      (line: string) => line.includes('SQT-123') && line.includes('Fix authentication bug'),
+    );
+    expect(issueDataLine).toBeDefined();
+    expect(issueDataLine).toContain('Archived Alpha Project');
+  });
+});

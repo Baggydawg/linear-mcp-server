@@ -351,7 +351,7 @@ function issueToToonRow(
     assignee: assigneeKey ?? '',
     priority: formatPriorityToon(issue.priority),
     estimate: formatEstimateToon(issue.estimate),
-    project: projectKey ?? '',
+    project: projectKey ?? issue.project?.name ?? '',
     cycle: formatCycleToon(issue.cycle?.number),
     labels: labelNames || null,
     parent: issue.parent?.identifier ?? null,

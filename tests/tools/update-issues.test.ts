@@ -739,3 +739,175 @@ describe('cycle selector support', () => {
     expect(textContent).toContain('CYCLE_INVALID');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Snapshot Name Fallback in Change Diffs
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('update_issues snapshot name fallback in diffs', () => {
+  beforeEach(() => {
+    // Registry does NOT contain 'user-departed-999'
+    const mockRegistry: ShortKeyRegistry = {
+      users: new Map([
+        ['u0', 'user-001'],
+        ['u1', 'user-002'],
+      ]),
+      states: new Map([
+        ['s0', 'state-sqt-backlog'],
+        ['s1', 'state-sqt-todo'],
+        ['s2', 'state-sqt-inprogress'],
+        ['s3', 'state-sqt-done'],
+      ]),
+      projects: new Map([['pr0', 'project-001']]),
+      usersByUuid: new Map([
+        ['user-001', 'u0'],
+        ['user-002', 'u1'],
+      ]),
+      statesByUuid: new Map([
+        ['state-sqt-backlog', 's0'],
+        ['state-sqt-todo', 's1'],
+        ['state-sqt-inprogress', 's2'],
+        ['state-sqt-done', 's3'],
+      ]),
+      projectsByUuid: new Map([['project-001', 'pr0']]),
+      generatedAt: new Date(),
+      workspaceId: 'ws-123',
+    };
+
+    storeRegistry('test-session', mockRegistry);
+    mockClient = createMockLinearClient();
+    resetMockCalls(mockClient);
+  });
+
+  afterEach(() => {
+    clearRegistry('test-session');
+  });
+
+  it('shows assignee name from snapshot when assignee is not in registry', async () => {
+    // Create mock issues for the before/after snapshots:
+    // Before: assignee is 'user-departed-999' (NOT in registry) with name 'Alice Departed'
+    // After: assignee is 'user-002' (IS in registry as u1) with name 'Jane Doe'
+    const beforeIssue = {
+      id: 'issue-001',
+      identifier: 'SQT-123',
+      title: 'Fix authentication bug',
+      description: 'Users are being logged out unexpectedly',
+      priority: 1,
+      estimate: 3,
+      createdAt: new Date('2024-12-10T10:00:00Z'),
+      updatedAt: new Date('2024-12-15T14:30:00Z'),
+      url: 'https://linear.app/team/issue/SQT-123',
+      stateId: 'state-sqt-inprogress',
+      assigneeId: 'user-departed-999',
+      state: Promise.resolve({
+        id: 'state-sqt-inprogress',
+        name: 'In Progress',
+        type: 'started',
+      }),
+      project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
+      assignee: Promise.resolve({ id: 'user-departed-999', name: 'Alice Departed' }),
+      labels: () => Promise.resolve({ nodes: [{ id: 'label-sqt-bug', name: 'Bug' }] }),
+      attachments: () => Promise.resolve({ nodes: [] }),
+      comments: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
+      team: { id: 'team-sqt' },
+    };
+
+    const afterIssue = {
+      ...beforeIssue,
+      assigneeId: 'user-002',
+      assignee: Promise.resolve({ id: 'user-002', name: 'Jane Doe' }),
+    };
+
+    let issueCallCount = 0;
+
+    // Override client.issue to return before state first, then after state
+    (mockClient.issue as ReturnType<typeof vi.fn>).mockImplementation(
+      async (id: string) => {
+        issueCallCount++;
+        // First call is getIssueTeamId, second is captureIssueSnapshot (before),
+        // third may be captureIssueSnapshot (after)
+        if (id === 'issue-001') {
+          // First two calls return "before" state, subsequent calls return "after" state
+          return issueCallCount <= 2 ? beforeIssue : afterIssue;
+        }
+        return null;
+      },
+    );
+
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', assigneeId: 'user-002' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // The changes section should show the assignee name from the snapshot
+    // since 'user-departed-999' is NOT in the registry
+    // Before: 'Alice Departed' (from beforeSnapshot.assigneeName)
+    // After: 'u1' (from registry short key lookup for user-002)
+    expect(textContent).toContain('changes[');
+    expect(textContent).toContain('assignee');
+    expect(textContent).toContain('Alice Departed');
+    expect(textContent).toContain('u1');
+  });
+
+  it('shows (departed) when assignee has no name in snapshot and is not in registry', async () => {
+    // Before: assignee ID not in registry, AND no name in snapshot
+    // This tests the final '(departed)' fallback
+    const beforeIssue = {
+      id: 'issue-001',
+      identifier: 'SQT-123',
+      title: 'Fix authentication bug',
+      priority: 1,
+      createdAt: new Date('2024-12-10T10:00:00Z'),
+      updatedAt: new Date('2024-12-15T14:30:00Z'),
+      stateId: 'state-sqt-inprogress',
+      assigneeId: 'user-departed-noname',
+      state: Promise.resolve({
+        id: 'state-sqt-inprogress',
+        name: 'In Progress',
+        type: 'started',
+      }),
+      project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
+      // Assignee has ID but no name
+      assignee: Promise.resolve({ id: 'user-departed-noname' }),
+      labels: () => Promise.resolve({ nodes: [{ id: 'label-sqt-bug', name: 'Bug' }] }),
+      attachments: () => Promise.resolve({ nodes: [] }),
+      comments: () => Promise.resolve({ nodes: [], pageInfo: { hasNextPage: false } }),
+      team: { id: 'team-sqt' },
+    };
+
+    const afterIssue = {
+      ...beforeIssue,
+      assigneeId: 'user-002',
+      assignee: Promise.resolve({ id: 'user-002', name: 'Jane Doe' }),
+    };
+
+    let issueCallCount = 0;
+
+    (mockClient.issue as ReturnType<typeof vi.fn>).mockImplementation(
+      async (id: string) => {
+        issueCallCount++;
+        if (id === 'issue-001') {
+          return issueCallCount <= 2 ? beforeIssue : afterIssue;
+        }
+        return null;
+      },
+    );
+
+    const result = await updateIssuesTool.handler(
+      { items: [{ id: 'issue-001', assigneeId: 'user-002' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // The changes section should show '(departed)' as the before value
+    // since the assignee has no name and is not in the registry
+    expect(textContent).toContain('changes[');
+    expect(textContent).toContain('assignee');
+    expect(textContent).toContain('(departed)');
+  });
+});

@@ -1020,10 +1020,10 @@ export const updateIssuesTool = defineTool({
             // State change
             if (changes.state) {
               const beforeKey = beforeSnapshot?.stateId
-                ? (tryGetShortKey(registry, 'state', beforeSnapshot.stateId) ?? '')
+                ? (tryGetShortKey(registry, 'state', beforeSnapshot.stateId) ?? beforeSnapshot?.stateName ?? '')
                 : '';
               const afterKey = afterSnapshot.stateId
-                ? (tryGetShortKey(registry, 'state', afterSnapshot.stateId) ?? '')
+                ? (tryGetShortKey(registry, 'state', afterSnapshot.stateId) ?? afterSnapshot.stateName ?? '')
                 : '';
               toonChanges.push({
                 identifier: finalIdentifier,
@@ -1036,10 +1036,10 @@ export const updateIssuesTool = defineTool({
             // Assignee change
             if (changes.assignee) {
               const beforeKey = beforeSnapshot?.assigneeId
-                ? (tryGetShortKey(registry, 'user', beforeSnapshot.assigneeId) ?? '')
+                ? (tryGetShortKey(registry, 'user', beforeSnapshot.assigneeId) ?? beforeSnapshot?.assigneeName ?? '(departed)')
                 : '';
               const afterKey = afterSnapshot.assigneeId
-                ? (tryGetShortKey(registry, 'user', afterSnapshot.assigneeId) ?? '')
+                ? (tryGetShortKey(registry, 'user', afterSnapshot.assigneeId) ?? afterSnapshot.assigneeName ?? '(departed)')
                 : '';
               toonChanges.push({
                 identifier: finalIdentifier,
@@ -1052,10 +1052,10 @@ export const updateIssuesTool = defineTool({
             // Project change
             if (changes.project) {
               const beforeKey = beforeSnapshot?.projectId
-                ? (tryGetShortKey(registry, 'project', beforeSnapshot.projectId) ?? '')
+                ? (tryGetShortKey(registry, 'project', beforeSnapshot.projectId) ?? beforeSnapshot?.projectName ?? '')
                 : '';
               const afterKey = afterSnapshot.projectId
-                ? (tryGetShortKey(registry, 'project', afterSnapshot.projectId) ?? '')
+                ? (tryGetShortKey(registry, 'project', afterSnapshot.projectId) ?? afterSnapshot.projectName ?? '')
                 : '';
               toonChanges.push({
                 identifier: finalIdentifier,

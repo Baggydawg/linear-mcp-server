@@ -1066,3 +1066,110 @@ describe('list_projects departed user handling', () => {
     expect(uIndex).toBeLessThan(extIndex);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Departed Lead Fallback in update_projects Change Diffs
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('update_projects departed lead diff fallback', () => {
+  afterEach(async () => {
+    const { clearRegistry } = await import('../../src/shared/toon/index.js');
+    clearRegistry('test-session');
+  });
+
+  it('shows (departed) in lead change diff when before lead is not in registry', async () => {
+    const {
+      clearRegistry,
+      storeRegistry,
+    } = await import('../../src/shared/toon/index.js');
+    type ShortKeyRegistry = import('../../src/shared/toon/index.js').ShortKeyRegistry;
+    clearRegistry('test-session');
+
+    // Create a registry where user-001, user-002 are known but 'departed-lead-999' is NOT
+    const mockRegistry: ShortKeyRegistry = {
+      users: new Map([
+        ['u0', 'user-001'],
+        ['u1', 'user-002'],
+      ]),
+      states: new Map(),
+      projects: new Map([['pr0', 'project-lead-change']]),
+      usersByUuid: new Map([
+        ['user-001', 'u0'],
+        ['user-002', 'u1'],
+      ]),
+      statesByUuid: new Map(),
+      projectsByUuid: new Map([['project-lead-change', 'pr0']]),
+      generatedAt: new Date(),
+      workspaceId: 'ws-123',
+    };
+
+    storeRegistry('test-session', mockRegistry);
+
+    // Set up project with a departed lead initially, then new lead after update
+    const beforeProject: MockProject = {
+      id: 'project-lead-change',
+      name: 'Lead Change Project',
+      state: 'started',
+      priority: 1,
+      progress: 0.5,
+      leadId: 'departed-lead-999',
+      lead: { id: 'departed-lead-999' },
+      teamId: 'team-sqt',
+      createdAt: new Date('2024-10-01T00:00:00Z'),
+    };
+
+    const afterProject: MockProject = {
+      ...beforeProject,
+      leadId: 'user-002',
+      lead: { id: 'user-002' },
+    };
+
+    mockClient = createMockLinearClient({
+      projects: [beforeProject],
+    });
+    resetMockCalls(mockClient);
+
+    // Track calls to client.projects with id filter for the target project
+    let snapshotCallCount = 0;
+
+    // Override client.projects to return different lead data on successive snapshot calls.
+    // Registry init uses team.projects() (different method), so client.projects is only
+    // called for captureProjectSnapshot (before) and captureProjectSnapshot (after).
+    (mockClient.projects as ReturnType<typeof vi.fn>).mockImplementation(
+      async (args?: { first?: number; filter?: Record<string, unknown> }) => {
+        const idFilter = (args?.filter?.id as { eq?: string })?.eq;
+        if (idFilter === 'project-lead-change') {
+          snapshotCallCount++;
+          // 1st snapshot call = before (departed lead), 2nd = after (new lead)
+          const project = snapshotCallCount <= 1 ? beforeProject : afterProject;
+          return {
+            nodes: [project],
+            pageInfo: { hasNextPage: false },
+          };
+        }
+
+        // Default: return all projects
+        return {
+          nodes: [beforeProject],
+          pageInfo: { hasNextPage: false },
+        };
+      },
+    );
+
+    const result = await updateProjectsTool.handler(
+      { items: [{ id: 'project-lead-change', leadId: 'user-002' }] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // The changes section should show '(departed)' as the before lead value
+    // since 'departed-lead-999' is NOT in the registry
+    expect(textContent).toContain('changes[');
+    expect(textContent).toContain('lead');
+    expect(textContent).toContain('(departed)');
+    // The after value should be 'u1' (short key for user-002)
+    expect(textContent).toContain('u1');
+  });
+});

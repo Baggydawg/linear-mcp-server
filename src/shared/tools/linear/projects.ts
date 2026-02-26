@@ -1003,11 +1003,11 @@ export const updateProjectsTool = defineTool({
             // Convert lead UUID to short key for TOON output
             const beforeLeadKey =
               registry && beforeSnapshot.leadId
-                ? tryGetShortKey(registry, 'user', beforeSnapshot.leadId)
+                ? (tryGetShortKey(registry, 'user', beforeSnapshot.leadId) ?? '(departed)')
                 : beforeSnapshot.leadId;
             const afterLeadKey =
               registry && afterSnapshot.leadId
-                ? tryGetShortKey(registry, 'user', afterSnapshot.leadId)
+                ? (tryGetShortKey(registry, 'user', afterSnapshot.leadId) ?? '(departed)')
                 : afterSnapshot.leadId;
             changes.push({
               field: 'lead',
