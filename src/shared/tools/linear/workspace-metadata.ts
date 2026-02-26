@@ -573,7 +573,7 @@ export const workspaceMetadataTool = defineTool({
           state: p.state,
           priority: p.priority,
           progress: p.progress,
-          leadId: p.lead?.id ?? undefined,
+          leadId: (p as unknown as { leadId?: string }).leadId ?? undefined,
           targetDate: p.targetDate ?? undefined,
           createdAt: p.createdAt,
         });

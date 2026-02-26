@@ -470,7 +470,7 @@ async function fetchWorkspaceDataForRegistry(
     state: (p as unknown as { state?: string }).state ?? '',
     priority: (p as unknown as { priority?: number }).priority,
     progress: (p as unknown as { progress?: number }).progress,
-    leadId: (p as unknown as { lead?: { id?: string } }).lead?.id,
+    leadId: (p as unknown as { leadId?: string }).leadId,
     targetDate: (p as unknown as { targetDate?: string }).targetDate,
   }));
 
