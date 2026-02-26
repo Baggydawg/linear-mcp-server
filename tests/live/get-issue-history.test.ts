@@ -26,7 +26,11 @@ import {
   fetchTeams,
   fetchUsers,
 } from './helpers/linear-api.js';
-import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
+import {
+  reportEntitiesValidated,
+  reportSkip,
+  reportToolCall,
+} from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('get_issue_history live data validation', () => {
@@ -41,11 +45,13 @@ describe.skipIf(!canRunLiveTests)('get_issue_history live data validation', () =
     context = createLiveContext();
 
     // Call list_issues to find issues, then iterate to find one with history
+    const issuesParams = { team: 'SQT', limit: 10 };
     const issuesResult = await listIssuesTool.handler(
-      { team: 'SQT', limit: 10 },
+      issuesParams,
       context,
     );
     expect(issuesResult.isError).not.toBe(true);
+    reportToolCall(suite, 'list_issues', issuesParams, issuesResult.content[0].text);
 
     const issuesParsed = parseToonText(issuesResult.content[0].text);
     const issuesSection = issuesParsed.sections.get('issues');
@@ -58,10 +64,12 @@ describe.skipIf(!canRunLiveTests)('get_issue_history live data validation', () =
     // Iterate through issues to find one with history
     for (const issue of issuesSection.rows) {
       const identifier = issue.identifier;
+      const historyParams = { issueIds: [identifier] };
       const historyResult = await getIssueHistoryTool.handler(
-        { issueIds: [identifier] },
+        historyParams,
         context,
       );
+      reportToolCall(suite, 'get_issue_history', historyParams, historyResult.content[0].text);
       if (historyResult.isError) continue;
 
       const text = historyResult.content[0].text;

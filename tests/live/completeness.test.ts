@@ -11,6 +11,7 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
+import type { File, Suite } from '@vitest/runner';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listCommentsTool } from '../../src/shared/tools/linear/comments.js';
 import { listCyclesTool } from '../../src/shared/tools/linear/cycles.js';
@@ -42,6 +43,7 @@ import {
   USER_LOOKUP_SCHEMA,
 } from '../../src/shared/toon/schemas.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
+import { reportToolCall } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,11 +99,15 @@ function expectOptionalSchemaFields(
 
 describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
   let context: ToolContext;
+  let suiteRef: Readonly<Suite | File> | null = null;
 
-  beforeAll(async () => {
+  beforeAll(async (suite) => {
+    suiteRef = suite;
     context = createLiveContext();
     // Call workspace_metadata first to populate registry (needed by many tools)
-    await workspaceMetadataTool.handler({}, context);
+    const wmParams = {};
+    const wmResult = await workspaceMetadataTool.handler(wmParams, context);
+    reportToolCall(suite, 'workspace_metadata', wmParams, wmResult.content[0].text);
   }, 30000);
 
   afterAll(() => {
@@ -110,7 +116,10 @@ describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
 
   // ─── workspace_metadata ─────────────────────────────────────────────────
   it('workspace_metadata has correct section schemas', async () => {
-    const result = await workspaceMetadataTool.handler({ forceRefresh: true }, context);
+    const params = { forceRefresh: true };
+    const result = await workspaceMetadataTool.handler(params, context);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'workspace_metadata', params, result.content[0].text);
     expect(result.isError).not.toBe(true);
     const parsed = parseToonText(result.content[0].text);
 
@@ -124,7 +133,10 @@ describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
 
   // ─── list_issues ────────────────────────────────────────────────────────
   it('list_issues has correct section schemas', async () => {
-    const result = await listIssuesTool.handler({}, context);
+    const params = {};
+    const result = await listIssuesTool.handler(params, context);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'list_issues', params, result.content[0].text);
     expect(result.isError).not.toBe(true);
     const parsed = parseToonText(result.content[0].text);
 
@@ -146,13 +158,19 @@ describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
   // ─── get_issues ─────────────────────────────────────────────────────────
   it('get_issues has correct section schemas', async () => {
     // Need an issue identifier first
-    const listResult = await listIssuesTool.handler({ limit: 1 }, context);
+    const listParams = { limit: 1 };
+    const listResult = await listIssuesTool.handler(listParams, context);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'list_issues', listParams, listResult.content[0].text);
     const listParsed = parseToonText(listResult.content[0].text);
     const issuesSection = listParsed.sections.get('issues');
     if (!issuesSection || issuesSection.rows.length === 0) return;
 
     const identifier = issuesSection.rows[0].identifier;
-    const result = await getIssuesTool.handler({ ids: [identifier] }, context);
+    const getParams = { ids: [identifier] };
+    const result = await getIssuesTool.handler(getParams, context);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'get_issues', getParams, result.content[0].text);
     expect(result.isError).not.toBe(true);
     const parsed = parseToonText(result.content[0].text);
 
@@ -171,7 +189,15 @@ describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
 
   // ─── get_sprint_context ─────────────────────────────────────────────────
   it('get_sprint_context has correct section schemas', async () => {
-    const result = await getSprintContextTool.handler({ team: 'SQT' }, context);
+    const sprintParams = { team: 'SQT' };
+    const result = await getSprintContextTool.handler(sprintParams, context);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'get_sprint_context',
+        sprintParams,
+        result.content[0].text,
+      );
     if (result.isError) return; // No active sprint -- acceptable
 
     const parsed = parseToonText(result.content[0].text);
@@ -193,7 +219,10 @@ describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
 
   // ─── list_cycles ────────────────────────────────────────────────────────
   it('list_cycles has correct section schemas', async () => {
-    const result = await listCyclesTool.handler({ teamId: 'SQT' }, context);
+    const cyclesParams = { teamId: 'SQT' };
+    const result = await listCyclesTool.handler(cyclesParams, context);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'list_cycles', cyclesParams, result.content[0].text);
     expect(result.isError).not.toBe(true);
     const parsed = parseToonText(result.content[0].text);
 
@@ -202,7 +231,10 @@ describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
 
   // ─── list_projects ──────────────────────────────────────────────────────
   it('list_projects has correct section schemas', async () => {
-    const result = await listProjectsTool.handler({ team: 'SQT' }, context);
+    const projParams = { team: 'SQT' };
+    const result = await listProjectsTool.handler(projParams, context);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'list_projects', projParams, result.content[0].text);
     expect(result.isError).not.toBe(true);
     const parsed = parseToonText(result.content[0].text);
 
@@ -212,15 +244,28 @@ describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
   // ─── list_project_updates ───────────────────────────────────────────────
   it('list_project_updates has correct section schemas', async () => {
     // Need a project first
-    const projResult = await listProjectsTool.handler({ team: 'SQT' }, context);
+    const projListParams = { team: 'SQT' };
+    const projResult = await listProjectsTool.handler(projListParams, context);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'list_projects',
+        projListParams,
+        projResult.content[0].text,
+      );
     const projParsed = parseToonText(projResult.content[0].text);
     const projSection = projParsed.sections.get('projects');
     if (!projSection || projSection.rows.length === 0) return;
 
-    const result = await listProjectUpdatesTool.handler(
-      { project: projSection.rows[0].key },
-      context,
-    );
+    const updatesParams = { project: projSection.rows[0].key };
+    const result = await listProjectUpdatesTool.handler(updatesParams, context);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'list_project_updates',
+        updatesParams,
+        result.content[0].text,
+      );
     if (result.isError) return; // No updates acceptable
     const parsed = parseToonText(result.content[0].text);
 
@@ -233,16 +278,29 @@ describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
   // ─── list_comments ──────────────────────────────────────────────────────
   it('list_comments has correct section schemas', async () => {
     // Need an issue with comments
-    const listResult = await listIssuesTool.handler({ limit: 10 }, context);
+    const commListParams = { limit: 10 };
+    const listResult = await listIssuesTool.handler(commListParams, context);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'list_issues',
+        commListParams,
+        listResult.content[0].text,
+      );
     const listParsed = parseToonText(listResult.content[0].text);
     const issuesSection = listParsed.sections.get('issues');
     if (!issuesSection) return;
 
     for (const issue of issuesSection.rows) {
-      const result = await listCommentsTool.handler(
-        { issueId: issue.identifier },
-        context,
-      );
+      const commentParams = { issueId: issue.identifier };
+      const result = await listCommentsTool.handler(commentParams, context);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'list_comments',
+          commentParams,
+          result.content[0].text,
+        );
       if (result.isError) continue;
       const parsed = parseToonText(result.content[0].text);
       const commentsSection = parsed.sections.get('comments');
@@ -257,16 +315,29 @@ describe.skipIf(!canRunLiveTests)('TOON completeness checks', () => {
 
   // ─── get_issue_history ──────────────────────────────────────────────────
   it('get_issue_history has correct section schemas', async () => {
-    const listResult = await listIssuesTool.handler({ limit: 5 }, context);
+    const histListParams = { limit: 5 };
+    const listResult = await listIssuesTool.handler(histListParams, context);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'list_issues',
+        histListParams,
+        listResult.content[0].text,
+      );
     const listParsed = parseToonText(listResult.content[0].text);
     const issuesSection = listParsed.sections.get('issues');
     if (!issuesSection) return;
 
     for (const issue of issuesSection.rows) {
-      const result = await getIssueHistoryTool.handler(
-        { issueIds: [issue.identifier] },
-        context,
-      );
+      const historyParams = { issueIds: [issue.identifier] };
+      const result = await getIssueHistoryTool.handler(historyParams, context);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'get_issue_history',
+          historyParams,
+          result.content[0].text,
+        );
       if (result.isError) continue;
       const parsed = parseToonText(result.content[0].text);
       const historySection = parsed.sections.get('history');

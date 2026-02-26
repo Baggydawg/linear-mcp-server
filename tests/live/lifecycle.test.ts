@@ -28,7 +28,7 @@ import type { ToolContext } from '../../src/shared/tools/types.js';
 import { clearRegistry } from '../../src/shared/toon/registry.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { deleteIssue, deleteProjectUpdate, fetchIssue } from './helpers/linear-api.js';
-import { reportSkip } from './helpers/report-collector.js';
+import { reportSkip, reportToolCall } from './helpers/report-collector.js';
 import { parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
@@ -49,33 +49,37 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
     context = createLiveContext();
 
     // 1. Populate registry
-    const metaResult = await workspaceMetadataTool.handler({}, context);
+    const metaParams = {};
+    const metaResult = await workspaceMetadataTool.handler(metaParams, context);
     expect(metaResult.isError).not.toBe(true);
+    reportToolCall(suite, 'workspace_metadata', metaParams, metaResult.content[0].text);
 
     // 2. Create test issues
+    const createParams = {
+      items: [
+        {
+          teamId: 'SQT',
+          title: '[LIVE-TEST] Lifecycle A',
+          description: 'Automated lifecycle test issue A',
+          priority: 2,
+          estimate: 3,
+        },
+        {
+          teamId: 'SQT',
+          title: '[LIVE-TEST] Lifecycle B',
+          description: 'Automated lifecycle test issue B',
+          priority: 3,
+          estimate: 5,
+        },
+      ],
+    };
     const createResult = await createIssuesTool.handler(
-      {
-        items: [
-          {
-            teamId: 'SQT',
-            title: '[LIVE-TEST] Lifecycle A',
-            description: 'Automated lifecycle test issue A',
-            priority: 2,
-            estimate: 3,
-          },
-          {
-            teamId: 'SQT',
-            title: '[LIVE-TEST] Lifecycle B',
-            description: 'Automated lifecycle test issue B',
-            priority: 3,
-            estimate: 5,
-          },
-        ],
-      },
+      createParams,
       context,
     );
 
     expect(createResult.isError).not.toBe(true);
+    reportToolCall(suite, 'create_issues', createParams, createResult.content[0].text);
     const createParsed = parseToonText(createResult.content[0].text);
 
     // Extract identifiers and UUIDs from results
@@ -98,29 +102,33 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
     issueBUuid = apiIssueB.id;
 
     // 3. Add comments
+    const addCommentsParams = {
+      items: [
+        {
+          issueId: issueAIdentifier,
+          body: '[LIVE-TEST] Comment on issue A',
+        },
+        {
+          issueId: issueBIdentifier,
+          body: '[LIVE-TEST] Comment on issue B with some extra text for validation',
+        },
+      ],
+    };
     const commentResult = await addCommentsTool.handler(
-      {
-        items: [
-          {
-            issueId: issueAIdentifier,
-            body: '[LIVE-TEST] Comment on issue A',
-          },
-          {
-            issueId: issueBIdentifier,
-            body: '[LIVE-TEST] Comment on issue B with some extra text for validation',
-          },
-        ],
-      },
+      addCommentsParams,
       context,
     );
     expect(commentResult.isError).not.toBe(true);
+    reportToolCall(suite, 'add_comments', addCommentsParams, commentResult.content[0].text);
 
     // 4. Get comment ID for issue A (needed for update_comments test)
+    const listCommentsParams1 = { issueId: issueAIdentifier };
     const commentsListResult = await listCommentsTool.handler(
-      { issueId: issueAIdentifier },
+      listCommentsParams1,
       context,
     );
     expect(commentsListResult.isError).not.toBe(true);
+    reportToolCall(suite, 'list_comments', listCommentsParams1, commentsListResult.content[0].text);
     const commentsParsed = parseToonText(commentsListResult.content[0].text);
     const commentsSection = commentsParsed.sections.get('comments');
     if (commentsSection && commentsSection.rows.length > 0) {
@@ -134,32 +142,36 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
     }
 
     // 5. Create relation: A blocks B
+    const createRelationParams = {
+      items: [
+        {
+          action: 'create' as const,
+          from: issueAIdentifier,
+          to: issueBIdentifier,
+          type: 'blocks',
+        },
+      ],
+    };
     const relationResult = await manageRelationsTool.handler(
-      {
-        items: [
-          {
-            action: 'create',
-            from: issueAIdentifier,
-            to: issueBIdentifier,
-            type: 'blocks',
-          },
-        ],
-      },
+      createRelationParams,
       context,
     );
     expect(relationResult.isError).not.toBe(true);
+    reportToolCall(suite, 'manage_relations', createRelationParams, relationResult.content[0].text);
     relationCreated = true;
 
     // 6. Create project update on pr0
+    const createPuParams = {
+      project: 'pr0',
+      body: '[LIVE-TEST] Test project update for lifecycle validation',
+      health: 'onTrack',
+    };
     const projectUpdateResult = await createProjectUpdateTool.handler(
-      {
-        project: 'pr0',
-        body: '[LIVE-TEST] Test project update for lifecycle validation',
-        health: 'onTrack',
-      },
+      createPuParams,
       context,
     );
     expect(projectUpdateResult.isError).not.toBe(true);
+    reportToolCall(suite, 'create_project_update', createPuParams, projectUpdateResult.content[0].text);
 
     const puParsed = parseToonText(projectUpdateResult.content[0].text);
     const createdSection = puParsed.sections.get('created');
@@ -180,19 +192,21 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
 
     if (relationCreated && issueAIdentifier && issueBIdentifier) {
       try {
-        await manageRelationsTool.handler(
-          {
-            items: [
-              {
-                action: 'delete',
-                from: issueAIdentifier,
-                to: issueBIdentifier,
-                type: 'blocks',
-              },
-            ],
-          },
+        const cleanupRelationParams = {
+          items: [
+            {
+              action: 'delete' as const,
+              from: issueAIdentifier,
+              to: issueBIdentifier,
+              type: 'blocks',
+            },
+          ],
+        };
+        const cleanupRelationResult = await manageRelationsTool.handler(
+          cleanupRelationParams,
           context,
         );
+        if (suiteRef) reportToolCall(suiteRef, 'manage_relations', cleanupRelationParams, cleanupRelationResult.content[0].text);
       } catch (e) {
         console.warn('Failed to delete relation:', e);
       }
@@ -224,11 +238,13 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       return;
     }
 
+    const getIssuesParams1 = { ids: [issueAIdentifier, issueBIdentifier] };
     const result = await getIssuesTool.handler(
-      { ids: [issueAIdentifier, issueBIdentifier] },
+      getIssuesParams1,
       context,
     );
     expect(result.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'get_issues', getIssuesParams1, result.content[0].text);
     const parsed = parseToonText(result.content[0].text);
 
     const issuesSection = parsed.sections.get('issues');
@@ -263,11 +279,13 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       return;
     }
 
+    const listCommentsParams2 = { issueId: issueAIdentifier };
     const result = await listCommentsTool.handler(
-      { issueId: issueAIdentifier },
+      listCommentsParams2,
       context,
     );
     expect(result.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'list_comments', listCommentsParams2, result.content[0].text);
     const parsed = parseToonText(result.content[0].text);
 
     const commentsSection = parsed.sections.get('comments');
@@ -293,8 +311,10 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
     }
 
     // Use get_issues to get the relation data
-    const result = await getIssuesTool.handler({ ids: [issueAIdentifier] }, context);
+    const getIssuesParams2 = { ids: [issueAIdentifier] };
+    const result = await getIssuesTool.handler(getIssuesParams2, context);
     expect(result.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'get_issues', getIssuesParams2, result.content[0].text);
     const parsed = parseToonText(result.content[0].text);
 
     const relationsSection = parsed.sections.get('relations');
@@ -319,8 +339,10 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       return;
     }
 
-    const result = await listProjectUpdatesTool.handler({ project: 'pr0' }, context);
+    const listPuParams = { project: 'pr0' };
+    const result = await listProjectUpdatesTool.handler(listPuParams, context);
     expect(result.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'list_project_updates', listPuParams, result.content[0].text);
     const parsed = parseToonText(result.content[0].text);
 
     const updatesSection = parsed.sections.get('projectUpdates');
@@ -341,20 +363,22 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       return;
     }
 
+    const updateIssuesParams = {
+      items: [
+        {
+          id: issueAIdentifier,
+          title: '[LIVE-TEST] Lifecycle A (updated)',
+          priority: 1,
+          estimate: 8,
+        },
+      ],
+    };
     const updateResult = await updateIssuesTool.handler(
-      {
-        items: [
-          {
-            id: issueAIdentifier,
-            title: '[LIVE-TEST] Lifecycle A (updated)',
-            priority: 1,
-            estimate: 8,
-          },
-        ],
-      },
+      updateIssuesParams,
       context,
     );
     expect(updateResult.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'update_issues', updateIssuesParams, updateResult.content[0].text);
 
     // Verify changes section in TOON output
     const updateParsed = parseToonText(updateResult.content[0].text);
@@ -369,11 +393,13 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
     }
 
     // Verify via get_issues
+    const verifyIssuesParams = { ids: [issueAIdentifier] };
     const verifyResult = await getIssuesTool.handler(
-      { ids: [issueAIdentifier] },
+      verifyIssuesParams,
       context,
     );
     expect(verifyResult.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'get_issues', verifyIssuesParams, verifyResult.content[0].text);
     const verifyParsed = parseToonText(verifyResult.content[0].text);
     const issuesSection = verifyParsed.sections.get('issues');
     expect(issuesSection).toBeDefined();
@@ -395,25 +421,29 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       return;
     }
 
+    const updateCommentsParams = {
+      items: [
+        {
+          id: commentAId,
+          body: '[LIVE-TEST] Updated comment on issue A',
+        },
+      ],
+    };
     const updateResult = await updateCommentsTool.handler(
-      {
-        items: [
-          {
-            id: commentAId,
-            body: '[LIVE-TEST] Updated comment on issue A',
-          },
-        ],
-      },
+      updateCommentsParams,
       context,
     );
     expect(updateResult.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'update_comments', updateCommentsParams, updateResult.content[0].text);
 
     // Verify via list_comments
+    const verifyCommentsParams = { issueId: issueAIdentifier };
     const verifyResult = await listCommentsTool.handler(
-      { issueId: issueAIdentifier },
+      verifyCommentsParams,
       context,
     );
     expect(verifyResult.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'list_comments', verifyCommentsParams, verifyResult.content[0].text);
     const verifyParsed = parseToonText(verifyResult.content[0].text);
     const commentsSection = verifyParsed.sections.get('comments');
     expect(commentsSection).toBeDefined();
@@ -432,27 +462,31 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       return;
     }
 
+    const deleteRelationParams = {
+      items: [
+        {
+          action: 'delete' as const,
+          from: issueAIdentifier,
+          to: issueBIdentifier,
+          type: 'blocks',
+        },
+      ],
+    };
     const deleteResult = await manageRelationsTool.handler(
-      {
-        items: [
-          {
-            action: 'delete',
-            from: issueAIdentifier,
-            to: issueBIdentifier,
-            type: 'blocks',
-          },
-        ],
-      },
+      deleteRelationParams,
       context,
     );
     expect(deleteResult.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'manage_relations', deleteRelationParams, deleteResult.content[0].text);
 
     // Verify relation is gone
+    const verifyRelationParams = { ids: [issueAIdentifier] };
     const verifyResult = await getIssuesTool.handler(
-      { ids: [issueAIdentifier] },
+      verifyRelationParams,
       context,
     );
     expect(verifyResult.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'get_issues', verifyRelationParams, verifyResult.content[0].text);
     const verifyParsed = parseToonText(verifyResult.content[0].text);
     const relationsSection = verifyParsed.sections.get('relations');
     if (relationsSection) {

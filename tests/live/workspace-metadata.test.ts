@@ -41,6 +41,7 @@ import {
   reportEntitiesValidated,
   reportFieldComparison,
   reportSkip,
+  reportToolCall,
 } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
@@ -62,6 +63,7 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
       const result = await workspaceMetadataTool.handler({}, context);
       expect(result.isError).not.toBe(true);
       toolText = result.content[0].text;
+      reportToolCall(suite, 'workspace_metadata', {}, toolText);
       parsed = parseToonText(toolText);
     } catch (err) {
       // Propagate setup failure clearly

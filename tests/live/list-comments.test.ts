@@ -22,7 +22,7 @@ import {
 } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchComments, fetchUsers } from './helpers/linear-api.js';
-import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
+import { reportEntitiesValidated, reportSkip, reportToolCall } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('list_comments live data validation', () => {
@@ -38,10 +38,9 @@ describe.skipIf(!canRunLiveTests)('list_comments live data validation', () => {
     context = createLiveContext();
 
     // First, call list_issues to find issues (we need one with comments)
-    const issuesResult = await listIssuesTool.handler(
-      { team: 'SQT', limit: 20 },
-      context,
-    );
+    const listParams = { team: 'SQT', limit: 20 };
+    const issuesResult = await listIssuesTool.handler(listParams, context);
+    reportToolCall(suite, 'list_issues', listParams, issuesResult.content[0].text);
     expect(issuesResult.isError).not.toBe(true);
 
     const issuesParsed = parseToonText(issuesResult.content[0].text);
@@ -57,10 +56,9 @@ describe.skipIf(!canRunLiveTests)('list_comments live data validation', () => {
     for (const issueRow of issuesSection.rows) {
       const identifier = issueRow.identifier;
 
-      const commentsResult = await listCommentsTool.handler(
-        { issueId: identifier },
-        context,
-      );
+      const commentParams = { issueId: identifier };
+      const commentsResult = await listCommentsTool.handler(commentParams, context);
+      reportToolCall(suite, 'list_comments', commentParams, commentsResult.content[0].text);
 
       if (commentsResult.isError) continue;
 

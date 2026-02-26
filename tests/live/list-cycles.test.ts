@@ -21,7 +21,11 @@ import {
 } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchCycles, fetchTeams } from './helpers/linear-api.js';
-import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
+import {
+  reportEntitiesValidated,
+  reportSkip,
+  reportToolCall,
+} from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('list_cycles live data validation', () => {
@@ -42,8 +46,10 @@ describe.skipIf(!canRunLiveTests)('list_cycles live data validation', () => {
     sqtTeamId = sqtTeam?.id ?? '';
 
     // Call the list_cycles tool
-    const result = await listCyclesTool.handler({ teamId: 'SQT' }, context);
+    const params = { teamId: 'SQT' };
+    const result = await listCyclesTool.handler(params, context);
     expect(result.isError).not.toBe(true);
+    reportToolCall(suite, 'list_cycles', params, result.content[0].text);
 
     const text = result.content[0].text;
     expect(text).toBeDefined();

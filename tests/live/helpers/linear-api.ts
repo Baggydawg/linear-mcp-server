@@ -371,12 +371,13 @@ export async function fetchProjectUpdates(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Permanently delete an issue. Uses the `permanentlyDelete` flag
- * to bypass the 30-day trash retention period.
+ * Soft-delete an issue. Moves it to Linear's trash (30-day retention).
+ * We intentionally avoid `permanentlyDelete: true` so that a bug
+ * targeting the wrong UUID can never destroy real company data.
  */
 export async function deleteIssue(id: string): Promise<void> {
   const client = getDirectClient();
-  await client.deleteIssue(id, { permanentlyDelete: true });
+  await client.deleteIssue(id);
 }
 
 /**

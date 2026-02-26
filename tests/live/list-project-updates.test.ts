@@ -26,7 +26,11 @@ import {
   fetchTeams,
   fetchUsers,
 } from './helpers/linear-api.js';
-import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
+import {
+  reportEntitiesValidated,
+  reportSkip,
+  reportToolCall,
+} from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('list_project_updates live data validation', () => {
@@ -42,8 +46,10 @@ describe.skipIf(!canRunLiveTests)('list_project_updates live data validation', (
     context = createLiveContext();
 
     // First, call list_projects to establish registry and find projects
-    const projectsResult = await listProjectsTool.handler({ team: 'SQT' }, context);
+    const projectsParams = { team: 'SQT' };
+    const projectsResult = await listProjectsTool.handler(projectsParams, context);
     expect(projectsResult.isError).not.toBe(true);
+    reportToolCall(suite, 'list_projects', projectsParams, projectsResult.content[0].text);
 
     const projectsParsed = parseToonText(projectsResult.content[0].text);
     const projectsSection = projectsParsed.sections.get('projects');
@@ -63,10 +69,12 @@ describe.skipIf(!canRunLiveTests)('list_project_updates live data validation', (
     // Iterate projects to find one with updates
     for (const project of projectsSection.rows) {
       const shortKey = project.key;
+      const updatesParams = { project: shortKey };
       const updatesResult = await listProjectUpdatesTool.handler(
-        { project: shortKey },
+        updatesParams,
         context,
       );
+      reportToolCall(suite, 'list_project_updates', updatesParams, updatesResult.content[0].text);
       if (updatesResult.isError) continue;
 
       const text = updatesResult.content[0].text;

@@ -29,6 +29,7 @@ import {
   reportEntitiesValidated,
   reportFieldComparison,
   reportSkip,
+  reportToolCall,
 } from './helpers/report-collector.js';
 import type { ParsedToon } from './helpers/toon-parser.js';
 import { parseToonText } from './helpers/toon-parser.js';
@@ -46,7 +47,9 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
     suiteRef = suite;
     context = createLiveContext();
 
-    const result = await getSprintContextTool.handler({ team: TEAM_KEY }, context);
+    const sprintParams = { team: TEAM_KEY };
+    const result = await getSprintContextTool.handler(sprintParams, context);
+    reportToolCall(suite, 'get_sprint_context', sprintParams, result.content[0].text);
 
     // May fail if team has no active cycle
     if (result.isError) {
@@ -352,10 +355,9 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
       return;
     }
 
-    const prevResult = await getSprintContextTool.handler(
-      { team: TEAM_KEY, cycle: 'previous' },
-      context,
-    );
+    const prevParams = { team: TEAM_KEY, cycle: 'previous' };
+    const prevResult = await getSprintContextTool.handler(prevParams, context);
+    if (suiteRef) reportToolCall(suiteRef, 'get_sprint_context', prevParams, prevResult.content[0].text);
 
     // May fail if there is no previous cycle - that's acceptable
     if (prevResult.isError) {

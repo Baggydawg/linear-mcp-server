@@ -26,7 +26,7 @@ import {
 } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchIssue } from './helpers/linear-api.js';
-import { reportFieldComparison } from './helpers/report-collector.js';
+import { reportFieldComparison, reportToolCall } from './helpers/report-collector.js';
 import { parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
@@ -41,6 +41,7 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
     // First, get some issue identifiers via list_issues
     const listResult = await listIssuesTool.handler({}, context);
     expect(listResult.isError).not.toBe(true);
+    reportToolCall(suite, 'list_issues', {}, listResult.content[0].text);
 
     const listParsed = parseToonText(listResult.content[0].text);
     const issuesSection = listParsed.sections.get('issues');
@@ -65,6 +66,7 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
 
     const result = await getIssuesTool.handler({ ids: [identifier] }, context);
     expect(result.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'get_issues', { ids: [identifier] }, result.content[0].text);
 
     const parsed = parseToonText(result.content[0].text);
 
@@ -376,6 +378,7 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
 
     const result = await getIssuesTool.handler({ ids }, context);
     expect(result.isError).not.toBe(true);
+    if (suiteRef) reportToolCall(suiteRef, 'get_issues', { ids }, result.content[0].text);
 
     const parsed = parseToonText(result.content[0].text);
 
@@ -470,7 +473,9 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
     const validId = issueIdentifiers[0];
     expect(validId).toBeDefined();
 
-    const result = await getIssuesTool.handler({ ids: ['FAKE-999', validId] }, context);
+    const partialParams = { ids: ['FAKE-999', validId] };
+    const result = await getIssuesTool.handler(partialParams, context);
+    if (suiteRef) reportToolCall(suiteRef, 'get_issues', partialParams, result.content[0].text);
 
     // The tool should not be an error overall (partial success)
     expect(result.isError).not.toBe(true);

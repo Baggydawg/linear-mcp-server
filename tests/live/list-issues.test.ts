@@ -33,6 +33,7 @@ import {
   reportEntitiesValidated,
   reportFieldComparison,
   reportSkip,
+  reportToolCall,
 } from './helpers/report-collector.js';
 import type { ParsedToon } from './helpers/toon-parser.js';
 import { parseToonText } from './helpers/toon-parser.js';
@@ -52,6 +53,7 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
     expect(result.isError).not.toBe(true);
 
     rawText = result.content[0].text;
+    reportToolCall(suite, 'list_issues', {}, rawText);
     expect(rawText).toBeDefined();
     parsed = parseToonText(rawText);
   }, 60_000);
@@ -471,10 +473,9 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   it('current cycle filter returns only current sprint issues', async () => {
-    const cycleResult = await listIssuesTool.handler(
-      { cycle: 'current', team: process.env.DEFAULT_TEAM || 'SQT' },
-      context,
-    );
+    const cycleParams = { cycle: 'current', team: process.env.DEFAULT_TEAM || 'SQT' };
+    const cycleResult = await listIssuesTool.handler(cycleParams, context);
+    if (suiteRef) reportToolCall(suiteRef, 'list_issues', cycleParams, cycleResult.content[0].text);
 
     // May fail if team has no active cycle - that's acceptable
     if (cycleResult.isError) {

@@ -20,7 +20,7 @@ import { workspaceMetadataTool } from '../../src/shared/tools/linear/workspace-m
 import { clearRegistry } from '../../src/shared/toon/registry.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchTeams } from './helpers/linear-api.js';
-import { reportSkip } from './helpers/report-collector.js';
+import { reportSkip, reportToolCall } from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
@@ -75,10 +75,10 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const sqmContext = createLiveContext();
       contexts.push(sqmContext);
 
-      const sqmResult = await listIssuesTool.handler(
-        { team: 'SQM', limit: 5 },
-        sqmContext,
-      );
+      const sqmParams = { team: 'SQM', limit: 5 };
+      const sqmResult = await listIssuesTool.handler(sqmParams, sqmContext);
+      if (suiteRef)
+        reportToolCall(suiteRef, 'list_issues', sqmParams, sqmResult.content[0].text);
       expect(sqmResult.isError).not.toBe(true);
 
       const sqmParsed = parseToonText(sqmResult.content[0].text);
@@ -98,10 +98,10 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const sqtContext = createLiveContext();
       contexts.push(sqtContext);
 
-      const sqtResult = await listIssuesTool.handler(
-        { team: 'SQT', limit: 5 },
-        sqtContext,
-      );
+      const sqtParams = { team: 'SQT', limit: 5 };
+      const sqtResult = await listIssuesTool.handler(sqtParams, sqtContext);
+      if (suiteRef)
+        reportToolCall(suiteRef, 'list_issues', sqtParams, sqtResult.content[0].text);
       expect(sqtResult.isError).not.toBe(true);
 
       const sqtParsed = parseToonText(sqtResult.content[0].text);
@@ -129,14 +129,14 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       contexts.push(context);
 
       // Use a filter combination unlikely to match any issues
-      const result = await listIssuesTool.handler(
-        {
-          filter: {
-            labels: { name: { in: ['NONEXISTENT_LABEL_12345_XYZZY'] } },
-          },
+      const emptyParams = {
+        filter: {
+          labels: { name: { in: ['NONEXISTENT_LABEL_12345_XYZZY'] } },
         },
-        context,
-      );
+      };
+      const result = await listIssuesTool.handler(emptyParams, context);
+      if (suiteRef)
+        reportToolCall(suiteRef, 'list_issues', emptyParams, result.content[0].text);
 
       // Should not be an error
       expect(result.isError, 'Empty results should not be an error').not.toBe(true);
@@ -176,7 +176,15 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const context = createLiveContext();
       contexts.push(context);
 
-      const result = await listIssuesTool.handler({ limit: 2 }, context);
+      const paginationParams = { limit: 2 };
+      const result = await listIssuesTool.handler(paginationParams, context);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'list_issues',
+          paginationParams,
+          result.content[0].text,
+        );
 
       expect(result.isError).not.toBe(true);
 
@@ -247,7 +255,15 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const listContext = createLiveContext();
       contexts.push(listContext);
 
-      const listResult = await listIssuesTool.handler({ limit: 20 }, listContext);
+      const listParams = { limit: 20 };
+      const listResult = await listIssuesTool.handler(listParams, listContext);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'list_issues',
+          listParams,
+          listResult.content[0].text,
+        );
       expect(listResult.isError).not.toBe(true);
 
       const listParsed = parseToonText(listResult.content[0].text);
@@ -285,7 +301,15 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const getContext = createLiveContext();
       contexts.push(getContext);
 
-      const getResult = await getIssuesTool.handler({ ids: [identifier] }, getContext);
+      const getParams = { ids: [identifier] };
+      const getResult = await getIssuesTool.handler(getParams, getContext);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'get_issues',
+          getParams,
+          getResult.content[0].text,
+        );
       expect(getResult.isError).not.toBe(true);
 
       const getParsed = parseToonText(getResult.content[0].text);
@@ -343,7 +367,15 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const wmContext = createLiveContext();
       contexts.push(wmContext);
 
-      const wmResult = await workspaceMetadataTool.handler({}, wmContext);
+      const wmParams = {};
+      const wmResult = await workspaceMetadataTool.handler(wmParams, wmContext);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'workspace_metadata',
+          wmParams,
+          wmResult.content[0].text,
+        );
       expect(wmResult.isError).not.toBe(true);
 
       const wmParsed = parseToonText(wmResult.content[0].text);
@@ -380,7 +412,15 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const lpContext = createLiveContext();
       contexts.push(lpContext);
 
-      const lpResult = await listProjectsTool.handler({ team: 'SQT' }, lpContext);
+      const lpParams = { team: 'SQT' };
+      const lpResult = await listProjectsTool.handler(lpParams, lpContext);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'list_projects',
+          lpParams,
+          lpResult.content[0].text,
+        );
       expect(lpResult.isError).not.toBe(true);
 
       const lpParsed = parseToonText(lpResult.content[0].text);
@@ -433,7 +473,10 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const context = createLiveContext();
       contexts.push(context);
 
-      const result = await listIssuesTool.handler({ limit: 50 }, context);
+      const extParams = { limit: 50 };
+      const result = await listIssuesTool.handler(extParams, context);
+      if (suiteRef)
+        reportToolCall(suiteRef, 'list_issues', extParams, result.content[0].text);
       expect(result.isError).not.toBe(true);
 
       const parsed = parseToonText(result.content[0].text);

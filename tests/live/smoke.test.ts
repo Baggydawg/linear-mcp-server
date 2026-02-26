@@ -10,19 +10,35 @@
  * Requires LINEAR_ACCESS_TOKEN environment variable.
  */
 
-import { describe, expect, it } from 'vitest';
+import type { File, Suite } from '@vitest/runner';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { workspaceMetadataTool } from '../../src/shared/tools/linear/workspace-metadata.js';
 import { clearRegistry } from '../../src/shared/toon/registry.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
+import { reportToolCall } from './helpers/report-collector.js';
 import { parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('live test harness smoke test', () => {
+  let suiteRef: Readonly<Suite | File> | null = null;
+
+  beforeAll((suite) => {
+    suiteRef = suite;
+  });
+
   it('can call workspace_metadata with real API token', async () => {
     const context = createLiveContext();
 
     try {
       // Call the workspace_metadata tool handler with empty args
-      const result = await workspaceMetadataTool.handler({}, context);
+      const params = {};
+      const result = await workspaceMetadataTool.handler(params, context);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'workspace_metadata',
+          params,
+          result.content[0].text,
+        );
 
       // Should not be an error
       expect(result.isError).not.toBe(true);

@@ -32,7 +32,7 @@
  *   });
  */
 
-import type { File, Suite } from '@vitest/runner';
+import { getCurrentTest, type File, type Suite } from '@vitest/runner';
 
 // ---------------------------------------------------------------------------
 // Declaration merging — extend vitest's TaskMeta with our custom fields
@@ -58,12 +58,19 @@ declare module '@vitest/runner' {
       entity: string;
       entityLabel?: string;
       entityType?: string;
+      testName?: string;
       fields: Array<{
         field: string;
         toon: string;
         api: string;
         match: boolean;
       }>;
+    }>;
+    toolCalls?: Array<{
+      tool: string;
+      params: Record<string, unknown>;
+      response: string;
+      testName?: string;
     }>;
   }
 }
@@ -163,10 +170,29 @@ export function reportFieldComparison(
   if (!suite.file.meta.fieldComparisons) {
     suite.file.meta.fieldComparisons = [];
   }
+  const testName = getCurrentTest()?.name;
   suite.file.meta.fieldComparisons.push({
     entity,
     entityLabel,
     entityType,
+    testName,
     fields,
   });
+}
+
+/**
+ * Record a tool call (request params + raw TOON response) for the transcript.
+ * Called after each `tool.handler()` invocation in test files.
+ */
+export function reportToolCall(
+  suite: Readonly<Suite | File>,
+  tool: string,
+  params: Record<string, unknown>,
+  response: string,
+): void {
+  if (!suite.file.meta.toolCalls) {
+    suite.file.meta.toolCalls = [];
+  }
+  const testName = getCurrentTest()?.name;
+  suite.file.meta.toolCalls.push({ tool, params, response, testName });
 }
