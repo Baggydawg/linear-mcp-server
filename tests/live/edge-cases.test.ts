@@ -536,4 +536,86 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       }
     }, 30000);
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Cross-tool project short key consistency
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('cross-tool project key consistency', () => {
+    it('workspace_metadata and list_projects assign the same short keys to the same projects', async () => {
+      const ctx = createLiveContext();
+      contexts.push(ctx);
+
+      // Call workspace_metadata first (builds the registry)
+      const wmResult = await workspaceMetadataTool.handler(
+        { teamIds: ['SQT'] },
+        ctx,
+      );
+      expect(wmResult.isError).not.toBe(true);
+      const wmParsed = parseToonText(wmResult.content[0].text);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'workspace_metadata',
+          { teamIds: ['SQT'] },
+          wmResult.content[0].text,
+        );
+
+      // Call list_projects (uses the same registry)
+      const lpResult = await listProjectsTool.handler({ team: 'SQT' }, ctx);
+      expect(lpResult.isError).not.toBe(true);
+      const lpParsed = parseToonText(lpResult.content[0].text);
+      if (suiteRef)
+        reportToolCall(
+          suiteRef,
+          'list_projects',
+          { team: 'SQT' },
+          lpResult.content[0].text,
+        );
+
+      // Extract project name->key maps from both tools
+      const wmProjects = wmParsed.sections.get('_projects');
+      const lpProjects = lpParsed.sections.get('projects');
+
+      if (!wmProjects || !lpProjects) {
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'workspace_metadata and list_projects assign the same short keys',
+            'one or both tools returned no projects',
+          );
+        return;
+      }
+
+      const wmKeyByName = new Map<string, string>();
+      for (const row of wmProjects.rows) {
+        wmKeyByName.set(row.name, row.key);
+      }
+
+      const lpKeyByName = new Map<string, string>();
+      for (const row of lpProjects.rows) {
+        lpKeyByName.set(row.name, row.key);
+      }
+
+      // Every project in list_projects that also appears in workspace_metadata
+      // must have the same short key
+      let matchCount = 0;
+      for (const [name, lpKey] of lpKeyByName) {
+        const wmKey = wmKeyByName.get(name);
+        if (wmKey) {
+          expect(
+            lpKey,
+            `Project "${name}" has key "${lpKey}" in list_projects but "${wmKey}" in workspace_metadata`,
+          ).toBe(wmKey);
+          matchCount++;
+        }
+      }
+
+      // Sanity: we should have at least one overlapping project
+      expect(
+        matchCount,
+        'Expected at least one project to appear in both workspace_metadata and list_projects',
+      ).toBeGreaterThan(0);
+    }, 30000);
+  });
 });
