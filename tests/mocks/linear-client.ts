@@ -731,14 +731,24 @@ export function createMockLinearClient(
         first?: number;
         after?: string;
         filter?: Record<string, unknown>;
+        includeArchived?: boolean;
       }) => {
-        const limit = args?.first ?? projects.length;
+        // Support filter.id.eq for single-project lookups
+        let filtered = projects;
+        if (args?.filter?.id && typeof args.filter.id === 'object') {
+          const idFilter = args.filter.id as { eq?: string };
+          if (idFilter.eq) {
+            filtered = projects.filter((p) => p.id === idFilter.eq);
+          }
+        }
+
+        const limit = args?.first ?? filtered.length;
         // Support cursor-based pagination: cursor encodes the start offset
         const offset = args?.after
           ? parseInt(args.after.replace('project-cursor-', ''), 10) || 0
           : 0;
-        const slice = projects.slice(offset, offset + limit);
-        const hasMore = offset + limit < projects.length;
+        const slice = filtered.slice(offset, offset + limit);
+        const hasMore = offset + limit < filtered.length;
         return {
           nodes: slice,
           pageInfo: {

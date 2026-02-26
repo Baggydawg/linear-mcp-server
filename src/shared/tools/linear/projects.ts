@@ -185,6 +185,12 @@ const ListProjectsInputSchema = z.object({
     .describe(
       'Team key (e.g., "SQM") or UUID. Filters to projects accessible by this team. Overrides DEFAULT_TEAM.',
     ),
+  project: z
+    .string()
+    .optional()
+    .describe(
+      'Project short key (pr0, pr1...) or UUID. Fetches a single project directly, bypassing team filter. Use for cross-team lookups.',
+    ),
   limit: z
     .number()
     .int()
@@ -222,77 +228,142 @@ export const listProjectsTool = defineTool({
 
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
     const client = await getLinearClient(context);
-    const first = args.limit ?? 20;
+    let first = args.limit ?? 20;
     const after = args.cursor;
     let filter = args.filter as Record<string, unknown> | undefined;
+    let includeArchived = args.includeArchived;
 
-    // Conflict: team param + filter.accessibleTeams
-    if (args.team && filter?.accessibleTeams) {
-      return {
-        isError: true,
-        content: [
-          {
-            type: 'text',
-            text: "Cannot specify both 'team' and 'filter.accessibleTeams'. Use one or the other.",
-          },
-        ],
-      };
-    }
-
-    // Resolve team param to UUID
-    let resolvedTeamId: string | undefined;
-    if (args.team) {
-      const teamResult = await resolveTeamId(client, args.team);
-      if (!teamResult.success) {
+    // ─── Direct project lookup (bypasses team filtering) ───────────────
+    let earlyRegistry: ShortKeyRegistry | null = null;
+    if (args.project) {
+      // Conflict: project param doesn't combine with team/filter
+      if (args.team || filter) {
         return {
           isError: true,
-          content: [{ type: 'text', text: teamResult.error }],
+          content: [
+            {
+              type: 'text',
+              text: "Cannot specify 'project' with 'team' or 'filter'. Project lookup fetches a single project directly.",
+            },
+          ],
         };
       }
-      resolvedTeamId = teamResult.value;
+
+      // Initialize registry early for short key resolution
+      try {
+        earlyRegistry = await getOrInitRegistry(
+          { sessionId: context.sessionId, transport: 'stdio' },
+          () => fetchWorkspaceDataForRegistry(client),
+        );
+      } catch (error) {
+        console.error('Registry initialization failed:', error);
+      }
+
+      // Resolve project short key (pr0, pr1...) to UUID
+      let resolvedProjectId = args.project;
+      if (/^pr\d+$/.test(args.project)) {
+        if (!earlyRegistry) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: 'text',
+                text: `Cannot resolve project key '${args.project}' — registry not available. Call workspace_metadata first.`,
+              },
+            ],
+          };
+        }
+        const uuid = tryResolveShortKey(earlyRegistry, 'project', args.project);
+        if (!uuid) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Unknown project key '${args.project}'. Call workspace_metadata to see available project keys.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        resolvedProjectId = uuid;
+      }
+
+      // Direct lookup: bypass team filter, auto-include archived, single result
+      filter = { id: { eq: resolvedProjectId } };
+      first = 1;
+      includeArchived = true;
     }
 
-    // Resolve team key in filter.accessibleTeams if present (user may pass key instead of UUID)
-    if (
-      !resolvedTeamId &&
-      filter?.accessibleTeams &&
-      typeof (filter.accessibleTeams as Record<string, unknown>)?.id === 'object'
-    ) {
-      const accessibleTeams = filter.accessibleTeams as Record<string, unknown>;
-      const idFilter = accessibleTeams.id as Record<string, unknown> | undefined;
-      if (idFilter?.eq && typeof idFilter.eq === 'string') {
-        const teamValue = idFilter.eq as string;
-        if (!teamValue.includes('-') && teamValue.length <= 20) {
-          const resolved = await resolveTeamId(client, teamValue);
-          if (resolved.success) {
-            filter = {
-              ...filter,
-              accessibleTeams: {
-                ...accessibleTeams,
-                id: { ...idFilter, eq: resolved.value },
-              },
-            };
+    // ─── Team filtering (only when NOT doing direct project lookup) ────
+    if (!args.project) {
+      // Conflict: team param + filter.accessibleTeams
+      if (args.team && filter?.accessibleTeams) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: "Cannot specify both 'team' and 'filter.accessibleTeams'. Use one or the other.",
+            },
+          ],
+        };
+      }
+
+      // Resolve team param to UUID
+      let resolvedTeamId: string | undefined;
+      if (args.team) {
+        const teamResult = await resolveTeamId(client, args.team);
+        if (!teamResult.success) {
+          return {
+            isError: true,
+            content: [{ type: 'text', text: teamResult.error }],
+          };
+        }
+        resolvedTeamId = teamResult.value;
+      }
+
+      // Resolve team key in filter.accessibleTeams if present (user may pass key instead of UUID)
+      if (
+        !resolvedTeamId &&
+        filter?.accessibleTeams &&
+        typeof (filter.accessibleTeams as Record<string, unknown>)?.id === 'object'
+      ) {
+        const accessibleTeams = filter.accessibleTeams as Record<string, unknown>;
+        const idFilter = accessibleTeams.id as Record<string, unknown> | undefined;
+        if (idFilter?.eq && typeof idFilter.eq === 'string') {
+          const teamValue = idFilter.eq as string;
+          if (!teamValue.includes('-') && teamValue.length <= 20) {
+            const resolved = await resolveTeamId(client, teamValue);
+            if (resolved.success) {
+              filter = {
+                ...filter,
+                accessibleTeams: {
+                  ...accessibleTeams,
+                  id: { ...idFilter, eq: resolved.value },
+                },
+              };
+            }
           }
         }
       }
-    }
 
-    // Apply team filter from resolved team param
-    if (resolvedTeamId) {
-      filter = { ...filter, accessibleTeams: { id: { eq: resolvedTeamId } } };
-    } else if (!filter?.accessibleTeams && config.DEFAULT_TEAM) {
-      // Fall back to DEFAULT_TEAM if no team specified
-      const resolved = await resolveTeamId(client, config.DEFAULT_TEAM);
-      if (resolved.success) {
-        filter = { ...filter, accessibleTeams: { id: { eq: resolved.value } } };
+      // Apply team filter from resolved team param
+      if (resolvedTeamId) {
+        filter = { ...filter, accessibleTeams: { id: { eq: resolvedTeamId } } };
+      } else if (!filter?.accessibleTeams && config.DEFAULT_TEAM) {
+        // Fall back to DEFAULT_TEAM if no team specified
+        const resolved = await resolveTeamId(client, config.DEFAULT_TEAM);
+        if (resolved.success) {
+          filter = { ...filter, accessibleTeams: { id: { eq: resolved.value } } };
+        }
       }
     }
 
     const conn = await client.projects({
       first,
-      after,
+      after: args.project ? undefined : after,
       filter: filter as Record<string, unknown> | undefined,
-      includeArchived: args.includeArchived,
+      includeArchived,
     });
 
     const pageInfo = conn.pageInfo;
@@ -317,19 +388,21 @@ export const listProjectsTool = defineTool({
       createdAt: (p as unknown as { createdAt?: Date | string }).createdAt,
     }));
 
-    // Initialize registry if needed (lazy init)
-    let registry: ShortKeyRegistry | null = null;
-    try {
-      registry = await getOrInitRegistry(
-        {
-          sessionId: context.sessionId,
-          transport: 'stdio',
-        },
-        () => fetchWorkspaceDataForRegistry(client),
-      );
-    } catch (error) {
-      // Registry init failed, continue without it
-      console.error('Registry initialization failed:', error);
+    // Initialize registry if needed (lazy init — may already exist from project lookup)
+    let registry: ShortKeyRegistry | null = earlyRegistry;
+    if (!registry) {
+      try {
+        registry = await getOrInitRegistry(
+          {
+            sessionId: context.sessionId,
+            transport: 'stdio',
+          },
+          () => fetchWorkspaceDataForRegistry(client),
+        );
+      } catch (error) {
+        // Registry init failed, continue without it
+        console.error('Registry initialization failed:', error);
+      }
     }
 
     // Build TOON response

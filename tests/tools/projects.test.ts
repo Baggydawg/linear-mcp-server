@@ -724,3 +724,86 @@ describe('update_projects teamIds support', () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Project Parameter (Direct Lookup) Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_projects project parameter (direct lookup)', () => {
+  it('resolves short key and fetches project by ID filter', async () => {
+    const result = await listProjectsTool.handler(
+      { project: 'pr0' },
+      baseContext,
+    );
+    expect(result.isError).toBeFalsy();
+
+    // pr0 resolves to project-002 (earliest createdAt: 2024-11-01)
+    // The last projects() call is the actual lookup (earlier calls are registry init)
+    const lastCall =
+      mockClient.projects.mock.calls[mockClient.projects.mock.calls.length - 1][0];
+    expect(lastCall.filter).toEqual({ id: { eq: 'project-002' } });
+    expect(lastCall.first).toBe(1);
+    expect(lastCall.includeArchived).toBe(true);
+
+    // Should NOT have team filter (accessibleTeams)
+    expect(lastCall.filter).not.toHaveProperty('accessibleTeams');
+  });
+
+  it('passes UUID through directly without resolution', async () => {
+    const result = await listProjectsTool.handler(
+      { project: 'project-002' },
+      baseContext,
+    );
+    expect(result.isError).toBeFalsy();
+
+    // UUID should be used as-is in filter
+    expect(mockClient.projects).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filter: { id: { eq: 'project-002' } },
+        first: 1,
+      }),
+    );
+  });
+
+  it('auto-sets includeArchived: true for direct lookup', async () => {
+    const result = await listProjectsTool.handler(
+      { project: 'project-001' },
+      baseContext,
+    );
+    expect(result.isError).toBeFalsy();
+
+    expect(mockClient.projects).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeArchived: true,
+      }),
+    );
+  });
+
+  it('returns error for unresolved short key', async () => {
+    const result = await listProjectsTool.handler(
+      { project: 'pr999' },
+      baseContext,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Unknown project key');
+    expect(result.content[0].text).toContain('pr999');
+  });
+
+  it('rejects project + team conflict', async () => {
+    const result = await listProjectsTool.handler(
+      { project: 'pr0', team: 'SQT' },
+      baseContext,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Cannot specify 'project'");
+  });
+
+  it('rejects project + filter conflict', async () => {
+    const result = await listProjectsTool.handler(
+      { project: 'pr0', filter: { state: { eq: 'started' } } },
+      baseContext,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Cannot specify 'project'");
+  });
+});
