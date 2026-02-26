@@ -42,6 +42,22 @@ interface ModuleSummary {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Escape a value for use inside a markdown table cell.
+ * Replaces `|` with `\|`, newlines with spaces, and truncates to maxLen.
+ */
+function escapeTableValue(value: string, maxLen = 80): string {
+  let escaped = value.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  if (escaped.length > maxLen) {
+    escaped = `${escaped.slice(0, maxLen - 3)}...`;
+  }
+  return escaped;
+}
+
+// ---------------------------------------------------------------------------
 // MarkdownReporter
 // ---------------------------------------------------------------------------
 
@@ -100,6 +116,18 @@ export class MarkdownReporter implements Reporter {
       actual: string[];
       missing: string[];
     }> = [];
+    const allFieldComparisons: Array<{
+      file: string;
+      entity: string;
+      entityLabel?: string;
+      entityType?: string;
+      fields: Array<{
+        field: string;
+        toon: string;
+        api: string;
+        match: boolean;
+      }>;
+    }> = [];
 
     for (const mod of testModules) {
       const meta = mod.meta();
@@ -131,6 +159,12 @@ export class MarkdownReporter implements Reporter {
       if (meta.completenessResults) {
         for (const cr of meta.completenessResults) {
           allCompleteness.push({ file: shortFile, ...cr });
+        }
+      }
+
+      if (meta.fieldComparisons) {
+        for (const fc of meta.fieldComparisons) {
+          allFieldComparisons.push({ file: shortFile, ...fc });
         }
       }
     }
@@ -237,6 +271,56 @@ export class MarkdownReporter implements Reporter {
       lines.push('');
       lines.push('All tools passed schema completeness checks.');
       lines.push('');
+    }
+
+    // Field Comparisons
+    if (allFieldComparisons.length > 0) {
+      const totalFields = allFieldComparisons.reduce(
+        (sum, fc) => sum + fc.fields.length,
+        0,
+      );
+      const totalMismatches = allFieldComparisons.reduce(
+        (sum, fc) => sum + fc.fields.filter((f) => !f.match).length,
+        0,
+      );
+
+      lines.push('## Field Comparisons');
+      lines.push('');
+      lines.push(
+        `${allFieldComparisons.length} entities, ${totalFields} fields compared, ${totalMismatches} mismatch${totalMismatches !== 1 ? 'es' : ''}`,
+      );
+      lines.push('');
+
+      // Group by file
+      const byFile = new Map<
+        string,
+        typeof allFieldComparisons
+      >();
+      for (const fc of allFieldComparisons) {
+        const list = byFile.get(fc.file) ?? [];
+        list.push(fc);
+        byFile.set(fc.file, list);
+      }
+
+      for (const [file, comparisons] of byFile) {
+        lines.push(`### ${file}`);
+        lines.push('');
+        for (const fc of comparisons) {
+          const heading = fc.entityLabel
+            ? `#### ${fc.entity} — ${escapeTableValue(fc.entityLabel, 60)}`
+            : `#### ${fc.entity}`;
+          lines.push(heading);
+          lines.push('| Field | TOON | API | Match |');
+          lines.push('|-------|------|-----|-------|');
+          for (const f of fc.fields) {
+            const matchStr = f.match ? 'ok' : '**MISMATCH**';
+            lines.push(
+              `| ${escapeTableValue(f.field, 30)} | ${escapeTableValue(f.toon, 80)} | ${escapeTableValue(f.api, 80)} | ${matchStr} |`,
+            );
+          }
+          lines.push('');
+        }
+      }
     }
 
     // Test Details (per module)

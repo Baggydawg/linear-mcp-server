@@ -17,28 +17,33 @@ import {
   getStoredRegistry,
   resolveShortKey,
 } from '../../src/shared/toon/registry.js';
-import { expectFieldMatch, normalizeEmpty } from './helpers/assertions.js';
+import {
+  expectFieldMatch,
+  formatWithResolution,
+  normalizeEmpty,
+  stripToonPrefix,
+} from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import {
   fetchComments,
   fetchIssue,
   fetchIssueRelations,
 } from './helpers/linear-api.js';
-import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
+import {
+  reportEntitiesValidated,
+  reportFieldComparison,
+  reportSkip,
+} from './helpers/report-collector.js';
 import type { ParsedToon } from './helpers/toon-parser.js';
 import { parseToonText } from './helpers/toon-parser.js';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared state across tests
-// ─────────────────────────────────────────────────────────────────────────────
-
-let suiteRef: Readonly<Suite | File> | null = null;
-let context: ReturnType<typeof createLiveContext>;
-let parsed: ParsedToon;
-let rawText: string;
-const validatedIssueIds: string[] = [];
-
 describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
+  let suiteRef: Readonly<Suite | File> | null = null;
+  let context: ReturnType<typeof createLiveContext>;
+  let parsed: ParsedToon;
+  let rawText: string;
+  const validatedIssueIds: string[] = [];
+
   beforeAll(async (suite) => {
     suiteRef = suite;
     context = createLiveContext();
@@ -80,23 +85,74 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
 
       const apiIssue = await fetchIssue(identifier);
       const ctx = { entity: 'Issue', identifier, field: '' };
+      const comparisons: Array<{
+        field: string;
+        toon: string;
+        api: string;
+        match: boolean;
+      }> = [];
 
       // title
       ctx.field = 'title';
       expectFieldMatch(toonIssue.title, apiIssue.title, ctx);
+      comparisons.push({
+        field: 'title',
+        toon: toonIssue.title ?? '',
+        api: String(apiIssue.title ?? ''),
+        match: normalizeEmpty(toonIssue.title) === normalizeEmpty(apiIssue.title),
+      });
 
       // priority: TOON "p2" -> API 2
       ctx.field = 'priority';
       expectFieldMatch(toonIssue.priority, apiIssue.priority, ctx);
+      {
+        const toonNum = stripToonPrefix(toonIssue.priority);
+        const apiNum =
+          apiIssue.priority !== null && apiIssue.priority !== undefined
+            ? Number(apiIssue.priority)
+            : null;
+        comparisons.push({
+          field: 'priority',
+          toon: toonIssue.priority ?? '',
+          api: String(apiIssue.priority ?? ''),
+          match:
+            (toonNum === null && (apiNum === null || apiNum === 0)) ||
+            toonNum === apiNum,
+        });
+      }
 
       // estimate: TOON "e5" -> API 5
       ctx.field = 'estimate';
       expectFieldMatch(toonIssue.estimate, apiIssue.estimate, ctx);
+      {
+        const toonNum = stripToonPrefix(toonIssue.estimate);
+        const apiNum =
+          apiIssue.estimate !== null && apiIssue.estimate !== undefined
+            ? Number(apiIssue.estimate)
+            : null;
+        comparisons.push({
+          field: 'estimate',
+          toon: toonIssue.estimate ?? '',
+          api: String(apiIssue.estimate ?? ''),
+          match: (toonNum === null && apiNum === null) || toonNum === apiNum,
+        });
+      }
 
       // dueDate
       if (issuesSection.fields.includes('dueDate')) {
         ctx.field = 'dueDate';
         expectFieldMatch(toonIssue.dueDate, apiIssue.dueDate, ctx);
+        {
+          const toonDate = normalizeEmpty(toonIssue.dueDate);
+          const apiDateRaw = normalizeEmpty(apiIssue.dueDate);
+          const apiDateStr = apiDateRaw ? String(apiDateRaw).split('T')[0] : '';
+          comparisons.push({
+            field: 'dueDate',
+            toon: toonDate,
+            api: apiDateStr || apiDateRaw,
+            match: toonDate === (apiDateStr || apiDateRaw),
+          });
+        }
       }
 
       // labels: comma-separated names
@@ -114,30 +170,55 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
           toonLabelNames,
           `Issue "${identifier}" labels: TOON="${toonIssue.labels}" vs API="${apiLabelNames.join(',')}"`,
         ).toEqual(apiLabelNames);
+        comparisons.push({
+          field: 'labels',
+          toon: toonIssue.labels ?? '',
+          api: apiLabelNames.join(','),
+          match:
+            JSON.stringify(toonLabelNames) === JSON.stringify(apiLabelNames),
+        });
       }
 
       // state short key resolution
       if (registry && normalizeEmpty(toonIssue.state)) {
         const stateUuid = resolveShortKey(registry, 'state', toonIssue.state);
         const apiState = await (
-          apiIssue as unknown as { state: Promise<{ id: string }> }
+          apiIssue as unknown as { state: Promise<{ id: string; name: string }> }
         ).state;
         expect(
           stateUuid,
           `Issue "${identifier}" state: short key "${toonIssue.state}" should resolve to API state UUID`,
         ).toBe(apiState.id);
+        comparisons.push({
+          field: 'state',
+          toon: formatWithResolution(registry, 'state', toonIssue.state),
+          api: apiState.name ?? apiState.id,
+          match: stateUuid === apiState.id,
+        });
       }
 
       // assignee short key resolution
       if (registry && normalizeEmpty(toonIssue.assignee)) {
-        const assigneeUuid = resolveShortKey(registry, 'user', toonIssue.assignee);
+        const assigneeUuid = resolveShortKey(
+          registry,
+          'user',
+          toonIssue.assignee,
+        );
         const apiAssignee = await (
-          apiIssue as unknown as { assignee: Promise<{ id: string } | null> }
+          apiIssue as unknown as {
+            assignee: Promise<{ id: string; name: string } | null>;
+          }
         ).assignee;
         expect(
           assigneeUuid,
           `Issue "${identifier}" assignee: short key "${toonIssue.assignee}" should resolve to API assignee UUID`,
         ).toBe(apiAssignee?.id);
+        comparisons.push({
+          field: 'assignee',
+          toon: formatWithResolution(registry, 'assignee', toonIssue.assignee),
+          api: apiAssignee?.name ?? apiAssignee?.id ?? '',
+          match: assigneeUuid === apiAssignee?.id,
+        });
       }
 
       // team key
@@ -149,6 +230,13 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
           normalizeEmpty(toonIssue.team),
           `Issue "${identifier}" team: TOON="${toonIssue.team}" vs API="${apiTeam?.key}"`,
         ).toBe(normalizeEmpty(apiTeam?.key));
+        comparisons.push({
+          field: 'team',
+          toon: toonIssue.team ?? '',
+          api: apiTeam?.key ?? '',
+          match:
+            normalizeEmpty(toonIssue.team) === normalizeEmpty(apiTeam?.key),
+        });
       }
 
       // desc: should match API description after stripping markdown images and truncation
@@ -169,6 +257,18 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
               apiDesc.startsWith(toonPrefix),
               `Issue "${identifier}" desc prefix should match image-stripped API description start`,
             ).toBe(true);
+            comparisons.push({
+              field: 'desc',
+              toon:
+                toonIssue.desc.length > 80
+                  ? `${toonIssue.desc.slice(0, 80)}...`
+                  : toonIssue.desc,
+              api:
+                apiDesc.length > 80 ? `${apiDesc.slice(0, 80)}...` : apiDesc,
+              match:
+                toonIssue.desc.endsWith('... [truncated]') &&
+                apiDesc.startsWith(toonPrefix),
+            });
           } else {
             // Not truncated: should match fully
             expect(
@@ -177,8 +277,28 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
                 `Expected (API): ${apiDesc}\n` +
                 `Received (TOON): ${toonIssue.desc}`,
             ).toBe(apiDesc);
+            comparisons.push({
+              field: 'desc',
+              toon:
+                toonIssue.desc.length > 80
+                  ? `${toonIssue.desc.slice(0, 80)}...`
+                  : toonIssue.desc,
+              api:
+                apiDesc.length > 80 ? `${apiDesc.slice(0, 80)}...` : apiDesc,
+              match: toonIssue.desc === apiDesc,
+            });
           }
         }
+      }
+
+      if (suiteRef && comparisons.length > 0) {
+        reportFieldComparison(
+          suiteRef,
+          identifier,
+          toonIssue.title,
+          comparisons,
+          'Issue',
+        );
       }
     }
   }, 120_000);
@@ -238,6 +358,28 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
             userRow.name,
             `User "${userRow.key}" name should match registry metadata`,
           ).toBe(metadata.name);
+
+          const comparisons: Array<{
+            field: string;
+            toon: string;
+            api: string;
+            match: boolean;
+          }> = [];
+          comparisons.push({
+            field: 'name',
+            toon: userRow.name ?? '',
+            api: metadata.name ?? '',
+            match: userRow.name === metadata.name,
+          });
+          if (suiteRef) {
+            reportFieldComparison(
+              suiteRef,
+              userRow.key,
+              userRow.name,
+              comparisons,
+              'User',
+            );
+          }
         }
       }
     }
@@ -291,6 +433,34 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
             stateRow.type,
             `State "${stateRow.key}" type: TOON="${stateRow.type}" vs metadata="${metadata.type}"`,
           ).toBe(metadata.type);
+
+          const comparisons: Array<{
+            field: string;
+            toon: string;
+            api: string;
+            match: boolean;
+          }> = [];
+          comparisons.push({
+            field: 'name',
+            toon: stateRow.name ?? '',
+            api: metadata.name ?? '',
+            match: stateRow.name === metadata.name,
+          });
+          comparisons.push({
+            field: 'type',
+            toon: stateRow.type ?? '',
+            api: metadata.type ?? '',
+            match: stateRow.type === metadata.type,
+          });
+          if (suiteRef) {
+            reportFieldComparison(
+              suiteRef,
+              stateRow.key,
+              stateRow.name,
+              comparisons,
+              'State',
+            );
+          }
         }
       }
     }
@@ -417,7 +587,7 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
         if (!apiMatch) continue; // Timing issues, skip
 
         // Verify truncation: if API body > 500 chars, TOON should be truncated
-        const apiBody = apiMatch.body ?? '';
+        const apiBody = stripMarkdownImages(apiMatch.body ?? '') ?? '';
         if (apiBody.length > 500) {
           expect(
             toonComment.body.length,

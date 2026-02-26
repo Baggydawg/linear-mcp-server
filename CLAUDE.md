@@ -118,11 +118,20 @@ bun run test -- tests/tools/list-issues.test.ts
 
 ### Zombie Process Warning
 
-When running tests via sub-agents (e.g., opus-swarm), vitest spawns worker processes. If a sub-agent finishes or times out before vitest exits cleanly, those workers become orphaned and consume CPU/RAM invisibly. After running parallel sub-agents that execute tests, check for zombies:
+Live tests run in forked child processes with a 4GB heap cap (`--max-old-space-size=4096` in `vitest.live.config.ts`). This prevents a single runaway worker from consuming all system RAM.
+
+**Before running live tests**, check for leftover processes from previous runs:
 ```bash
-ps aux | grep "vitest" | grep -v grep    # Check for orphaned vitest workers
-pkill -f "node.*vitest"                  # Kill them if found
+ps aux | grep -E "vitest|node.*test" | grep -v grep
+pkill -f "node.*vitest"                  # Kill orphans if found
 ```
+
+**After running live tests via sub-agents** (e.g., opus-swarm), verify cleanup:
+```bash
+ps aux | grep -E "vitest|node.*test" | grep -v grep
+```
+
+Claude Code sub-agents can leave orphaned vitest workers that consume CPU/RAM invisibly. If system memory spikes after a test run, check for and kill these processes immediately.
 
 ## Code Style
 

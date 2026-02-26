@@ -7,6 +7,13 @@
  */
 
 import { expect } from 'vitest';
+import type { ShortKeyRegistry } from '../../../src/shared/toon/registry.js';
+import {
+  tryResolveShortKey,
+  getUserMetadata,
+  getStateMetadata,
+  getProjectMetadata,
+} from '../../../src/shared/toon/registry.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -230,4 +237,64 @@ export function expectFieldMatch(
   const normalizedToon = normalizeEmpty(toonValue);
   const normalizedApi = normalizeEmpty(apiValue);
   expect(normalizedToon, msg).toBe(normalizedApi);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Short Key Resolution for Report Display
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Fields where the TOON value is a user short key (u0, u1, ...) */
+const USER_SHORT_KEY_FIELDS = new Set(['assignee', 'creator', 'lead']);
+
+/** Fields where the TOON value is a state short key (s0, s1, ...) */
+const STATE_SHORT_KEY_FIELDS = new Set(['state']);
+
+/** Fields where the TOON value is a project short key (pr0, pr1, ...) */
+const PROJECT_SHORT_KEY_FIELDS = new Set(['project']);
+
+/**
+ * Format a TOON value for display in comparison tables, resolving short keys
+ * to human-readable names where possible.
+ *
+ * Examples:
+ *   formatWithResolution(registry, 'state', 's2')     → "s2 (Todo)"
+ *   formatWithResolution(registry, 'assignee', 'u0')   → "u0 (Tobias Nilsson)"
+ *   formatWithResolution(registry, 'project', 'pr1')   → "pr1 (Q1 Launch)"
+ *   formatWithResolution(registry, 'title', 'Fix bug') → "Fix bug"
+ *
+ * Never throws — falls back to the raw value on any resolution failure.
+ */
+export function formatWithResolution(
+  registry: ShortKeyRegistry | null | undefined,
+  field: string,
+  toonValue: string | null | undefined,
+): string {
+  const raw = toonValue ?? '';
+  if (!registry || !raw) return raw;
+
+  try {
+    if (USER_SHORT_KEY_FIELDS.has(field)) {
+      const uuid = tryResolveShortKey(registry, 'user', raw);
+      if (uuid) {
+        const meta = getUserMetadata(registry, uuid);
+        if (meta?.name) return `${raw} (${meta.name})`;
+      }
+    } else if (STATE_SHORT_KEY_FIELDS.has(field)) {
+      const uuid = tryResolveShortKey(registry, 'state', raw);
+      if (uuid) {
+        const meta = getStateMetadata(registry, uuid);
+        if (meta?.name) return `${raw} (${meta.name})`;
+      }
+    } else if (PROJECT_SHORT_KEY_FIELDS.has(field)) {
+      const uuid = tryResolveShortKey(registry, 'project', raw);
+      if (uuid) {
+        const meta = getProjectMetadata(registry, uuid);
+        if (meta?.name) return `${raw} (${meta.name})`;
+      }
+    }
+  } catch {
+    // Resolution failure — fall back to raw value
+  }
+
+  return raw;
 }

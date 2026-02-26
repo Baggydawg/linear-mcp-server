@@ -6,6 +6,12 @@
  * after the test run completes (vitest serializes meta across the
  * worker -> main process boundary).
  *
+ * IMPORTANT: Inside a `describe` block, `afterAll((suite) => ...)` provides
+ * the Suite task, NOT the File task. `TestModule.meta()` returns File-level
+ * meta. These are separate objects. All collector functions write to
+ * `suite.file.meta` so data reaches the reporter. Since `File extends Suite`
+ * and `File.file` is self-referential, this works for both Suite and File inputs.
+ *
  * Usage in a test file:
  *
  *   import { afterAll, describe, it } from 'vitest';
@@ -48,6 +54,17 @@ declare module '@vitest/runner' {
       actual: string[];
       missing: string[];
     }>;
+    fieldComparisons?: Array<{
+      entity: string;
+      entityLabel?: string;
+      entityType?: string;
+      fields: Array<{
+        field: string;
+        toon: string;
+        api: string;
+        match: boolean;
+      }>;
+    }>;
   }
 }
 
@@ -60,17 +77,17 @@ declare module '@vitest/runner' {
  * because a precondition was not met (e.g. no active cycle, no comments).
  *
  * `suite` is the object vitest passes to `afterAll` callbacks.
- * `Readonly<Suite | File>` is shallow — mutating `.meta` properties is fine.
+ * Writes to `suite.file.meta` so data reaches the reporter via `mod.meta()`.
  */
 export function reportSkip(
   suite: Readonly<Suite | File>,
   testName: string,
   reason: string,
 ): void {
-  if (!suite.meta.skips) {
-    suite.meta.skips = [];
+  if (!suite.file.meta.skips) {
+    suite.file.meta.skips = [];
   }
-  suite.meta.skips.push({ test: testName, reason });
+  suite.file.meta.skips.push({ test: testName, reason });
 }
 
 /**
@@ -83,14 +100,14 @@ export function reportEntitiesValidated(
   section: string,
   identifiers: string[],
 ): void {
-  if (!suite.meta.validatedEntities) {
-    suite.meta.validatedEntities = {};
+  if (!suite.file.meta.validatedEntities) {
+    suite.file.meta.validatedEntities = {};
   }
-  const existing = suite.meta.validatedEntities[section];
+  const existing = suite.file.meta.validatedEntities[section];
   if (existing) {
     existing.push(...identifiers);
   } else {
-    suite.meta.validatedEntities[section] = [...identifiers];
+    suite.file.meta.validatedEntities[section] = [...identifiers];
   }
 }
 
@@ -103,10 +120,10 @@ export function reportLifecycleAction(
   entity: string,
   id: string,
 ): void {
-  if (!suite.meta.lifecycleActions) {
-    suite.meta.lifecycleActions = [];
+  if (!suite.file.meta.lifecycleActions) {
+    suite.file.meta.lifecycleActions = [];
   }
-  suite.meta.lifecycleActions.push({ action, entity, id });
+  suite.file.meta.lifecycleActions.push({ action, entity, id });
 }
 
 /**
@@ -120,14 +137,36 @@ export function reportCompleteness(
   actualFields: string[],
   missing: string[],
 ): void {
-  if (!suite.meta.completenessResults) {
-    suite.meta.completenessResults = [];
+  if (!suite.file.meta.completenessResults) {
+    suite.file.meta.completenessResults = [];
   }
-  suite.meta.completenessResults.push({
+  suite.file.meta.completenessResults.push({
     tool,
     section,
     expected: expectedFields,
     actual: actualFields,
     missing,
+  });
+}
+
+/**
+ * Record per-entity, per-field TOON-vs-API comparison data for the report.
+ * The markdown reporter renders these as side-by-side comparison tables.
+ */
+export function reportFieldComparison(
+  suite: Readonly<Suite | File>,
+  entity: string,
+  entityLabel: string | undefined,
+  fields: Array<{ field: string; toon: string; api: string; match: boolean }>,
+  entityType?: string,
+): void {
+  if (!suite.file.meta.fieldComparisons) {
+    suite.file.meta.fieldComparisons = [];
+  }
+  suite.file.meta.fieldComparisons.push({
+    entity,
+    entityLabel,
+    entityType,
+    fields,
   });
 }

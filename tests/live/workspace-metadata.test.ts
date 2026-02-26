@@ -25,6 +25,7 @@ import {
   expectDateMatch,
   expectFieldMatch,
   expectProgressMatch,
+  formatWithResolution,
   normalizeEmpty,
 } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
@@ -36,7 +37,11 @@ import {
   fetchTeams,
   fetchUsers,
 } from './helpers/linear-api.js';
-import { reportEntitiesValidated, reportSkip } from './helpers/report-collector.js';
+import {
+  reportEntitiesValidated,
+  reportFieldComparison,
+  reportSkip,
+} from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
@@ -112,16 +117,34 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
         expect(apiTeam, `TOON team "${toonRow.key}" should exist in API`).toBeDefined();
 
         const ctx = { entity: 'Team', identifier: toonRow.key, field: '' };
+        const comparisons: Array<{
+          field: string;
+          toon: string;
+          api: string;
+          match: boolean;
+        }> = [];
 
         // name
         expect(
           toonRow.name,
           `Team "${toonRow.key}" name: TOON="${toonRow.name}" vs API="${apiTeam!.name}"`,
         ).toBe(apiTeam!.name);
+        comparisons.push({
+          field: 'name',
+          toon: toonRow.name ?? '',
+          api: String(apiTeam!.name ?? ''),
+          match: (toonRow.name ?? '') === (apiTeam!.name ?? ''),
+        });
 
         // cyclesEnabled (boolean)
         ctx.field = 'cyclesEnabled';
         expectFieldMatch(toonRow.cyclesEnabled, apiTeam!.cyclesEnabled, ctx);
+        comparisons.push({
+          field: 'cyclesEnabled',
+          toon: toonRow.cyclesEnabled ?? '',
+          api: String(apiTeam!.cyclesEnabled ?? ''),
+          match: normalizeEmpty(toonRow.cyclesEnabled) === String(apiTeam!.cyclesEnabled),
+        });
 
         // cycleDuration
         ctx.field = 'cycleDuration';
@@ -130,6 +153,12 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           normalizeEmpty(toonRow.cycleDuration),
           `Team "${toonRow.key}" cycleDuration: TOON="${toonRow.cycleDuration}" vs API="${apiCycleDuration}"`,
         ).toBe(normalizeEmpty(apiCycleDuration));
+        comparisons.push({
+          field: 'cycleDuration',
+          toon: toonRow.cycleDuration ?? '',
+          api: String(apiCycleDuration),
+          match: normalizeEmpty(toonRow.cycleDuration) === normalizeEmpty(apiCycleDuration),
+        });
 
         // estimationType (SDK field is issueEstimationType, TOON field is estimationType)
         ctx.field = 'estimationType';
@@ -140,6 +169,23 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           normalizeEmpty(toonRow.estimationType),
           `Team "${toonRow.key}" estimationType: TOON="${toonRow.estimationType}" vs API="${apiEstimationType}"`,
         ).toBe(normalizeEmpty(apiEstimationType));
+        comparisons.push({
+          field: 'estimationType',
+          toon: toonRow.estimationType ?? '',
+          api: String(apiEstimationType),
+          match:
+            normalizeEmpty(toonRow.estimationType) === normalizeEmpty(apiEstimationType),
+        });
+
+        if (suiteRef && comparisons.length > 0) {
+          reportFieldComparison(
+            suiteRef,
+            toonRow.key,
+            toonRow.name,
+            comparisons,
+            'Team',
+          );
+        }
 
         validatedTeams.push(toonRow.key);
       }
@@ -164,20 +210,56 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           `TOON user "${toonRow.name}" (key=${toonRow.key}) should exist in API`,
         ).toBeDefined();
 
+        const comparisons: Array<{
+          field: string;
+          toon: string;
+          api: string;
+          match: boolean;
+        }> = [];
+
         // name
         expect(toonRow.name, `User "${toonRow.key}" name`).toBe(apiUser!.name);
+        comparisons.push({
+          field: 'name',
+          toon: toonRow.name ?? '',
+          api: String(apiUser!.name ?? ''),
+          match: (toonRow.name ?? '') === (apiUser!.name ?? ''),
+        });
 
         // displayName
         expect(
           normalizeEmpty(toonRow.displayName),
           `User "${toonRow.key}" displayName: TOON="${toonRow.displayName}" vs API="${apiUser!.displayName}"`,
         ).toBe(normalizeEmpty(apiUser!.displayName));
+        comparisons.push({
+          field: 'displayName',
+          toon: toonRow.displayName ?? '',
+          api: String(apiUser!.displayName ?? ''),
+          match:
+            normalizeEmpty(toonRow.displayName) === normalizeEmpty(apiUser!.displayName),
+        });
 
         // email
         expect(
           normalizeEmpty(toonRow.email),
           `User "${toonRow.key}" email: TOON="${toonRow.email}" vs API="${apiUser!.email}"`,
         ).toBe(normalizeEmpty(apiUser!.email));
+        comparisons.push({
+          field: 'email',
+          toon: toonRow.email ?? '',
+          api: String(apiUser!.email ?? ''),
+          match: normalizeEmpty(toonRow.email) === normalizeEmpty(apiUser!.email),
+        });
+
+        if (suiteRef && comparisons.length > 0) {
+          reportFieldComparison(
+            suiteRef,
+            toonRow.key,
+            toonRow.name,
+            comparisons,
+            'User',
+          );
+        }
 
         validatedUsers.push(toonRow.key);
       }
@@ -284,6 +366,41 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           `TOON state "${toonRow.key}" type "${toonRow.type}" should match one of the API states named "${toonRow.name}"`,
         ).toBe(true);
 
+        const comparisons: Array<{
+          field: string;
+          toon: string;
+          api: string;
+          match: boolean;
+        }> = [];
+
+        // name — at least one API state matched by name
+        comparisons.push({
+          field: 'name',
+          toon: toonRow.name ?? '',
+          api: matchingApiStates[0]?.name ?? '',
+          match: matchingApiStates.length > 0,
+        });
+
+        // type — at least one API state with matching name also has matching type
+        comparisons.push({
+          field: 'type',
+          toon: toonRow.type ?? '',
+          api: matchingApiStates.find((s) => s.type === toonRow.type)?.type
+            ?? matchingApiStates[0]?.type
+            ?? '',
+          match: typeMatch,
+        });
+
+        if (suiteRef && comparisons.length > 0) {
+          reportFieldComparison(
+            suiteRef,
+            toonRow.key,
+            toonRow.name,
+            comparisons,
+            'State',
+          );
+        }
+
         validatedStates.push(toonRow.key);
       }
     });
@@ -357,6 +474,31 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           apiMatch,
           `TOON label "${toonRow.name}" should exist in API labels`,
         ).toBeDefined();
+
+        const comparisons: Array<{
+          field: string;
+          toon: string;
+          api: string;
+          match: boolean;
+        }> = [];
+
+        comparisons.push({
+          field: 'name',
+          toon: toonRow.name ?? '',
+          api: apiMatch?.name ?? '',
+          match: apiMatch !== undefined,
+        });
+
+        if (suiteRef && comparisons.length > 0) {
+          reportFieldComparison(
+            suiteRef,
+            toonRow.name,
+            undefined,
+            comparisons,
+            'Label',
+          );
+        }
+
         validatedLabels.push(toonRow.name);
       }
     });
@@ -432,9 +574,21 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           identifier: toonRow.key,
           field: '',
         };
+        const comparisons: Array<{
+          field: string;
+          toon: string;
+          api: string;
+          match: boolean;
+        }> = [];
 
         // name
         expect(toonRow.name, `Project "${toonRow.key}" name`).toBe(apiProject!.name);
+        comparisons.push({
+          field: 'name',
+          toon: toonRow.name ?? '',
+          api: String(apiProject!.name ?? ''),
+          match: (toonRow.name ?? '') === (apiProject!.name ?? ''),
+        });
 
         // state
         ctx.field = 'state';
@@ -442,6 +596,12 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           normalizeEmpty(toonRow.state),
           `Project "${toonRow.key}" state: TOON="${toonRow.state}" vs API="${apiProject!.state}"`,
         ).toBe(normalizeEmpty(apiProject!.state));
+        comparisons.push({
+          field: 'state',
+          toon: toonRow.state ?? '',
+          api: String(apiProject!.state ?? ''),
+          match: normalizeEmpty(toonRow.state) === normalizeEmpty(apiProject!.state),
+        });
 
         // priority (raw number, not prefixed in _projects)
         ctx.field = 'priority';
@@ -453,10 +613,34 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
             `Project "${toonRow.key}" priority: TOON="${toonRow.priority}" vs API="${apiPriority}"`,
           ).toBe(apiPriority);
         }
+        comparisons.push({
+          field: 'priority',
+          toon: toonRow.priority ?? '',
+          api: String(apiPriority ?? ''),
+          match:
+            toonPriority === null && apiPriority === null
+              ? true
+              : toonPriority === apiPriority,
+        });
 
         // progress (with rounding)
         ctx.field = 'progress';
         expectProgressMatch(toonRow.progress, apiProject!.progress, ctx);
+        const toonProgressNum = toonRow.progress ? parseFloat(toonRow.progress) : null;
+        const toonProgressRounded =
+          toonProgressNum !== null && !Number.isNaN(toonProgressNum)
+            ? Math.round(toonProgressNum * 100) / 100
+            : null;
+        const apiProgressRounded =
+          apiProject!.progress !== null && apiProject!.progress !== undefined
+            ? Math.round(apiProject!.progress * 100) / 100
+            : null;
+        comparisons.push({
+          field: 'progress',
+          toon: toonRow.progress ?? '',
+          api: String(apiProject!.progress ?? ''),
+          match: toonProgressRounded === apiProgressRounded,
+        });
 
         // lead short key -> resolves via registry -> matches API lead.id
         if (toonRow.lead && toonRow.lead !== '') {
@@ -465,11 +649,55 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
             resolvedLeadUuid,
             `Project "${toonRow.key}" lead short key "${toonRow.lead}" should resolve to API lead UUID "${apiProject!.leadId}"`,
           ).toBe(apiProject!.leadId);
+          comparisons.push({
+            field: 'lead',
+            toon: formatWithResolution(registry, 'lead', toonRow.lead),
+            api: apiProject!.leadId ?? '',
+            match: resolvedLeadUuid === apiProject!.leadId,
+          });
+        } else {
+          comparisons.push({
+            field: 'lead',
+            toon: '',
+            api: apiProject!.leadId ?? '',
+            match: !apiProject!.leadId,
+          });
         }
 
         // targetDate
         ctx.field = 'targetDate';
         expectDateMatch(toonRow.targetDate, apiProject!.targetDate, ctx);
+        {
+          const toonDate = toonRow.targetDate ?? '';
+          const apiDate = apiProject!.targetDate ?? '';
+          const apiStr = apiDate instanceof Date ? apiDate.toISOString() : String(apiDate);
+          let dateMatch: boolean;
+          if (!toonDate && !apiDate) {
+            dateMatch = true;
+          } else if (!toonDate || !apiDate) {
+            dateMatch = normalizeEmpty(toonDate) === normalizeEmpty(apiDate);
+          } else if (/^\d{4}-\d{2}-\d{2}$/.test(toonDate)) {
+            dateMatch = toonDate === apiStr.split('T')[0];
+          } else {
+            dateMatch = toonDate === apiStr;
+          }
+          comparisons.push({
+            field: 'targetDate',
+            toon: toonDate,
+            api: apiStr,
+            match: dateMatch,
+          });
+        }
+
+        if (suiteRef && comparisons.length > 0) {
+          reportFieldComparison(
+            suiteRef,
+            toonRow.key,
+            toonRow.name,
+            comparisons,
+            'Project',
+          );
+        }
 
         validatedProjects.push(toonRow.key);
       }
@@ -536,24 +764,99 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           identifier: `${toonRow.team}#${toonNum}`,
           field: '',
         };
+        const comparisons: Array<{
+          field: string;
+          toon: string;
+          api: string;
+          match: boolean;
+        }> = [];
 
         // name
         expect(
           normalizeEmpty(toonRow.name),
           `Cycle ${toonRow.team}#${toonNum} name: TOON="${toonRow.name}" vs API="${apiCycle!.name}"`,
         ).toBe(normalizeEmpty(apiCycle!.name));
+        comparisons.push({
+          field: 'name',
+          toon: toonRow.name ?? '',
+          api: String(apiCycle!.name ?? ''),
+          match: normalizeEmpty(toonRow.name) === normalizeEmpty(apiCycle!.name),
+        });
 
         // start date
         ctx.field = 'start';
         expectDateMatch(toonRow.start, apiCycle!.startsAt, ctx);
+        {
+          const toonDate = toonRow.start ?? '';
+          const apiStr = apiCycle!.startsAt instanceof Date
+            ? apiCycle!.startsAt.toISOString()
+            : String(apiCycle!.startsAt);
+          let dateMatch: boolean;
+          if (!toonDate && !apiCycle!.startsAt) {
+            dateMatch = true;
+          } else if (!toonDate || !apiCycle!.startsAt) {
+            dateMatch = normalizeEmpty(toonDate) === normalizeEmpty(apiCycle!.startsAt);
+          } else if (/^\d{4}-\d{2}-\d{2}$/.test(toonDate)) {
+            dateMatch = toonDate === apiStr.split('T')[0];
+          } else {
+            dateMatch = toonDate === apiStr;
+          }
+          comparisons.push({
+            field: 'start',
+            toon: toonDate,
+            api: apiStr,
+            match: dateMatch,
+          });
+        }
 
         // end date
         ctx.field = 'end';
         expectDateMatch(toonRow.end, apiCycle!.endsAt, ctx);
+        {
+          const toonDate = toonRow.end ?? '';
+          const apiStr = apiCycle!.endsAt instanceof Date
+            ? apiCycle!.endsAt.toISOString()
+            : String(apiCycle!.endsAt);
+          let dateMatch: boolean;
+          if (!toonDate && !apiCycle!.endsAt) {
+            dateMatch = true;
+          } else if (!toonDate || !apiCycle!.endsAt) {
+            dateMatch = normalizeEmpty(toonDate) === normalizeEmpty(apiCycle!.endsAt);
+          } else if (/^\d{4}-\d{2}-\d{2}$/.test(toonDate)) {
+            dateMatch = toonDate === apiStr.split('T')[0];
+          } else {
+            dateMatch = toonDate === apiStr;
+          }
+          comparisons.push({
+            field: 'end',
+            toon: toonDate,
+            api: apiStr,
+            match: dateMatch,
+          });
+        }
 
         // progress (with rounding)
         ctx.field = 'progress';
         expectProgressMatch(toonRow.progress, apiCycle!.progress, ctx);
+        {
+          const toonProgressNum = toonRow.progress
+            ? parseFloat(toonRow.progress)
+            : null;
+          const toonProgressRounded =
+            toonProgressNum !== null && !Number.isNaN(toonProgressNum)
+              ? Math.round(toonProgressNum * 100) / 100
+              : null;
+          const apiProgressRounded =
+            apiCycle!.progress !== null && apiCycle!.progress !== undefined
+              ? Math.round(apiCycle!.progress * 100) / 100
+              : null;
+          comparisons.push({
+            field: 'progress',
+            toon: toonRow.progress ?? '',
+            api: String(apiCycle!.progress ?? ''),
+            match: toonProgressRounded === apiProgressRounded,
+          });
+        }
 
         // active flag: independently compute using current date vs start/end
         const now = new Date();
@@ -562,6 +865,22 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           toonRow.active,
           `Cycle ${toonRow.team}#${toonNum} active: TOON="${toonRow.active}" vs computed="${expectedActive}"`,
         ).toBe(String(expectedActive));
+        comparisons.push({
+          field: 'active',
+          toon: toonRow.active ?? '',
+          api: String(expectedActive),
+          match: toonRow.active === String(expectedActive),
+        });
+
+        if (suiteRef && comparisons.length > 0) {
+          reportFieldComparison(
+            suiteRef,
+            String(toonNum),
+            `${toonRow.team}#${toonNum}`,
+            comparisons,
+            'Cycle',
+          );
+        }
 
         validatedCycles.push(`${toonRow.team}#${toonNum}`);
       }

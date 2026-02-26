@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listCommentsTool } from '../../src/shared/tools/linear/comments.js';
 import { listIssuesTool } from '../../src/shared/tools/linear/list-issues.js';
 import type { ToolContext } from '../../src/shared/tools/types.js';
+import { stripMarkdownImages } from '../../src/shared/toon/encoder.js';
 import { clearRegistry } from '../../src/shared/toon/registry.js';
 import {
   expectDateMatch,
@@ -149,7 +150,7 @@ describe.skipIf(!canRunLiveTests)('list_comments live data validation', () => {
       });
 
       // Compare body (NOT truncated in list_comments, unlike inline comments in list_issues)
-      const apiBody = (apiComment as unknown as { body?: string }).body ?? '';
+      const apiBody = stripMarkdownImages((apiComment as unknown as { body?: string }).body ?? '') ?? '';
       expect(
         normalizeEmpty(toonRow.body),
         `Comment id=${commentId} field "body": lengths TOON=${toonRow.body?.length} API=${apiBody.length}`,

@@ -689,10 +689,16 @@ export const getIssuesTool = defineTool({
           requestedId: id,
           success: true,
           issue: structured,
-          relations: (relationsData?.nodes ?? []).map((r) => ({
-            type: r.type,
-            relatedIssueIdentifier: r.relatedIssue?.identifier ?? '',
-          })),
+          relations: await Promise.all(
+            (relationsData?.nodes ?? []).map(async (r) => {
+              const related = await Promise.resolve(r.relatedIssue);
+              return {
+                type: r.type,
+                relatedIssueIdentifier:
+                  (related as unknown as { identifier?: string })?.identifier ?? '',
+              };
+            }),
+          ),
         });
       } catch (error) {
         await logger.error('get_issues', {

@@ -13,6 +13,18 @@ export default defineConfig({
     // Disable parallel test files to avoid hitting Linear API rate limits.
     fileParallelism: false,
 
+    // Pin forks pool explicitly (already the default in vitest 3.x) for documentation
+    // and future-proofing. Each test file runs in its own child process — memory is
+    // fully reclaimed by the OS when the process exits.
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        // Safety valve: cap worker heap at 4GB (8x observed ~500MB peak).
+        // Prevents runaway memory from consuming all system RAM.
+        execArgv: ['--max-old-space-size=4096'],
+      },
+    },
+
     testTimeout: 60000,
     hookTimeout: 60000,
 

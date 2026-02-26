@@ -33,6 +33,7 @@ import {
   type RegistryBuildData,
   type ShortKeyRegistry,
   STATE_LOOKUP_SCHEMA,
+  stripMarkdownImages,
   type ToonResponse,
   type ToonRow,
   type ToonSection,
@@ -692,18 +693,21 @@ function buildToonResponse(
 
   // Add comments section if present
   if (rawComments.length > 0) {
-    const commentRows: ToonRow[] = rawComments.map((c) => ({
-      issue: c.issueIdentifier,
-      user: c.user?.id
-        ? registry
-          ? (tryGetShortKey(registry, 'user', c.user.id) ??
-            fallbackMap?.get(c.user.id) ??
-            '')
-          : ''
-        : '',
-      body: c.body.length > 500 ? `${c.body.slice(0, 497)}...` : c.body,
-      createdAt: c.createdAt,
-    }));
+    const commentRows: ToonRow[] = rawComments.map((c) => {
+      const body = stripMarkdownImages(c.body) ?? '';
+      return {
+        issue: c.issueIdentifier,
+        user: c.user?.id
+          ? registry
+            ? (tryGetShortKey(registry, 'user', c.user.id) ??
+              fallbackMap?.get(c.user.id) ??
+              '')
+            : ''
+          : '',
+        body: body.length > 500 ? `${body.slice(0, 497)}...` : body,
+        createdAt: c.createdAt,
+      };
+    });
     data.push({ schema: COMMENT_SCHEMA, items: commentRows });
   }
 
