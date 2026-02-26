@@ -95,7 +95,18 @@ describe.skipIf(!canRunLiveTests)('list_projects live data validation', () => {
       }
     }
 
+    // Verify all project keys are unique
+    const allKeys = projectsSection.rows.map((r) => r.key);
+    const uniqueKeys = new Set(allKeys);
+    expect(
+      uniqueKeys.size,
+      `Project keys should be unique (got ${allKeys.length} keys but only ${uniqueKeys.size} unique)`,
+    ).toBe(allKeys.length);
+
     for (const toonRow of projectsSection.rows) {
+      // Verify short key format
+      expect(toonRow.key).toMatch(/^pr\d+$/);
+
       // Match by name since TOON uses short keys (pr0, pr1) not UUIDs
       const apiProject = apiProjects.find((p) => p.name === toonRow.name);
 

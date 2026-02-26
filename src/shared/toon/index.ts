@@ -162,6 +162,7 @@ export type {
   ProjectMetadata,
   RegistryBuildData,
   RegistryEntity,
+  RegistryProjectEntity,
   RegistryInitContext,
   ShortKeyEntityType,
   ShortKeyRegistry,

@@ -14,6 +14,7 @@ import { getLinearClient } from '../../../services/linear/client.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { resolveTeamId } from '../../../utils/resolvers.js';
+import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
 import {
   CREATED_PROJECT_SCHEMA,
   encodeResponse,
@@ -23,7 +24,6 @@ import {
   PROJECT_CHANGES_SCHEMA,
   PROJECT_SCHEMA,
   PROJECT_WRITE_RESULT_SCHEMA,
-  type RegistryBuildData,
   registerNewProject,
   type ShortKeyRegistry,
   type ToonResponse,
@@ -56,111 +56,6 @@ interface RawProjectData {
   targetDate?: string | null;
   health?: string | null;
   createdAt?: Date | string;
-}
-
-/**
- * Fetch workspace data for registry initialization with full metadata.
- */
-async function fetchWorkspaceDataForRegistry(
-  client: Awaited<ReturnType<typeof getLinearClient>>,
-): Promise<RegistryBuildData> {
-  // Fetch users with full metadata
-  const usersConn = await client.users({ first: 100 });
-  const users = (usersConn.nodes ?? []).map((u) => {
-    const admin = (u as unknown as { admin?: boolean }).admin ?? false;
-    return {
-      id: u.id,
-      createdAt:
-        (u as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
-      name: u.name ?? '',
-      displayName: (u as unknown as { displayName?: string }).displayName ?? '',
-      email: (u as unknown as { email?: string }).email ?? '',
-      active: (u as unknown as { active?: boolean }).active ?? true,
-      role: admin ? 'admin' : 'member',
-    };
-  });
-
-  // Fetch workflow states via teams with full metadata
-  const teamsConn = await client.teams({ first: 100 });
-  const teamsNodes = teamsConn.nodes ?? [];
-  const states: RegistryBuildData['states'] = [];
-  const userTeamMap = new Map<string, string[]>();
-
-  for (const team of teamsNodes) {
-    const statesConn = await (
-      team as unknown as {
-        states: () => Promise<{
-          nodes: Array<{
-            id: string;
-            createdAt?: Date | string;
-            name: string;
-            type?: string;
-          }>;
-        }>;
-      }
-    ).states();
-    for (const state of statesConn.nodes ?? []) {
-      states.push({
-        id: state.id,
-        createdAt: state.createdAt ?? new Date(),
-        name: state.name,
-        type: state.type ?? '',
-        teamId: team.id,
-      });
-    }
-
-    // Fetch team members for team membership column
-    const teamKey = (team as unknown as { key?: string }).key ?? team.id;
-    const membersConn = await (
-      team as unknown as {
-        members: (opts: { first: number }) => Promise<{ nodes: Array<{ id: string }> }>;
-      }
-    ).members({ first: 200 });
-    for (const member of membersConn.nodes ?? []) {
-      if (!userTeamMap.has(member.id)) {
-        userTeamMap.set(member.id, []);
-      }
-      userTeamMap.get(member.id)!.push(teamKey);
-    }
-  }
-
-  // Enrich users with team membership
-  const usersWithTeams = users.map((u) => ({
-    ...u,
-    teams: userTeamMap.get(u.id) ?? [],
-  }));
-
-  // Fetch projects with full metadata
-  const projectsConn = await client.projects({ first: 100 });
-  const projects = (projectsConn.nodes ?? []).map((p) => ({
-    id: p.id,
-    createdAt: (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
-    name: p.name,
-    state: (p as unknown as { state?: string }).state ?? '',
-  }));
-
-  // Get workspace ID from viewer
-  const viewer = await client.viewer;
-  const viewerOrg = viewer as unknown as { organization?: { id?: string } };
-  const workspaceId = viewerOrg?.organization?.id ?? 'unknown';
-
-  const teams = teamsNodes.map((t) => ({
-    id: t.id,
-    key: (t as unknown as { key?: string }).key ?? t.id,
-  }));
-
-  let defaultTeamId: string | undefined;
-  if (config.DEFAULT_TEAM) {
-    const defaultTeamKey = config.DEFAULT_TEAM.toLowerCase();
-    const matchedTeam = teamsNodes.find(
-      (t) =>
-        (t as unknown as { key?: string }).key?.toLowerCase() === defaultTeamKey ||
-        t.id === config.DEFAULT_TEAM,
-    );
-    defaultTeamId = matchedTeam?.id;
-  }
-
-  return { users: usersWithTeams, states, projects, workspaceId, teams, defaultTeamId };
 }
 
 /**

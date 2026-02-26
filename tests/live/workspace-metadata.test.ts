@@ -565,6 +565,9 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
       expect(registry, 'Registry should exist after tool call').toBeDefined();
 
       for (const toonRow of projectsSection.rows) {
+        // Verify short key format
+        expect(toonRow.key).toMatch(/^pr\d+$/);
+
         const apiProject = allApiProjects.find((p) => p.name === toonRow.name);
         expect(
           apiProject,
@@ -1015,6 +1018,27 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
         expect(
           allProjectIds.has(uuid),
           `Project short key "${shortKey}" -> UUID "${uuid}" should be a valid project ID`,
+        ).toBe(true);
+      }
+    });
+
+    it('every TOON project key exists in the registry', () => {
+      const registry = getStoredRegistry(context.sessionId)!;
+      const projectsSection = parsed.sections.get('_projects');
+      if (!projectsSection || projectsSection.rows.length === 0) {
+        if (suiteRef)
+          reportSkip(
+            suiteRef,
+            'every TOON project key exists in the registry',
+            'no projects in TOON output',
+          );
+        return;
+      }
+
+      for (const toonRow of projectsSection.rows) {
+        expect(
+          registry.projects.has(toonRow.key),
+          `TOON project key "${toonRow.key}" (name="${toonRow.name}") should exist in registry.projects`,
         ).toBe(true);
       }
     });

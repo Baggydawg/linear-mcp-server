@@ -21,8 +21,10 @@ import {
   listShortKeys,
   parseLabelKey,
   parseShortKey,
+  type ProjectMetadata,
   type RegistryBuildData,
   type RegistryEntity,
+  registerNewProject,
   resolveShortKey,
   type ShortKeyRegistry,
   storeRegistry,
@@ -2238,5 +2240,273 @@ describe('listShortKeys with multi-team states', () => {
     expect(hasShortKey(registry, 'state', 'sqm:s0')).toBe(true);
     expect(hasShortKey(registry, 'state', 'sqt:s0')).toBe(false); // Not stored with prefix for default team
     expect(hasShortKey(registry, 'state', 'eng:s0')).toBe(false); // Non-existent team
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests: registerNewProject
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('registerNewProject', () => {
+  let registry: ShortKeyRegistry;
+
+  beforeEach(() => {
+    registry = buildRegistry(createTestBuildData());
+  });
+
+  it('assigns next available key correctly', () => {
+    // Existing registry has pr0 (alpha) and pr1 (beta)
+    expect(registry.projects.size).toBe(2);
+    expect(registry.projects.get('pr0')).toBe('project-uuid-alpha');
+    expect(registry.projects.get('pr1')).toBe('project-uuid-beta');
+
+    const metadata: ProjectMetadata = {
+      name: 'Gamma Project',
+      state: 'planned',
+    };
+    const key = registerNewProject(registry, 'project-uuid-gamma', metadata);
+
+    expect(key).toBe('pr2');
+    expect(registry.projects.size).toBe(3);
+  });
+
+  it('assigns sequential keys for multiple new projects', () => {
+    const key1 = registerNewProject(registry, 'project-uuid-gamma', {
+      name: 'Gamma',
+      state: 'planned',
+    });
+    const key2 = registerNewProject(registry, 'project-uuid-delta', {
+      name: 'Delta',
+      state: 'started',
+    });
+    const key3 = registerNewProject(registry, 'project-uuid-epsilon', {
+      name: 'Epsilon',
+      state: 'completed',
+    });
+
+    expect(key1).toBe('pr2');
+    expect(key2).toBe('pr3');
+    expect(key3).toBe('pr4');
+  });
+
+  it('handles gaps in key sequence (max+1 strategy)', () => {
+    // Manually create a gap: remove pr0 but keep pr1
+    registry.projects.delete('pr0');
+    registry.projectsByUuid.delete('project-uuid-alpha');
+
+    // Even though there is a gap at pr0, next key should be max+1 = pr2
+    const key = registerNewProject(registry, 'project-uuid-gamma', {
+      name: 'Gamma',
+      state: 'planned',
+    });
+
+    expect(key).toBe('pr2');
+  });
+
+  it('updates both bidirectional maps', () => {
+    const uuid = 'project-uuid-gamma';
+    const key = registerNewProject(registry, uuid, {
+      name: 'Gamma',
+      state: 'planned',
+    });
+
+    // Forward map: short key -> UUID
+    expect(registry.projects.get(key)).toBe(uuid);
+
+    // Reverse map: UUID -> short key
+    expect(registry.projectsByUuid.get(uuid)).toBe(key);
+  });
+
+  it('stores metadata correctly', () => {
+    const uuid = 'project-uuid-gamma';
+    const metadata: ProjectMetadata = {
+      name: 'Gamma Project',
+      state: 'started',
+      priority: 2,
+      progress: 0.45,
+      leadId: 'user-uuid-alice',
+      targetDate: '2026-06-01',
+    };
+
+    const key = registerNewProject(registry, uuid, metadata);
+
+    const stored = registry.projectMetadata.get(uuid);
+    expect(stored).toBeDefined();
+    expect(stored!.name).toBe('Gamma Project');
+    expect(stored!.state).toBe('started');
+    expect(stored!.priority).toBe(2);
+    expect(stored!.progress).toBe(0.45);
+    expect(stored!.leadId).toBe('user-uuid-alice');
+    expect(stored!.targetDate).toBe('2026-06-01');
+
+    // Verify the key is correct
+    expect(key).toBe('pr2');
+  });
+
+  it('stores metadata with only required fields', () => {
+    const uuid = 'project-uuid-minimal';
+    const metadata: ProjectMetadata = {
+      name: 'Minimal Project',
+      state: 'planned',
+    };
+
+    registerNewProject(registry, uuid, metadata);
+
+    const stored = registry.projectMetadata.get(uuid);
+    expect(stored).toBeDefined();
+    expect(stored!.name).toBe('Minimal Project');
+    expect(stored!.state).toBe('planned');
+    expect(stored!.priority).toBeUndefined();
+    expect(stored!.progress).toBeUndefined();
+    expect(stored!.leadId).toBeUndefined();
+    expect(stored!.targetDate).toBeUndefined();
+  });
+
+  it('tryGetShortKey returns undefined for unknown project UUID', () => {
+    expect(
+      tryGetShortKey(registry, 'project', 'unknown-uuid'),
+    ).toBeUndefined();
+  });
+
+  it('tryGetShortKey returns key for newly registered project', () => {
+    const uuid = 'project-uuid-gamma';
+    registerNewProject(registry, uuid, {
+      name: 'Gamma',
+      state: 'planned',
+    });
+
+    expect(tryGetShortKey(registry, 'project', uuid)).toBe('pr2');
+  });
+
+  it('works on an empty registry', () => {
+    const emptyRegistry = buildRegistry({
+      users: [],
+      states: [],
+      projects: [],
+      workspaceId: 'empty-workspace',
+    });
+
+    const key = registerNewProject(
+      emptyRegistry,
+      'project-uuid-first',
+      { name: 'First Project', state: 'planned' },
+    );
+
+    expect(key).toBe('pr0');
+    expect(emptyRegistry.projects.get('pr0')).toBe('project-uuid-first');
+    expect(emptyRegistry.projectsByUuid.get('project-uuid-first')).toBe(
+      'pr0',
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tests: Deterministic project ordering
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('deterministic project ordering', () => {
+  it('assigns keys based on createdAt order (oldest first = pr0)', () => {
+    const data: RegistryBuildData = {
+      users: [],
+      states: [],
+      projects: [
+        { id: 'project-newest', createdAt: '2024-06-01T00:00:00Z' },
+        { id: 'project-oldest', createdAt: '2024-01-01T00:00:00Z' },
+        { id: 'project-middle', createdAt: '2024-03-15T00:00:00Z' },
+      ],
+      workspaceId: 'test',
+    };
+
+    const registry = buildRegistry(data);
+
+    // Oldest first: oldest=pr0, middle=pr1, newest=pr2
+    expect(registry.projects.get('pr0')).toBe('project-oldest');
+    expect(registry.projects.get('pr1')).toBe('project-middle');
+    expect(registry.projects.get('pr2')).toBe('project-newest');
+  });
+
+  it('produces identical keys regardless of input order', () => {
+    const projects = [
+      { id: 'project-c', createdAt: '2024-03-01T00:00:00Z' },
+      { id: 'project-a', createdAt: '2024-01-01T00:00:00Z' },
+      { id: 'project-b', createdAt: '2024-02-01T00:00:00Z' },
+    ];
+
+    // Build with original order
+    const registry1 = buildRegistry({
+      users: [],
+      states: [],
+      projects: [...projects],
+      workspaceId: 'test',
+    });
+
+    // Build with reversed order
+    const registry2 = buildRegistry({
+      users: [],
+      states: [],
+      projects: [...projects].reverse(),
+      workspaceId: 'test',
+    });
+
+    // Build with shuffled order
+    const registry3 = buildRegistry({
+      users: [],
+      states: [],
+      projects: [projects[1], projects[2], projects[0]],
+      workspaceId: 'test',
+    });
+
+    // All should produce the same mappings
+    expect(registry1.projects.get('pr0')).toBe('project-a');
+    expect(registry1.projects.get('pr1')).toBe('project-b');
+    expect(registry1.projects.get('pr2')).toBe('project-c');
+
+    expect(registry2.projects.get('pr0')).toBe(
+      registry1.projects.get('pr0'),
+    );
+    expect(registry2.projects.get('pr1')).toBe(
+      registry1.projects.get('pr1'),
+    );
+    expect(registry2.projects.get('pr2')).toBe(
+      registry1.projects.get('pr2'),
+    );
+
+    expect(registry3.projects.get('pr0')).toBe(
+      registry1.projects.get('pr0'),
+    );
+    expect(registry3.projects.get('pr1')).toBe(
+      registry1.projects.get('pr1'),
+    );
+    expect(registry3.projects.get('pr2')).toBe(
+      registry1.projects.get('pr2'),
+    );
+  });
+
+  it('handles Date objects and ISO strings consistently', () => {
+    const withStrings = buildRegistry({
+      users: [],
+      states: [],
+      projects: [
+        { id: 'project-b', createdAt: '2024-06-01T00:00:00Z' },
+        { id: 'project-a', createdAt: '2024-01-01T00:00:00Z' },
+      ],
+      workspaceId: 'test',
+    });
+
+    const withDates = buildRegistry({
+      users: [],
+      states: [],
+      projects: [
+        { id: 'project-b', createdAt: new Date('2024-06-01T00:00:00Z') },
+        { id: 'project-a', createdAt: new Date('2024-01-01T00:00:00Z') },
+      ],
+      workspaceId: 'test',
+    });
+
+    // Same ordering regardless of date format
+    expect(withStrings.projects.get('pr0')).toBe('project-a');
+    expect(withStrings.projects.get('pr1')).toBe('project-b');
+    expect(withDates.projects.get('pr0')).toBe('project-a');
+    expect(withDates.projects.get('pr1')).toBe('project-b');
   });
 });

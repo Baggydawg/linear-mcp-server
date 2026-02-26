@@ -33,6 +33,7 @@ import {
   type ToonSection,
   USER_LOOKUP_SCHEMA,
 } from '../../toon/index.js';
+import { fetchGlobalProjects } from '../shared/registry-init.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 
 const InputSchema = z.object({
@@ -628,9 +629,16 @@ export const workspaceMetadataTool = defineTool({
     // Build and store registry
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Prepare registry build data with ALL workspace data for cross-team resolution
+    // Fetch ALL projects globally for the registry (stable short keys).
+    // Only fetches projects — workspace_metadata already has users, teams, states.
+    // The TOON _projects display section still uses workspaceData.projects (team-filtered).
+    const globalProjects = await fetchGlobalProjects(client);
+
+    // Prepare registry build data with ALL workspace data for cross-team resolution.
+    // Uses workspace_metadata's enriched users (with profiles) + global projects.
     const registryData: RegistryBuildData = {
-      // ALL workspace users (not filtered)
+      // ALL workspace users (not filtered) — use workspace_metadata's enriched data
+      // which includes profile roles, skills, and focusArea
       users: allWorkspaceUsers.map((u) => ({
         id: u.id,
         createdAt: u.createdAt ?? new Date(0),
@@ -651,17 +659,8 @@ export const workspaceMetadataTool = defineTool({
         type: s.type ?? '',
         teamId: s.teamId, // Required for team-prefixed keys
       })),
-      // Projects from filtered teams (projects are not team-prefixed)
-      projects: workspaceData.projects.map((p) => ({
-        id: p.id,
-        createdAt: p.createdAt ?? new Date(0),
-        name: p.name,
-        state: p.state ?? '',
-        priority: p.priority,
-        progress: p.progress,
-        leadId: p.leadId,
-        targetDate: p.targetDate,
-      })),
+      // ALL projects globally for stable short keys
+      projects: globalProjects,
       // ALL teams for multi-team key resolution
       teams: allTeams.map((t) => ({
         id: t.id,
