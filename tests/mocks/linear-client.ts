@@ -733,11 +733,19 @@ export function createMockLinearClient(
         filter?: Record<string, unknown>;
       }) => {
         const limit = args?.first ?? projects.length;
+        // Support cursor-based pagination: cursor encodes the start offset
+        const offset = args?.after
+          ? parseInt(args.after.replace('project-cursor-', ''), 10) || 0
+          : 0;
+        const slice = projects.slice(offset, offset + limit);
+        const hasMore = offset + limit < projects.length;
         return {
-          nodes: projects.slice(0, limit),
+          nodes: slice,
           pageInfo: {
-            hasNextPage: projects.length > limit,
-            endCursor: projects.length > limit ? 'project-cursor' : undefined,
+            hasNextPage: hasMore,
+            endCursor: hasMore
+              ? `project-cursor-${offset + limit}`
+              : undefined,
           },
         };
       },

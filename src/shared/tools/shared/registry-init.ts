@@ -21,26 +21,49 @@ import type {
 /** Linear client type extracted from getLinearClient return */
 type LinearClient = Awaited<ReturnType<typeof getLinearClient>>;
 
+/** Max pages to fetch before stopping (safety cap: 20 × 250 = 5,000 projects) */
+const MAX_PROJECT_PAGES = 20;
+
 /**
  * Fetch ALL projects globally for stable short key assignment.
  *
- * Returns the full project set (up to 250, including archived) so that
- * short keys (pr0, pr1, ...) are deterministic regardless of team filtering.
+ * Paginates through all pages (250 per page) so that every project in
+ * the workspace gets a stable short key, regardless of workspace size.
  * Used directly by workspace_metadata (which already has users/teams/states)
  * and internally by fetchWorkspaceDataForRegistry.
  */
 export async function fetchGlobalProjects(
   client: LinearClient,
 ): Promise<RegistryProjectEntity[]> {
-  const projectsConn = await client.projects({
-    first: 250,
-    includeArchived: true,
-  });
-  return (projectsConn.nodes ?? []).map((p) => ({
+  // biome-ignore lint/suspicious/noExplicitAny: Linear SDK Project type lacks index signature
+  const allNodes: Array<any> = [];
+  let after: string | undefined;
+  let pages = 0;
+
+  do {
+    const conn = await client.projects({
+      first: 250,
+      includeArchived: true,
+      ...(after ? { after } : {}),
+    });
+    allNodes.push(...(conn.nodes ?? []));
+
+    const hasNextPage =
+      (conn as unknown as { pageInfo?: { hasNextPage?: boolean; endCursor?: string } })
+        .pageInfo?.hasNextPage ?? false;
+    after = hasNextPage
+      ? (conn as unknown as { pageInfo?: { endCursor?: string } }).pageInfo
+          ?.endCursor ?? undefined
+      : undefined;
+    pages++;
+    if (!hasNextPage) break;
+  } while (pages < MAX_PROJECT_PAGES);
+
+  return allNodes.map((p) => ({
     id: p.id,
     createdAt:
       (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
-    name: p.name,
+    name: (p as unknown as { name: string }).name,
     state: (p as unknown as { state?: string }).state ?? '',
     priority: (p as unknown as { priority?: number }).priority,
     progress: (p as unknown as { progress?: number }).progress,
