@@ -483,6 +483,17 @@ describe('list_projects TOON output', () => {
     expect(textContent).toMatch(/projects\[\d+\]/);
   });
 
+  it('includes team keys in TOON output from registry metadata', async () => {
+    const result = await listProjectsTool.handler({}, baseContext);
+
+    expect(result.isError).toBeFalsy();
+    const textContent = result.content[0].text;
+
+    // project-001 belongs to SQT, project-002 belongs to ENG
+    // Registry should have team associations from team.projects() during init
+    expect(textContent).toMatch(/SQT|ENG/);
+  });
+
   it('handles empty projects in TOON format', async () => {
     // Create mock client with no projects
     mockClient = createMockLinearClient({ projects: [] });

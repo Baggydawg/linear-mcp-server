@@ -66,6 +66,8 @@ export interface ProjectMetadata {
   progress?: number;
   leadId?: string;
   targetDate?: string;
+  /** Team keys this project belongs to (e.g., ["SQT", "GRW"]) */
+  teamKeys?: string[];
 }
 
 /**
@@ -135,6 +137,8 @@ export interface RegistryProjectEntity extends RegistryEntity {
   leadId?: string;
   /** Target completion date (YYYY-MM-DD) */
   targetDate?: string;
+  /** Team keys this project belongs to (e.g., ["SQT", "GRW"]) */
+  teamKeys?: string[];
 }
 
 /**
@@ -500,6 +504,7 @@ function buildProjectMetadata(
       progress: project.progress,
       leadId: project.leadId,
       targetDate: project.targetDate,
+      teamKeys: project.teamKeys,
     });
   }
   return metadata;

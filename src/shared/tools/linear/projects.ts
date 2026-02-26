@@ -74,10 +74,17 @@ function projectToToonRow(
     registry && leadId ? tryGetShortKey(registry, 'user', leadId) : undefined;
 
   // Format teams as comma-separated keys
-  const teamsStr = (project.teams ?? [])
+  // SDK doesn't eagerly load teams, so fall back to registry metadata
+  let teamsStr = (project.teams ?? [])
     .map((t) => t.key)
     .filter(Boolean)
     .join(',');
+  if (!teamsStr && registry) {
+    const meta = registry.projectMetadata.get(project.id);
+    if (meta?.teamKeys?.length) {
+      teamsStr = meta.teamKeys.join(',');
+    }
+  }
 
   return {
     key: projectKey ?? '',

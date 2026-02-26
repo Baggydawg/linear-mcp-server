@@ -97,11 +97,12 @@ export async function fetchWorkspaceDataForRegistry(
     };
   });
 
-  // Fetch all teams, their workflow states, and team members
+  // Fetch all teams, their workflow states, members, and project associations
   const teamsConn = await client.teams({ first: 100 });
   const teamsNodes = teamsConn.nodes ?? [];
   const states: RegistryBuildData['states'] = [];
   const userTeamMap = new Map<string, string[]>();
+  const projectTeamMap = new Map<string, string[]>();
 
   for (const team of teamsNodes) {
     const statesConn = await (
@@ -126,8 +127,9 @@ export async function fetchWorkspaceDataForRegistry(
       });
     }
 
-    // Fetch team members for user team-membership enrichment
     const teamKey = (team as unknown as { key?: string }).key ?? team.id;
+
+    // Fetch team members for user team-membership enrichment
     const membersConn = await (
       team as unknown as {
         members: (opts: {
@@ -141,6 +143,22 @@ export async function fetchWorkspaceDataForRegistry(
       }
       userTeamMap.get(member.id)!.push(teamKey);
     }
+
+    // Fetch team projects for project-team association
+    const teamProjectsConn = await (
+      team as unknown as {
+        projects: (opts?: {
+          first?: number;
+          includeArchived?: boolean;
+        }) => Promise<{ nodes: Array<{ id: string }> }>;
+      }
+    ).projects({ first: 100, includeArchived: true });
+    for (const project of teamProjectsConn.nodes ?? []) {
+      if (!projectTeamMap.has(project.id)) {
+        projectTeamMap.set(project.id, []);
+      }
+      projectTeamMap.get(project.id)!.push(teamKey);
+    }
   }
 
   // Enrich users with team membership
@@ -151,6 +169,11 @@ export async function fetchWorkspaceDataForRegistry(
 
   // Fetch projects globally (reuses the standalone fetchGlobalProjects)
   const projects = await fetchGlobalProjects(client);
+
+  // Enrich projects with team associations
+  for (const project of projects) {
+    project.teamKeys = projectTeamMap.get(project.id);
+  }
 
   // Get workspace ID from viewer
   const viewer = await client.viewer;
