@@ -10,6 +10,10 @@
 import { z } from 'zod';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
+import {
+  createErrorFromException,
+  formatErrorMessage,
+} from '../../../utils/errors.js';
 import { delay, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
@@ -295,41 +299,58 @@ export const listProjectUpdatesTool = defineTool({
     }
 
     // Fetch project updates using filter
-    const conn = await client.projectUpdates({
-      first,
-      after,
-      filter: { project: { id: { eq: resolvedProjectId } } },
-    });
+    let rawUpdates: RawProjectUpdateData[];
 
-    // Convert to raw data for processing
-    const rawUpdates: RawProjectUpdateData[] = await Promise.all(
-      conn.nodes.map(async (update) => {
-        const user = await (
-          update as unknown as {
-            user?: Promise<{ id: string; name?: string } | null>;
-          }
-        ).user;
-        const project = await (
-          update as unknown as {
-            project?: Promise<{ id: string; name?: string } | null>;
-          }
-        ).project;
+    try {
+      const conn = await client.projectUpdates({
+        first,
+        after,
+        filter: { project: { id: { eq: resolvedProjectId } } },
+      });
 
-        return {
-          id: update.id,
-          body: (update as unknown as { body?: string }).body ?? '',
-          health: (update as unknown as { health?: string }).health,
-          createdAt: update.createdAt,
-          url: (update as unknown as { url?: string }).url,
-          user,
-          project,
-        };
-      }),
-    );
+      // Convert to raw data for processing
+      rawUpdates = await Promise.all(
+        conn.nodes.map(async (update) => {
+          const user = await (
+            update as unknown as {
+              user?: Promise<{ id: string; name?: string } | null>;
+            }
+          ).user;
+          const project = await (
+            update as unknown as {
+              project?: Promise<{ id: string; name?: string } | null>;
+            }
+          ).project;
 
-    const pageInfo = conn.pageInfo;
-    const hasMore = pageInfo?.hasNextPage ?? false;
-    const nextCursor = hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
+          return {
+            id: update.id,
+            body: (update as unknown as { body?: string }).body ?? '',
+            health: (update as unknown as { health?: string }).health,
+            createdAt: update.createdAt,
+            url: (update as unknown as { url?: string }).url,
+            user,
+            project,
+          };
+        }),
+      );
+
+      const pageInfo = conn.pageInfo;
+      const hasMore = pageInfo?.hasNextPage ?? false;
+      const nextCursor = hasMore
+        ? (pageInfo?.endCursor ?? undefined)
+        : undefined;
+    } catch (error) {
+      const toolError = createErrorFromException(error as Error);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: formatErrorMessage(toolError) }],
+        structuredContent: {
+          error: toolError.code,
+          message: toolError.message,
+          hint: toolError.hint,
+        },
+      };
+    }
 
     // Build TOON response
     const toonResponse = buildProjectUpdatesToonResponse(

@@ -1266,3 +1266,24 @@ describe('update_projects departed lead diff fallback', () => {
     expect(textContent).toContain('u1');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// list_projects API Error Handling Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_projects API error handling', () => {
+  it('returns structured error when projects fetch fails', async () => {
+    mockClient.projects = vi
+      .fn()
+      .mockRejectedValue(new Error('Network error'));
+
+    const result = await listProjectsTool.handler({}, baseContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Error');
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.error).toBeDefined();
+    expect(structured.hint).toBeDefined();
+  });
+});

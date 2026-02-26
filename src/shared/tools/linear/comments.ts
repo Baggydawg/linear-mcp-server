@@ -9,6 +9,10 @@ import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
+import {
+  createErrorFromException,
+  formatErrorMessage,
+} from '../../../utils/errors.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import {
@@ -222,32 +226,55 @@ export const listCommentsTool = defineTool({
 
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
     const client = await getLinearClient(context);
-    const issue = await client.issue(args.issueId);
-    const first = args.limit ?? 20;
-    const after = args.cursor;
-    const conn = await issue.comments({ first, after });
 
-    const pageInfo = conn.pageInfo;
-    const _hasMore = pageInfo?.hasNextPage ?? false;
-    const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
+    let issue: Awaited<ReturnType<typeof client.issue>>;
+    let rawComments: RawCommentData[];
+    let issueIdentifier: string;
 
-    // Get issue identifier for TOON output
-    const issueIdentifier =
-      (issue as unknown as { identifier?: string }).identifier ?? args.issueId;
+    try {
+      issue = await client.issue(args.issueId);
+      const first = args.limit ?? 20;
+      const after = args.cursor;
+      const conn = await issue.comments({ first, after });
 
-    // Convert items to RawCommentData for TOON processing
-    // Must await user relation as Linear SDK uses lazy-loading (returns Promise)
-    const rawComments: RawCommentData[] = await Promise.all(
-      conn.nodes.map(async (c) => ({
-        id: c.id,
-        body: (c as unknown as { body?: string }).body ?? '',
-        createdAt: c.createdAt,
-        user:
-          (await (
-            c as unknown as { user?: Promise<{ id: string; name?: string } | null> }
-          ).user) ?? null,
-      })),
-    );
+      const pageInfo = conn.pageInfo;
+      const _hasMore = pageInfo?.hasNextPage ?? false;
+      const _nextCursor = _hasMore
+        ? (pageInfo?.endCursor ?? undefined)
+        : undefined;
+
+      // Get issue identifier for TOON output
+      issueIdentifier =
+        (issue as unknown as { identifier?: string }).identifier ??
+        args.issueId;
+
+      // Convert items to RawCommentData for TOON processing
+      // Must await user relation as Linear SDK uses lazy-loading (returns Promise)
+      rawComments = await Promise.all(
+        conn.nodes.map(async (c) => ({
+          id: c.id,
+          body: (c as unknown as { body?: string }).body ?? '',
+          createdAt: c.createdAt,
+          user:
+            (await (
+              c as unknown as {
+                user?: Promise<{ id: string; name?: string } | null>;
+              }
+            ).user) ?? null,
+        })),
+      );
+    } catch (error) {
+      const toolError = createErrorFromException(error as Error);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: formatErrorMessage(toolError) }],
+        structuredContent: {
+          error: toolError.code,
+          message: toolError.message,
+          hint: toolError.hint,
+        },
+      };
+    }
 
     // Initialize registry if needed (lazy init)
     let registry: ShortKeyRegistry | null = null;

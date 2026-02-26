@@ -777,10 +777,23 @@ export const listIssuesTool = defineTool({
 
     // Apply assignedToMe filter
     if (args.assignedToMe) {
-      const viewer = await client.viewer;
-      const viewerId = (viewer as unknown as { id?: string })?.id;
-      if (viewerId) {
-        filter = { ...filter, assignee: { id: { eq: viewerId } } };
+      try {
+        const viewer = await client.viewer;
+        const viewerId = (viewer as unknown as { id?: string })?.id;
+        if (viewerId) {
+          filter = { ...filter, assignee: { id: { eq: viewerId } } };
+        }
+      } catch (error) {
+        const toolError = createErrorFromException(error as Error);
+        return {
+          isError: true,
+          content: [{ type: 'text', text: formatErrorMessage(toolError) }],
+          structuredContent: {
+            error: toolError.code,
+            message: toolError.message,
+            hint: toolError.hint,
+          },
+        };
       }
     }
 

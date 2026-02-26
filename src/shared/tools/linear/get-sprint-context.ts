@@ -749,7 +749,21 @@ export const getSprintContextTool = defineTool({
     const client = await getLinearClient(context);
 
     // Get team (default to first team if not specified)
-    const teamsConn = await client.teams({ first: 100 });
+    let teamsConn;
+    try {
+      teamsConn = await client.teams({ first: 100 });
+    } catch (error) {
+      const toolError = createErrorFromException(error as Error);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: formatErrorMessage(toolError) }],
+        structuredContent: {
+          error: toolError.code,
+          message: toolError.message,
+          hint: toolError.hint,
+        },
+      };
+    }
     const teams = teamsConn.nodes ?? [];
 
     if (teams.length === 0) {

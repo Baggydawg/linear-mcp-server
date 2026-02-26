@@ -816,3 +816,78 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// API Error Handling Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('workspace_metadata API error handling', () => {
+  it('returns structured error when viewer/teams fetch fails', async () => {
+    const { clearRegistry } = await import(
+      '../../src/shared/toon/registry.js'
+    );
+    clearRegistry(baseContext.sessionId);
+
+    // Override teams to throw a network error
+    mockClient.teams = vi.fn().mockRejectedValue(
+      new Error('Network request failed'),
+    ) as typeof mockClient.teams;
+
+    const result = await workspaceMetadataTool.handler({}, baseContext);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Network request failed');
+    expect(result.structuredContent).toBeDefined();
+    expect(result.structuredContent).toHaveProperty('error');
+    expect(result.structuredContent).toHaveProperty('hint');
+
+    clearRegistry(baseContext.sessionId);
+  });
+
+  it('continues when team.states() fails for one team', async () => {
+    const { clearRegistry } = await import(
+      '../../src/shared/toon/registry.js'
+    );
+    clearRegistry(baseContext.sessionId);
+
+    // Get the actual teams from the mock and break one team's states
+    const teamsResponse = await mockClient.teams({ first: 100 });
+    const sqtTeam = teamsResponse.nodes.find(
+      (t: { id: string }) => t.id === 'team-sqt',
+    );
+    const originalStates = sqtTeam!.states;
+
+    // SQT team's states() will throw
+    sqtTeam!.states = () => Promise.reject(new Error('States fetch failed'));
+
+    try {
+      const result = await workspaceMetadataTool.handler({}, baseContext);
+
+      // Tool should succeed (not an error)
+      expect(result.isError).toBeFalsy();
+
+      const text = result.content[0].text;
+
+      // Should still have states from other teams (ENG, DES, SQM)
+      // ENG has 5 states, DES has 5, SQM has 3 = 13 total (minus SQT's 6)
+      expect(text).toContain('_states[');
+      expect(text).toContain('Pending'); // SQM state still present
+      expect(text).toContain('Active'); // SQM state still present
+
+      // SQT-specific state "In Review" should be absent (SQT states failed)
+      const statesSection = text.match(
+        /_states\[\d+\]\{[^}]+\}:\n([\s\S]*?)(?=\n\n|\n_|$)/,
+      );
+      expect(statesSection).not.toBeNull();
+      // "In Review" only exists in SQT states, so it should be missing
+      expect(statesSection![1]).not.toContain('In Review');
+
+      // Teams section should still show all teams
+      expect(text).toContain('_teams[');
+      expect(text).toContain('SQT');
+    } finally {
+      sqtTeam!.states = originalStates;
+      clearRegistry(baseContext.sessionId);
+    }
+  });
+});

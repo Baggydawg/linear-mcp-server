@@ -10,6 +10,10 @@ import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
+import {
+  createErrorFromException,
+  formatErrorMessage,
+} from '../../../utils/errors.js';
 import { resolveTeamId } from '../../../utils/resolvers.js';
 import {
   formatProfileForToon,
@@ -26,6 +30,7 @@ import {
   LABEL_LOOKUP_SCHEMA,
   PROJECT_LOOKUP_SCHEMA,
   type RegistryBuildData,
+  type RegistryProjectEntity,
   STATE_LOOKUP_SCHEMA,
   storeRegistry,
   TEAM_LOOKUP_SCHEMA,
@@ -406,54 +411,68 @@ export const workspaceMetadataTool = defineTool({
       cycles: [],
     };
 
-    // Fetch viewer/profile (always needed for registry)
-    const viewer = await client.viewer;
-    workspaceData.viewer = {
-      id: viewer.id,
-      name: viewer.name ?? undefined,
-      email: viewer.email ?? undefined,
-      displayName: viewer.displayName ?? undefined,
-      timezone: viewer.timezone ?? undefined,
-    };
-
-    // Fetch organization name for TOON _meta section
-    try {
-      const org = await viewer.organization;
-      workspaceData.organizationName = org?.name ?? undefined;
-    } catch {
-      // Organization fetch failed, leave organizationName undefined
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Fetch ALL teams (registry needs all, TOON output may be filtered)
-    // ─────────────────────────────────────────────────────────────────────────
-
+    // Fetch viewer/profile and teams (both are fatal — tool cannot produce
+    // output without them)
     let allTeams: TeamLike[] = [];
     let filteredTeams: TeamLike[] = [];
-    {
-      // Always fetch all teams for the registry
-      const teamConn = (await client.teams({ first: 100 })) as unknown as {
-        nodes: TeamLike[];
+    try {
+      const viewer = await client.viewer;
+      workspaceData.viewer = {
+        id: viewer.id,
+        name: viewer.name ?? undefined,
+        email: viewer.email ?? undefined,
+        displayName: viewer.displayName ?? undefined,
+        timezone: viewer.timezone ?? undefined,
       };
-      allTeams = teamConn.nodes as TeamLike[];
 
-      // Filter teams for TOON output display
-      if (teamIdsFilter.size > 0) {
-        filteredTeams = allTeams.filter((t) => teamIdsFilter.has(t.id));
-      } else {
-        filteredTeams = allTeams;
+      // Fetch organization name for TOON _meta section
+      try {
+        const org = await viewer.organization;
+        workspaceData.organizationName = org?.name ?? undefined;
+      } catch {
+        // Organization fetch failed, leave organizationName undefined
       }
 
-      // Show ALL teams so Claude knows workspace structure (filtered teams used for states/labels/cycles)
-      workspaceData.teams = allTeams.map((t) => ({
-        id: t.id,
-        key: t.key ?? undefined,
-        name: t.name,
-        cyclesEnabled: t.cyclesEnabled,
-        cycleDuration: t.cycleDuration,
-        estimationType: t.issueEstimationType,
-        createdAt: t.createdAt,
-      }));
+      // ───────────────────────────────────────────────────────────────────────
+      // Fetch ALL teams (registry needs all, TOON output may be filtered)
+      // ───────────────────────────────────────────────────────────────────────
+
+      {
+        // Always fetch all teams for the registry
+        const teamConn = (await client.teams({ first: 100 })) as unknown as {
+          nodes: TeamLike[];
+        };
+        allTeams = teamConn.nodes as TeamLike[];
+
+        // Filter teams for TOON output display
+        if (teamIdsFilter.size > 0) {
+          filteredTeams = allTeams.filter((t) => teamIdsFilter.has(t.id));
+        } else {
+          filteredTeams = allTeams;
+        }
+
+        // Show ALL teams so Claude knows workspace structure (filtered teams used for states/labels/cycles)
+        workspaceData.teams = allTeams.map((t) => ({
+          id: t.id,
+          key: t.key ?? undefined,
+          name: t.name,
+          cyclesEnabled: t.cyclesEnabled,
+          cycleDuration: t.cycleDuration,
+          estimationType: t.issueEstimationType,
+          createdAt: t.createdAt,
+        }));
+      }
+    } catch (error) {
+      const toolError = createErrorFromException(error as Error);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: formatErrorMessage(toolError) }],
+        structuredContent: {
+          error: toolError.code,
+          message: toolError.message,
+          hint: toolError.hint,
+        },
+      };
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -479,39 +498,59 @@ export const workspaceMetadataTool = defineTool({
         filePath: config.USER_PROFILES_FILE,
       });
 
-      // Always fetch ALL workspace users for the registry
-      const usersConn = (await client.users({ first: 200, includeDisabled: true })) as unknown as {
-        nodes: UserLike[];
-      };
-
-      // Transform all users with profile data
-      allWorkspaceUsers = usersConn.nodes.map((u) => {
-        const profile = getUserProfile(userProfilesConfig, u.email ?? undefined);
-        const formattedRole = formatProfileForToon(profile);
-
-        return {
-          id: u.id,
-          name: u.name ?? undefined,
-          displayName: u.displayName ?? undefined,
-          email: u.email ?? undefined,
-          active: u.active,
-          role: formattedRole || (u.admin ? 'Admin' : u.guest ? 'Guest' : 'Member'),
-          skills: profile.skills,
-          focusArea: profile.focusArea,
-          createdAt: u.createdAt,
+      try {
+        // Always fetch ALL workspace users for the registry
+        const usersConn = (await client.users({
+          first: 200,
+          includeDisabled: true,
+        })) as unknown as {
+          nodes: UserLike[];
         };
-      });
+
+        // Transform all users with profile data
+        allWorkspaceUsers = usersConn.nodes.map((u) => {
+          const profile = getUserProfile(
+            userProfilesConfig,
+            u.email ?? undefined,
+          );
+          const formattedRole = formatProfileForToon(profile);
+
+          return {
+            id: u.id,
+            name: u.name ?? undefined,
+            displayName: u.displayName ?? undefined,
+            email: u.email ?? undefined,
+            active: u.active,
+            role:
+              formattedRole ||
+              (u.admin ? 'Admin' : u.guest ? 'Guest' : 'Member'),
+            skills: profile.skills,
+            focusArea: profile.focusArea,
+            createdAt: u.createdAt,
+          };
+        });
+      } catch (error) {
+        console.error(
+          'Failed to fetch workspace users:',
+          (error as Error).message,
+        );
+        allWorkspaceUsers = [];
+      }
 
       // Build team membership map for ALL teams (userId -> team keys)
       const userTeamMap = new Map<string, string[]>();
       for (const team of allTeams) {
-        const membersConn = await team.members({ first: 200 });
-        const teamKey = team.key ?? team.name;
-        for (const member of membersConn.nodes) {
-          if (!userTeamMap.has(member.id)) {
-            userTeamMap.set(member.id, []);
+        try {
+          const membersConn = await team.members({ first: 200 });
+          const teamKey = team.key ?? team.name;
+          for (const member of membersConn.nodes) {
+            if (!userTeamMap.has(member.id)) {
+              userTeamMap.set(member.id, []);
+            }
+            userTeamMap.get(member.id)!.push(teamKey);
           }
-          userTeamMap.get(member.id)!.push(teamKey);
+        } catch {
+          // Non-critical: skip this team's members
         }
       }
 
@@ -534,15 +573,19 @@ export const workspaceMetadataTool = defineTool({
       createdAt?: Date | string;
     }> = [];
     for (const team of allTeams) {
-      const states = await team.states();
-      for (const s of states.nodes) {
-        allTeamsStates.push({
-          id: s.id,
-          name: s.name,
-          type: s.type,
-          createdAt: s.createdAt,
-          teamId: team.id,
-        });
+      try {
+        const states = await team.states();
+        for (const s of states.nodes) {
+          allTeamsStates.push({
+            id: s.id,
+            name: s.name,
+            type: s.type,
+            createdAt: s.createdAt,
+            teamId: team.id,
+          });
+        }
+      } catch {
+        // Non-critical: skip this team's states
       }
     }
 
@@ -555,14 +598,18 @@ export const workspaceMetadataTool = defineTool({
 
     const labelLimit = args.label_limit ?? 50;
     for (const team of filteredTeams) {
-      const labels = await team.labels({ first: labelLimit });
-      for (const l of labels.nodes) {
-        workspaceData.labels.push({
-          id: l.id,
-          name: l.name,
-          color: l.color ?? undefined,
-          teamId: team.id,
-        });
+      try {
+        const labels = await team.labels({ first: labelLimit });
+        for (const l of labels.nodes) {
+          workspaceData.labels.push({
+            id: l.id,
+            name: l.name,
+            color: l.color ?? undefined,
+            teamId: team.id,
+          });
+        }
+      } catch {
+        // Non-critical: skip this team's labels
       }
     }
 
@@ -572,18 +619,23 @@ export const workspaceMetadataTool = defineTool({
 
     const projectLimit = args.project_limit ?? 10;
     for (const team of filteredTeams) {
-      const conn = await team.projects({ first: projectLimit });
-      for (const p of conn.nodes) {
-        workspaceData.projects.push({
-          id: p.id,
-          name: p.name,
-          state: p.state,
-          priority: p.priority,
-          progress: p.progress,
-          leadId: (p as unknown as { leadId?: string }).leadId ?? undefined,
-          targetDate: p.targetDate ?? undefined,
-          createdAt: p.createdAt,
-        });
+      try {
+        const conn = await team.projects({ first: projectLimit });
+        for (const p of conn.nodes) {
+          workspaceData.projects.push({
+            id: p.id,
+            name: p.name,
+            state: p.state,
+            priority: p.priority,
+            progress: p.progress,
+            leadId:
+              (p as unknown as { leadId?: string }).leadId ?? undefined,
+            targetDate: p.targetDate ?? undefined,
+            createdAt: p.createdAt,
+          });
+        }
+      } catch {
+        // Non-critical: skip this team's projects
       }
     }
 
@@ -638,7 +690,15 @@ export const workspaceMetadataTool = defineTool({
     // Fetch ALL projects globally for the registry (stable short keys).
     // Only fetches projects — workspace_metadata already has users, teams, states.
     // The TOON _projects display section still uses workspaceData.projects (team-filtered).
-    const globalProjects = await fetchGlobalProjects(client);
+    let globalProjects: RegistryProjectEntity[] = [];
+    try {
+      globalProjects = await fetchGlobalProjects(client);
+    } catch (error) {
+      console.error(
+        'Failed to fetch global projects:',
+        (error as Error).message,
+      );
+    }
 
     // Prepare registry build data with ALL workspace data for cross-team resolution.
     // Uses workspace_metadata's enriched users (with profiles) + global projects.

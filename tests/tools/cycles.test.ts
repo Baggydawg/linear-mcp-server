@@ -370,3 +370,25 @@ describe('list_cycles TOON output', () => {
     expect(textContent).toContain('_meta{');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// list_cycles API Error Handling Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_cycles API error handling', () => {
+  it('returns structured error when team fetch fails', async () => {
+    mockClient.team = vi.fn().mockRejectedValue(new Error('Network error'));
+
+    const result = await listCyclesTool.handler(
+      { teamId: 'team-eng' },
+      baseContext,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Error');
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.error).toBeDefined();
+    expect(structured.hint).toBeDefined();
+  });
+});

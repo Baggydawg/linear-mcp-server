@@ -11,6 +11,10 @@ import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
+import {
+  createErrorFromException,
+  formatErrorMessage,
+} from '../../../utils/errors.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { resolveTeamId } from '../../../utils/resolvers.js';
@@ -413,34 +417,55 @@ export const listProjectsTool = defineTool({
       }
     }
 
-    const conn = await client.projects({
-      first,
-      after: args.project ? undefined : after,
-      filter: filter as Record<string, unknown> | undefined,
-      includeArchived,
-    });
+    let rawProjects: RawProjectData[];
 
-    const pageInfo = conn.pageInfo;
-    const _hasMore = pageInfo?.hasNextPage ?? false;
-    const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
+    try {
+      const conn = await client.projects({
+        first,
+        after: args.project ? undefined : after,
+        filter: filter as Record<string, unknown> | undefined,
+        includeArchived,
+      });
 
-    // Convert items to RawProjectData for TOON processing
-    const rawProjects: RawProjectData[] = conn.nodes.map((p) => ({
-      id: p.id,
-      name: p.name,
-      description: (p as unknown as { description?: string }).description,
-      state: p.state,
-      priority: (p as unknown as { priority?: number }).priority,
-      progress: (p as unknown as { progress?: number }).progress,
-      leadId: (p as unknown as { leadId?: string }).leadId,
-      lead: (p as unknown as { lead?: { id?: string; name?: string } }).lead,
-      teams: (p as unknown as { teams?: { nodes?: Array<{ key?: string }> } }).teams
-        ?.nodes,
-      startDate: (p as unknown as { startDate?: string }).startDate,
-      targetDate: (p as unknown as { targetDate?: string }).targetDate,
-      health: (p as unknown as { health?: string }).health,
-      createdAt: (p as unknown as { createdAt?: Date | string }).createdAt,
-    }));
+      const pageInfo = conn.pageInfo;
+      const _hasMore = pageInfo?.hasNextPage ?? false;
+      const _nextCursor = _hasMore
+        ? (pageInfo?.endCursor ?? undefined)
+        : undefined;
+
+      // Convert items to RawProjectData for TOON processing
+      rawProjects = conn.nodes.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: (p as unknown as { description?: string }).description,
+        state: p.state,
+        priority: (p as unknown as { priority?: number }).priority,
+        progress: (p as unknown as { progress?: number }).progress,
+        leadId: (p as unknown as { leadId?: string }).leadId,
+        lead: (p as unknown as { lead?: { id?: string; name?: string } })
+          .lead,
+        teams: (
+          p as unknown as {
+            teams?: { nodes?: Array<{ key?: string }> };
+          }
+        ).teams?.nodes,
+        startDate: (p as unknown as { startDate?: string }).startDate,
+        targetDate: (p as unknown as { targetDate?: string }).targetDate,
+        health: (p as unknown as { health?: string }).health,
+        createdAt: (p as unknown as { createdAt?: Date | string }).createdAt,
+      }));
+    } catch (error) {
+      const toolError = createErrorFromException(error as Error);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: formatErrorMessage(toolError) }],
+        structuredContent: {
+          error: toolError.code,
+          message: toolError.message,
+          hint: toolError.hint,
+        },
+      };
+    }
 
     // Initialize registry if needed (lazy init — may already exist from project lookup)
     let registry: ShortKeyRegistry | null = earlyRegistry;

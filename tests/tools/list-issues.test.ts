@@ -802,4 +802,24 @@ describe('list_issues error handling', () => {
     const text = result.content[0].text;
     expect(text).toContain('Argument Validation Error');
   });
+
+  it('returns structured error when viewer fetch fails for assignedToMe', async () => {
+    Object.defineProperty(mockClient, 'viewer', {
+      get: () => Promise.reject(new Error('Auth token expired')),
+      configurable: true,
+    });
+
+    const result = await listIssuesTool.handler(
+      { assignedToMe: true },
+      baseContext,
+    );
+
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { type: string; text: string }).text;
+    expect(text).toContain('Error');
+    expect(result.structuredContent).toBeDefined();
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.error).toBeDefined();
+    expect(structured.hint).toBeDefined();
+  });
 });

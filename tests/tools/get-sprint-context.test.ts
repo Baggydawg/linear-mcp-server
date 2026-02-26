@@ -799,6 +799,22 @@ describe('get_sprint_context API error handling', () => {
     expect(result.isError).toBe(true);
     expect(mockClient.client.rawRequest).toHaveBeenCalledTimes(1);
   });
+
+  it('returns structured error when teams fetch fails', async () => {
+    (mockClient.teams as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('Network error'),
+    );
+
+    const result = await getSprintContextTool.handler({}, baseContext);
+
+    expect(result.isError).toBe(true);
+    const text = (result.content[0] as { type: string; text: string }).text;
+    expect(text).toContain('Error');
+    expect(result.structuredContent).toBeDefined();
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.error).toBeDefined();
+    expect(structured.hint).toBeDefined();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

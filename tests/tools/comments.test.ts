@@ -656,3 +656,25 @@ describe('update_comments TOON output', () => {
     expect(textContent).toContain('{index,status,id,error,code,hint}');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// list_comments API Error Handling Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_comments API error handling', () => {
+  it('returns structured error when issue fetch fails', async () => {
+    mockClient.issue = vi.fn().mockRejectedValue(new Error('Network error'));
+
+    const result = await listCommentsTool.handler(
+      { issueId: 'SQT-123' },
+      baseContext,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('Error');
+
+    const structured = result.structuredContent as Record<string, unknown>;
+    expect(structured.error).toBeDefined();
+    expect(structured.hint).toBeDefined();
+  });
+});

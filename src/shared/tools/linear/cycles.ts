@@ -10,6 +10,10 @@ import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
+import {
+  createErrorFromException,
+  formatErrorMessage,
+} from '../../../utils/errors.js';
 import { resolveTeamId } from '../../../utils/resolvers.js';
 import {
   CYCLE_SCHEMA,
@@ -156,75 +160,91 @@ export const listCyclesTool = defineTool({
     }
     const resolvedTeamId = resolvedResult.value;
 
-    const team = await client.team(resolvedTeamId);
+    try {
+      const team = await client.team(resolvedTeamId);
 
-    const cyclesEnabled =
-      ((team as unknown as { cyclesEnabled?: boolean } | null)?.cyclesEnabled ??
-        false) === true;
+      const cyclesEnabled =
+        ((team as unknown as { cyclesEnabled?: boolean } | null)
+          ?.cyclesEnabled ?? false) === true;
 
-    if (!cyclesEnabled) {
-      const msg =
-        `Cycles are disabled for team ${teamIdInput}.\n\n` +
-        `Alternatives for organizing work:\n` +
-        `- Use list_projects to manage work with milestones and project phases\n` +
-        `- Use labels to group issues by sprint/phase (e.g., "Sprint 23", "Q1-2024")\n` +
-        `- Use dueDate field on issues to track timelines\n\n` +
-        `Next steps: Check workspace_metadata with include=["teams"] to find teams with cyclesEnabled=true, ` +
-        `or use list_projects for milestone-based planning.`;
+      if (!cyclesEnabled) {
+        const msg =
+          `Cycles are disabled for team ${teamIdInput}.\n\n` +
+          `Alternatives for organizing work:\n` +
+          `- Use list_projects to manage work with milestones and project phases\n` +
+          `- Use labels to group issues by sprint/phase (e.g., "Sprint 23", "Q1-2024")\n` +
+          `- Use dueDate field on issues to track timelines\n\n` +
+          `Next steps: Check workspace_metadata with include=["teams"] to find teams with cyclesEnabled=true, ` +
+          `or use list_projects for milestone-based planning.`;
+        return {
+          isError: true,
+          content: [{ type: 'text', text: msg }],
+          structuredContent: {
+            error: 'CYCLES_DISABLED',
+            teamId: teamIdInput,
+            alternatives: ['list_projects', 'labels', 'dueDate'],
+            hint: 'Use workspace_metadata to find teams with cycles enabled.',
+          },
+        };
+      }
+
+      const first = args.limit ?? 20;
+      const after = args.cursor;
+      const orderBy =
+        args.orderBy === 'updatedAt'
+          ? LinearDocument.PaginationOrderBy.UpdatedAt
+          : args.orderBy === 'createdAt'
+            ? LinearDocument.PaginationOrderBy.CreatedAt
+            : undefined;
+
+      const conn = await team.cycles({
+        first,
+        after,
+        includeArchived: args.includeArchived,
+        orderBy,
+      });
+
+      const pageInfo = conn.pageInfo;
+      const _hasMore = pageInfo?.hasNextPage ?? false;
+      const _nextCursor = _hasMore
+        ? (pageInfo?.endCursor ?? undefined)
+        : undefined;
+
+      // Get team key for TOON output
+      const teamKey =
+        (team as unknown as { key?: string }).key ?? teamIdInput;
+
+      // Convert items to RawCycleData for TOON processing
+      const rawCycles: RawCycleData[] = conn.nodes.map((c) => ({
+        id: c.id,
+        name: (c as unknown as { name?: string })?.name,
+        number: (c as unknown as { number?: number })?.number,
+        startsAt: c.startsAt,
+        endsAt: c.endsAt,
+        completedAt: c.completedAt,
+        progress: (c as unknown as { progress?: number })?.progress,
+      }));
+
+      // Build TOON response
+      const toonResponse = buildCyclesToonResponse(rawCycles, teamKey);
+
+      // Encode TOON output
+      const toonOutput = encodeResponse(rawCycles, toonResponse);
+
+      return {
+        content: [{ type: 'text', text: toonOutput }],
+      };
+    } catch (error) {
+      const toolError = createErrorFromException(error as Error);
       return {
         isError: true,
-        content: [{ type: 'text', text: msg }],
+        content: [{ type: 'text', text: formatErrorMessage(toolError) }],
         structuredContent: {
-          error: 'CYCLES_DISABLED',
-          teamId: teamIdInput,
-          alternatives: ['list_projects', 'labels', 'dueDate'],
-          hint: 'Use workspace_metadata to find teams with cycles enabled.',
+          error: toolError.code,
+          message: toolError.message,
+          hint: toolError.hint,
         },
       };
     }
-
-    const first = args.limit ?? 20;
-    const after = args.cursor;
-    const orderBy =
-      args.orderBy === 'updatedAt'
-        ? LinearDocument.PaginationOrderBy.UpdatedAt
-        : args.orderBy === 'createdAt'
-          ? LinearDocument.PaginationOrderBy.CreatedAt
-          : undefined;
-
-    const conn = await team.cycles({
-      first,
-      after,
-      includeArchived: args.includeArchived,
-      orderBy,
-    });
-
-    const pageInfo = conn.pageInfo;
-    const _hasMore = pageInfo?.hasNextPage ?? false;
-    const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
-
-    // Get team key for TOON output
-    const teamKey = (team as unknown as { key?: string }).key ?? teamIdInput;
-
-    // Convert items to RawCycleData for TOON processing
-    const rawCycles: RawCycleData[] = conn.nodes.map((c) => ({
-      id: c.id,
-      name: (c as unknown as { name?: string })?.name,
-      number: (c as unknown as { number?: number })?.number,
-      startsAt: c.startsAt,
-      endsAt: c.endsAt,
-      completedAt: c.completedAt,
-      progress: (c as unknown as { progress?: number })?.progress,
-    }));
-
-    // Build TOON response
-    const toonResponse = buildCyclesToonResponse(rawCycles, teamKey);
-
-    // Encode TOON output
-    const toonOutput = encodeResponse(rawCycles, toonResponse);
-
-    return {
-      content: [{ type: 'text', text: toonOutput }],
-    };
   },
 });
