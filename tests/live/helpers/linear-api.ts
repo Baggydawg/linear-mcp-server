@@ -126,9 +126,12 @@ export async function fetchProjects(teamId: string): Promise<Project[]> {
   const team = await client.team(teamId);
   const conn = await (
     team as unknown as {
-      projects: (opts: { first: number }) => Promise<{ nodes: Project[] }>;
+      projects: (opts: {
+        first: number;
+        includeArchived?: boolean;
+      }) => Promise<{ nodes: Project[] }>;
     }
-  ).projects({ first: 100 });
+  ).projects({ first: 100, includeArchived: true });
   return conn.nodes;
 }
 
