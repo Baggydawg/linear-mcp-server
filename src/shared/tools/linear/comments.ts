@@ -19,6 +19,7 @@ import {
   encodeResponse,
   encodeToon,
   getOrInitRegistry,
+  getProjectSlugMap,
   getStoredRegistry,
   getUserMetadata,
   type ShortKeyRegistry,
@@ -27,7 +28,6 @@ import {
   type ToonSection,
   tryGetShortKey,
   USER_LOOKUP_SCHEMA,
-  getProjectSlugMap,
 } from '../../toon/index.js';
 import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';

@@ -144,6 +144,27 @@ export interface MockProjectUpdate {
   user?: { id: string; name?: string };
 }
 
+export interface MockDocument {
+  id: string;
+  title: string;
+  content?: string;
+  createdAt: Date;
+  updatedAt?: Date;
+  url?: string;
+  creator?:
+    | { id: string; name?: string }
+    | Promise<{ id: string; name?: string } | null>;
+  updatedBy?:
+    | { id: string; name?: string }
+    | Promise<{ id: string; name?: string } | null>;
+  project?:
+    | { id: string; name?: string }
+    | Promise<{ id: string; name?: string } | null>;
+  cycle?:
+    | { id: string; number?: number }
+    | Promise<{ id: string; number?: number } | null>;
+}
+
 export interface MockPageInfo {
   hasNextPage: boolean;
   endCursor?: string;
@@ -588,6 +609,30 @@ export const defaultMockProjectUpdates: MockProjectUpdate[] = [
   },
 ];
 
+export const defaultMockDocuments: MockDocument[] = [
+  {
+    id: 'doc-001',
+    title: 'Sprint 5 Summary',
+    content: '## Sprint Summary\n\nGreat progress this sprint.',
+    createdAt: new Date('2026-01-27T12:00:00Z'),
+    updatedAt: new Date('2026-01-28T10:00:00Z'),
+    url: 'https://linear.app/test/document/doc-001',
+    creator: { id: 'user-001', name: 'Test User' },
+    updatedBy: { id: 'user-001', name: 'Test User' },
+    project: { id: 'project-001', name: 'Test Project' },
+    cycle: { id: 'cycle-001', number: 5 },
+  },
+  {
+    id: 'doc-002',
+    title: 'Architecture Notes',
+    content: '## Architecture\n\nKey decisions documented here.',
+    createdAt: new Date('2026-01-25T09:00:00Z'),
+    url: 'https://linear.app/test/document/doc-002',
+    creator: { id: 'user-002', name: 'Another User' },
+    project: { id: 'project-001', name: 'Test Project' },
+  },
+];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock Client Factory
 // ─────────────────────────────────────────────────────────────────────────────
@@ -601,6 +646,7 @@ export interface MockLinearClientConfig {
   projects?: MockProject[];
   comments?: MockComment[];
   projectUpdates?: MockProjectUpdate[];
+  documents?: MockDocument[];
   favorites?: unknown[];
 }
 
@@ -663,6 +709,25 @@ export interface MockLinearClient {
     id: string,
     input: Record<string, unknown>,
   ) => Promise<{ success: boolean; projectUpdate?: { id: string } }>;
+  documents: (args?: {
+    first?: number;
+    after?: string;
+    filter?: Record<string, unknown>;
+  }) => Promise<MockConnection<MockDocument>>;
+  document: (id: string) => Promise<MockDocument | null>;
+  createDocument: (
+    input: Record<string, unknown>,
+  ) => Promise<{
+    success: boolean;
+    document: Promise<{ id: string; title: string; url: string }>;
+  }>;
+  updateDocument: (
+    id: string,
+    input: Record<string, unknown>,
+  ) => Promise<{
+    success: boolean;
+    document: Promise<{ id: string; title: string; url: string }>;
+  }>;
   createIssueRelation: (
     input: Record<string, unknown>,
   ) => Promise<{ success: boolean; issueRelation?: Record<string, unknown> }>;
@@ -684,6 +749,10 @@ export interface MockLinearClient {
     projectUpdates: Array<Record<string, unknown>>;
     createProjectUpdate: Array<Record<string, unknown>>;
     updateProjectUpdate: Array<{ id: string; input: Record<string, unknown> }>;
+    documents: Array<Record<string, unknown>>;
+    document: Array<string>;
+    createDocument: Array<Record<string, unknown>>;
+    updateDocument: Array<{ id: string; input: Record<string, unknown> }>;
     createIssueRelation: Array<Record<string, unknown>>;
     deleteIssueRelation: Array<string>;
   };
@@ -701,6 +770,7 @@ export function createMockLinearClient(
     projects = defaultMockProjects,
     comments = [],
     projectUpdates = defaultMockProjectUpdates,
+    documents = defaultMockDocuments,
     favorites = [],
   } = config;
 
@@ -712,6 +782,10 @@ export function createMockLinearClient(
     projectUpdates: [] as Array<Record<string, unknown>>,
     createProjectUpdate: [] as Array<Record<string, unknown>>,
     updateProjectUpdate: [] as Array<{ id: string; input: Record<string, unknown> }>,
+    documents: [] as Array<Record<string, unknown>>,
+    document: [] as Array<string>,
+    createDocument: [] as Array<Record<string, unknown>>,
+    updateDocument: [] as Array<{ id: string; input: Record<string, unknown> }>,
     createIssueRelation: [] as Array<Record<string, unknown>>,
     deleteIssueRelation: [] as Array<string>,
   };
@@ -909,6 +983,66 @@ export function createMockLinearClient(
       return {
         success: !!existing,
         projectUpdate: existing ? { id: existing.id } : undefined,
+      };
+    }),
+
+    documents: vi.fn(
+      async (args?: {
+        first?: number;
+        after?: string;
+        filter?: Record<string, unknown>;
+      }) => {
+        calls.documents.push(args ?? {});
+        const docs = documents;
+        return {
+          nodes: docs.map((d) => ({
+            ...d,
+            creator:
+              d.creator instanceof Promise
+                ? d.creator
+                : Promise.resolve(d.creator ?? null),
+            updatedBy:
+              d.updatedBy instanceof Promise
+                ? d.updatedBy
+                : Promise.resolve(d.updatedBy ?? null),
+            project:
+              d.project instanceof Promise
+                ? d.project
+                : Promise.resolve(d.project ?? null),
+            cycle:
+              d.cycle instanceof Promise ? d.cycle : Promise.resolve(d.cycle ?? null),
+          })),
+          pageInfo: { hasNextPage: false, endCursor: null },
+        };
+      },
+    ),
+
+    document: vi.fn(async (id: string) => {
+      calls.document.push(id);
+      return documents.find((d) => d.id === id) ?? null;
+    }),
+
+    createDocument: vi.fn(async (input: Record<string, unknown>) => {
+      calls.createDocument.push(input);
+      return {
+        success: true,
+        document: Promise.resolve({
+          id: 'new-doc-001',
+          title: (input.title as string) ?? 'New Document',
+          url: 'https://linear.app/test/document/new-doc-001',
+        }),
+      };
+    }),
+
+    updateDocument: vi.fn(async (id: string, input: Record<string, unknown>) => {
+      calls.updateDocument.push({ id, input });
+      return {
+        success: true,
+        document: Promise.resolve({
+          id,
+          title: (input.title as string) ?? 'Updated Document',
+          url: `https://linear.app/test/document/${id}`,
+        }),
       };
     }),
 
@@ -1224,6 +1358,44 @@ export function createMockLinearClient(
           };
         }
 
+        // GetCycleDocuments query (used by list_documents with cycle filter)
+        if (typeof query === 'string' && query.includes('GetCycleDocuments')) {
+          const docs = documents;
+          return {
+            data: {
+              cycle: {
+                id: (variables?.cycleId as string) ?? 'cycle-001',
+                number: 5,
+                documents: {
+                  nodes: docs
+                    .filter((d) => {
+                      const cycle =
+                        d.cycle && !(d.cycle instanceof Promise) ? d.cycle : null;
+                      return cycle !== null;
+                    })
+                    .map((d) => ({
+                      id: d.id,
+                      title: d.title,
+                      content: d.content,
+                      createdAt: d.createdAt.toISOString(),
+                      updatedAt: d.updatedAt?.toISOString(),
+                      url: d.url,
+                      creator:
+                        d.creator && !(d.creator instanceof Promise) ? d.creator : null,
+                      updatedBy:
+                        d.updatedBy && !(d.updatedBy instanceof Promise)
+                          ? d.updatedBy
+                          : null,
+                      project:
+                        d.project && !(d.project instanceof Promise) ? d.project : null,
+                      cycle: d.cycle && !(d.cycle instanceof Promise) ? d.cycle : null,
+                    })),
+                },
+              },
+            },
+          };
+        }
+
         // Default empty response for unknown queries
         return { data: {} };
       }),
@@ -1246,6 +1418,10 @@ export function resetMockCalls(client: MockLinearClient): void {
   client._calls.projectUpdates = [];
   client._calls.createProjectUpdate = [];
   client._calls.updateProjectUpdate = [];
+  client._calls.documents = [];
+  client._calls.document = [];
+  client._calls.createDocument = [];
+  client._calls.updateDocument = [];
   client._calls.createIssueRelation = [];
   client._calls.deleteIssueRelation = [];
 
@@ -1268,6 +1444,10 @@ export function resetMockCalls(client: MockLinearClient): void {
   (client.projectUpdates as ReturnType<typeof vi.fn>).mockClear();
   (client.createProjectUpdate as ReturnType<typeof vi.fn>).mockClear();
   (client.updateProjectUpdate as ReturnType<typeof vi.fn>).mockClear();
+  (client.documents as ReturnType<typeof vi.fn>).mockClear();
+  (client.document as ReturnType<typeof vi.fn>).mockClear();
+  (client.createDocument as ReturnType<typeof vi.fn>).mockClear();
+  (client.updateDocument as ReturnType<typeof vi.fn>).mockClear();
   (client.createIssueRelation as ReturnType<typeof vi.fn>).mockClear();
   (client.deleteIssueRelation as ReturnType<typeof vi.fn>).mockClear();
   (client.client.rawRequest as ReturnType<typeof vi.fn>).mockClear();

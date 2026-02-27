@@ -15,13 +15,12 @@ import { createErrorFromException, formatErrorMessage } from '../../../utils/err
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { resolveTeamId } from '../../../utils/resolvers.js';
-import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
-import { autoLinkWithRegistry } from './shared/index.js';
 import {
   CREATED_PROJECT_SCHEMA,
   encodeResponse,
   encodeToon,
   getOrInitRegistry,
+  getProjectSlugMap,
   getUserMetadata,
   getUserStatusLabel,
   PROJECT_CHANGES_SCHEMA,
@@ -35,9 +34,10 @@ import {
   tryGetShortKey,
   tryResolveShortKey,
   USER_LOOKUP_SCHEMA,
-  getProjectSlugMap,
 } from '../../toon/index.js';
+import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
+import { autoLinkWithRegistry } from './shared/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TOON Output Support (Tier 2 - Referenced Entities Only)

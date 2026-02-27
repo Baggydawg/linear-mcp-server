@@ -13,13 +13,12 @@ import { getLinearClient } from '../../../services/linear/client.js';
 import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import { delay, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
-import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
-import { autoLinkWithRegistry } from './shared/index.js';
 import {
   CREATED_PROJECT_UPDATE_SCHEMA,
   encodeResponse,
   encodeToon,
   getOrInitRegistry,
+  getProjectSlugMap,
   getStoredRegistry,
   getUserMetadata,
   PROJECT_UPDATE_SCHEMA,
@@ -31,9 +30,10 @@ import {
   tryGetShortKey,
   tryResolveShortKey,
   USER_LOOKUP_SCHEMA,
-  getProjectSlugMap,
 } from '../../toon/index.js';
+import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
+import { autoLinkWithRegistry } from './shared/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TOON Output Support (Tier 2 - Referenced Entities Only)

@@ -32,7 +32,7 @@
  *   });
  */
 
-import { getCurrentTest, type File, type Suite } from '@vitest/runner';
+import { type File, getCurrentTest, type Suite } from '@vitest/runner';
 
 // ---------------------------------------------------------------------------
 // Declaration merging — extend vitest's TaskMeta with our custom fields

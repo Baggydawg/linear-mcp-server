@@ -12,8 +12,8 @@
 import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
-import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import { getLinearClient } from '../../../services/linear/client.js';
+import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import {
   COMMENT_SCHEMA,
   encodeResponse,
@@ -23,6 +23,7 @@ import {
   GAP_SCHEMA,
   getOrInitRegistry,
   getProjectMetadata,
+  getProjectSlugMap,
   getUserMetadata,
   getUserStatusLabel,
   PROJECT_LOOKUP_SCHEMA,
@@ -34,7 +35,6 @@ import {
   type ToonSection,
   tryGetShortKey,
   USER_LOOKUP_SCHEMA,
-  getProjectSlugMap,
 } from '../../toon/index.js';
 import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';

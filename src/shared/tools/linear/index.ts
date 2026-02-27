@@ -5,6 +5,12 @@ export { addCommentsTool, listCommentsTool, updateCommentsTool } from './comment
 export { createIssuesTool } from './create-issues.js';
 // Cycles
 export { listCyclesTool } from './cycles.js';
+// Documents
+export {
+  createDocumentTool,
+  listDocumentsTool,
+  updateDocumentTool,
+} from './documents.js';
 export { getIssueHistoryTool } from './get-issue-history.js';
 export { getIssuesTool } from './get-issues.js';
 // Sprint Context

@@ -67,6 +67,11 @@ Safety & writes
 - Batch writes default to sequential; keep batches small and verify with 'list_issues'.
 - 'update_issues' ignores empty strings (e.g., dueDate: ""): only valid fields are sent.
 - If an issue's state seems unexpected or you need to understand who changed what, use 'get_issue_history' to see the audit trail.
+
+Sprint summaries
+- Use 'get_sprint_context' to gather sprint data, then 'create_document' with cycle: "current" to write a summary document inside the cycle.
+- Use 'list_documents' with cycle: "current" to see existing cycle documents.
+- Use 'update_document' to revise an existing document.
 `,
 } as const;
 
@@ -146,6 +151,27 @@ export const toolsMetadata = {
     title: 'Update Project Update',
     description:
       'Update an existing project status update. Inputs: { id: string (UUID), body?: string, health?: "onTrack"|"atRisk"|"offTrack" }.\nReturns: updated record. Note: Use list_project_updates to find the update id first.',
+  },
+
+  create_document: {
+    name: 'create_document',
+    title: 'Create Document',
+    description:
+      'Create a document, optionally associated with a cycle (sprint), project, or team. Primary use case: sprint summary documents inside cycles. Inputs: { title: string, content?: string (markdown), cycle?: "current"|"next"|"previous"|number, project?: string (short key pr0 or UUID), team?: string (team key or UUID, for cycle resolution) }.\nReturns: created document with id and url. Next: Use list_documents to see all documents for a cycle/project.',
+  },
+
+  list_documents: {
+    name: 'list_documents',
+    title: 'List Documents',
+    description:
+      'List documents filtered by cycle or project. Inputs: { cycle?: "current"|"next"|"previous"|number, project?: string (short key pr0 or UUID), team?: string (for cycle resolution), limit?, cursor? }.\nReturns documents with title, content, creator, and associations. TOON Output: Tier 2 - includes _users lookup for document authors.',
+  },
+
+  update_document: {
+    name: 'update_document',
+    title: 'Update Document',
+    description:
+      'Update an existing document title or content. Inputs: { id: string (UUID), title?: string, content?: string (markdown) }.\nReturns: updated document confirmation. Note: Use list_documents to find the document id first.',
   },
 
   list_comments: {

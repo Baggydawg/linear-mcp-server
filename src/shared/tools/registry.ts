@@ -6,6 +6,7 @@
 import type { ZodObject, ZodRawShape } from 'zod';
 import {
   addCommentsTool,
+  createDocumentTool,
   createIssuesTool,
   createProjectsTool,
   createProjectUpdateTool,
@@ -14,11 +15,13 @@ import {
   getSprintContextTool,
   listCommentsTool,
   listCyclesTool,
+  listDocumentsTool,
   listIssuesTool,
   listProjectsTool,
   listProjectUpdatesTool,
   manageRelationsTool,
   updateCommentsTool,
+  updateDocumentTool,
   updateIssuesTool,
   updateProjectsTool,
   updateProjectUpdateTool,
@@ -74,6 +77,10 @@ export const sharedTools: RegisteredTool[] = [
   listProjectUpdatesTool as unknown as RegisteredTool,
   createProjectUpdateTool as unknown as RegisteredTool,
   updateProjectUpdateTool as unknown as RegisteredTool,
+  // Linear tools - Documents
+  listDocumentsTool as unknown as RegisteredTool,
+  createDocumentTool as unknown as RegisteredTool,
+  updateDocumentTool as unknown as RegisteredTool,
 ];
 
 /**

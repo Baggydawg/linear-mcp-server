@@ -541,9 +541,7 @@ describe('autoLinkProjectReferences', () => {
     });
 
     it('links pr0 inside parentheses', () => {
-      expect(autoLinkProject('(pr0)')).toBe(
-        `(${projectUrl('mvp-platform-abc123')})`,
-      );
+      expect(autoLinkProject('(pr0)')).toBe(`(${projectUrl('mvp-platform-abc123')})`);
     });
   });
 
@@ -578,10 +576,7 @@ describe('stripProjectUrls', () => {
   describe('bare URLs', () => {
     it('strips bare project URL to short key', () => {
       expect(
-        stripProjectUrls(
-          `See ${projectUrl('mvp-platform-abc123')}`,
-          SLUG_TO_SHORT_KEY,
-        ),
+        stripProjectUrls(`See ${projectUrl('mvp-platform-abc123')}`, SLUG_TO_SHORT_KEY),
       ).toBe('See pr0');
     });
 
@@ -621,9 +616,7 @@ describe('stripProjectUrls', () => {
 
     it('strips markdown link where text is the project URL (Linear cross-ref format)', () => {
       const url = projectUrl('mvp-platform-abc123');
-      expect(
-        stripProjectUrls(`[${url}](<${url}>)`, SLUG_TO_SHORT_KEY),
-      ).toBe('pr0');
+      expect(stripProjectUrls(`[${url}](<${url}>)`, SLUG_TO_SHORT_KEY)).toBe('pr0');
     });
 
     it('preserves markdown link with custom text', () => {
@@ -801,7 +794,11 @@ describe('round-trip: autoLink project then stripProjectUrls', () => {
   it('mixed issue + project refs round-trip', () => {
     const original = 'SQT-1 depends on pr0';
     const linkedIssues = autoLink(original);
-    const linkedAll = autoLinkProjectReferences(linkedIssues, URL_KEY, PROJECT_KEY_TO_SLUG);
+    const linkedAll = autoLinkProjectReferences(
+      linkedIssues,
+      URL_KEY,
+      PROJECT_KEY_TO_SLUG,
+    );
     const strippedIssues = stripIssueUrls(linkedAll)!;
     const strippedAll = stripProjectUrls(strippedIssues, SLUG_TO_SHORT_KEY);
     expect(strippedAll).toBe(original);

@@ -564,6 +564,62 @@ export const CREATED_PROJECT_UPDATE_SCHEMA: ToonSchema = {
   fields: ['id', 'project', 'body', 'health', 'url'],
 };
 
+/**
+ * Document schema for listing documents.
+ * Used for read-only output of Linear documents.
+ *
+ * @example
+ * ```
+ * documents[2]{id,title,cycle,project,team,creator,updatedBy,createdAt,updatedAt,url,content}:
+ *   doc-uuid-1,"Sprint 5 Summary",5,pr0,SQT,u0,u1,2026-01-27T12:00:00Z,2026-01-28T10:00:00Z,https://...,"Summary text..."
+ * ```
+ */
+export const DOCUMENT_SCHEMA: ToonSchema = {
+  name: 'documents',
+  fields: [
+    'id',
+    'title',
+    'cycle',
+    'project',
+    'team',
+    'creator',
+    'updatedBy',
+    'createdAt',
+    'updatedAt',
+    'url',
+    'content',
+  ],
+};
+
+/**
+ * Write result schema for document update operations.
+ * Per-item outcome for document operations.
+ *
+ * @example
+ * ```
+ * results[1]{index,status,id,error,code,hint}:
+ *   0,ok,doc-uuid-1,,,
+ * ```
+ */
+export const DOCUMENT_WRITE_RESULT_SCHEMA: ToonSchema = {
+  name: 'results',
+  fields: ['index', 'status', 'id', 'error', 'code', 'hint'],
+};
+
+/**
+ * Created document schema for create_document output.
+ *
+ * @example
+ * ```
+ * created[1]{id,title,cycle,project,url}:
+ *   doc-uuid-1,"Sprint Summary",5,pr0,https://...
+ * ```
+ */
+export const CREATED_DOCUMENT_SCHEMA: ToonSchema = {
+  name: 'created',
+  fields: ['id', 'title', 'cycle', 'project', 'url'],
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HISTORY SCHEMA (for get_issue_history)
 // Activity/audit trail entries showing who changed what and when.
@@ -651,6 +707,7 @@ export const DATA_SCHEMAS = {
   RELATION: RELATION_SCHEMA,
   ATTACHMENT: ATTACHMENT_SCHEMA,
   PROJECT_UPDATE: PROJECT_UPDATE_SCHEMA,
+  DOCUMENT: DOCUMENT_SCHEMA,
   HISTORY_ENTRY: HISTORY_ENTRY_SCHEMA,
 } as const;
 
@@ -680,6 +737,8 @@ export const WRITE_SCHEMAS = {
   PROJECT_UPDATE_RESULT: PROJECT_UPDATE_WRITE_RESULT_SCHEMA,
   CREATED_PROJECT_UPDATE: CREATED_PROJECT_UPDATE_SCHEMA,
   RELATION_WRITE_RESULT: RELATION_WRITE_RESULT_SCHEMA,
+  DOCUMENT_RESULT: DOCUMENT_WRITE_RESULT_SCHEMA,
+  CREATED_DOCUMENT: CREATED_DOCUMENT_SCHEMA,
 } as const;
 
 /**
@@ -714,6 +773,8 @@ export const ALL_SCHEMAS = {
   PROJECT_UPDATE_WRITE_RESULT: PROJECT_UPDATE_WRITE_RESULT_SCHEMA,
   CREATED_PROJECT_UPDATE: CREATED_PROJECT_UPDATE_SCHEMA,
   RELATION_WRITE_RESULT: RELATION_WRITE_RESULT_SCHEMA,
+  DOCUMENT_WRITE_RESULT: DOCUMENT_WRITE_RESULT_SCHEMA,
+  CREATED_DOCUMENT: CREATED_DOCUMENT_SCHEMA,
 
   // Gap analysis
   GAP: GAP_SCHEMA,

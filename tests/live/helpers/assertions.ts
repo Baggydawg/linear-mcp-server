@@ -9,10 +9,10 @@
 import { expect } from 'vitest';
 import type { ShortKeyRegistry } from '../../../src/shared/toon/registry.js';
 import {
-  tryResolveShortKey,
-  getUserMetadata,
-  getStateMetadata,
   getProjectMetadata,
+  getStateMetadata,
+  getUserMetadata,
+  tryResolveShortKey,
 } from '../../../src/shared/toon/registry.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
