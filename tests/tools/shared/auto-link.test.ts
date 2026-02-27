@@ -291,6 +291,37 @@ describe('stripIssueUrls', () => {
     });
   });
 
+  describe('angle-bracket URL references (Linear cross-team format)', () => {
+    it('strips [url](<url>) where both are same Linear issue URL', () => {
+      expect(
+        stripIssueUrls(
+          '[https://linear.app/ws/issue/SQM-1](<https://linear.app/ws/issue/SQM-1>)',
+        ),
+      ).toBe('SQM-1');
+    });
+
+    it('strips [url](<url>) with slug in link text', () => {
+      expect(
+        stripIssueUrls(
+          '[https://linear.app/ws/issue/SQM-1/some-title](<https://linear.app/ws/issue/SQM-1>)',
+        ),
+      ).toBe('SQM-1');
+    });
+
+    it('preserves [custom text](<url>) with angle-bracket URL', () => {
+      const text = '[custom text](<https://linear.app/ws/issue/SQT-160>)';
+      expect(stripIssueUrls(text)).toBe(text);
+    });
+
+    it('strips actual Linear API cross-team format in context', () => {
+      expect(
+        stripIssueUrls(
+          'Blocked by [https://linear.app/sophiq/issue/SQM-1](<https://linear.app/sophiq/issue/SQM-1>). Also related to [DO-10](https://linear.app/sophiq/issue/DO-10).',
+        ),
+      ).toBe('Blocked by SQM-1. Also related to DO-10.');
+    });
+  });
+
   describe('non-Linear URLs', () => {
     it('leaves non-Linear URLs unchanged', () => {
       const text = 'https://example.com/SQT-297';

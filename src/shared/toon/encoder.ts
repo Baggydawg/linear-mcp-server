@@ -185,7 +185,8 @@ export function stripMarkdownImages(text: string | null | undefined): string | n
  *
  * Handles three formats:
  * - Markdown links: [SQT-297](https://linear.app/ws/issue/SQT-297/slug) → SQT-297
- * - Angle-bracket refs: [SQM-1](<SQM-1>) → SQM-1
+ * - Angle-bracket links: [url](<url>) → identifier (Linear's cross-team format)
+ * - Angle-bracket refs: [SQM-1](<SQM-1>) → SQM-1 (post-strip fallback)
  * - Bare URLs: https://linear.app/ws/issue/SQT-297/some-slug → SQT-297
  *
  * Preserves markdown links with custom text (non-identifier link text).
@@ -207,11 +208,18 @@ export function stripIssueUrls(text: string | null | undefined): string | null {
   const PH_PRE = '\u200B\u200BMDLNK';
   const PH_SUF = '\u200B\u200B';
   result = result.replace(
-    /\[([^\]]*)\]\(https?:\/\/linear\.app\/[^/]+\/issue\/([A-Z]+-\d+)(?:\/[^)]*)?\)/gi,
+    /\[([^\]]*)\]\(<?https?:\/\/linear\.app\/[^/]+\/issue\/([A-Z]+-\d+)(?:\/[^)>]*)?>?\)/gi,
     (match, linkText: string, identifier: string) => {
+      const upperIdentifier = identifier.toUpperCase();
       // If link text matches the identifier, collapse to just the identifier
-      if (linkText.toUpperCase() === identifier.toUpperCase()) {
-        return identifier.toUpperCase();
+      if (linkText.toUpperCase() === upperIdentifier) {
+        return upperIdentifier;
+      }
+      // If link text is a Linear URL for the same issue, collapse
+      // (Linear returns cross-team refs as [url](<url>))
+      const urlMatch = linkText.match(/linear\.app\/[^/]+\/issue\/([A-Z]+-\d+)/i);
+      if (urlMatch && urlMatch[1].toUpperCase() === upperIdentifier) {
+        return upperIdentifier;
       }
       // Custom link text — protect from step 2 with placeholder
       const idx = placeholders.length;
