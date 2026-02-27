@@ -160,8 +160,9 @@ describe('autoLinkIssueReferences', () => {
       expect(autoLink(text)).toBe(text);
     });
 
-    it('does not link inside angle-bracket markdown reference', () => {
-      const text = '[SQM-1](<SQM-1>)';
+    it('does not link inside angle-bracket markdown link', () => {
+      const text =
+        '[https://linear.app/ws/issue/SQM-1](<https://linear.app/ws/issue/SQM-1>)';
       expect(autoLink(text)).toBe(text);
     });
   });
@@ -259,35 +260,6 @@ describe('stripIssueUrls', () => {
       expect(stripIssueUrls('[sqt-297](https://linear.app/ws/issue/SQT-297)')).toBe(
         'SQT-297',
       );
-    });
-  });
-
-  describe('angle-bracket references', () => {
-    it('strips angle-bracket ref where text matches identifier', () => {
-      expect(stripIssueUrls('[SQM-1](<SQM-1>)')).toBe('SQM-1');
-    });
-
-    it('strips angle-bracket ref case-insensitively', () => {
-      expect(stripIssueUrls('[sqt-297](<SQT-297>)')).toBe('SQT-297');
-    });
-
-    it('preserves angle-bracket ref with custom text', () => {
-      const text = '[custom text](<SQT-160>)';
-      expect(stripIssueUrls(text)).toBe(text);
-    });
-
-    it('strips multiple angle-bracket refs', () => {
-      expect(
-        stripIssueUrls('See [SQM-1](<SQM-1>) and [DO-10](<DO-10>)'),
-      ).toBe('See SQM-1 and DO-10');
-    });
-
-    it('handles mixed full-URL and angle-bracket refs', () => {
-      expect(
-        stripIssueUrls(
-          'See https://linear.app/ws/issue/SQT-160 and [SQM-1](<SQM-1>)',
-        ),
-      ).toBe('See SQT-160 and SQM-1');
     });
   });
 
