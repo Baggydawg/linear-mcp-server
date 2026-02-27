@@ -254,6 +254,17 @@ export const defaultMockProjects: MockProject[] = [
     teamId: 'team-eng',
     createdAt: new Date('2024-11-01T00:00:00Z'),
   },
+  {
+    id: 'project-003',
+    name: 'Q1 Planning',
+    state: 'planned',
+    priority: 1,
+    progress: 0,
+    lead: { id: 'user-001' },
+    leadId: 'user-001',
+    teamId: 'team-sqt',
+    createdAt: new Date('2025-01-15T00:00:00Z'),
+  },
 ];
 
 export const defaultMockTeams: MockTeam[] = [

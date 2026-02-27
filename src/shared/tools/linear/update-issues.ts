@@ -718,7 +718,7 @@ export const updateIssuesTool = defineTool({
               error: {
                 code: 'PROJECT_RESOLUTION_FAILED',
                 message: projectResult.error,
-                suggestions: ['Use workspace_metadata to see available projects'],
+                suggestions: projectResult.suggestions,
               },
             });
             continue;

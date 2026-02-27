@@ -320,10 +320,22 @@ export async function resolveProject(
     const projects = await client.projects({ first: 100 });
     const normalized = projectName.toLowerCase().trim();
 
+    if (!normalized) {
+      return { success: false, error: 'Project name cannot be empty' };
+    }
+
     const exactMatch = projects.nodes.find((p) => p.name.toLowerCase() === normalized);
 
     if (exactMatch) {
       return { success: true, value: exactMatch.id };
+    }
+
+    // Prefix match: auto-resolve if exactly one project starts with input
+    const prefixMatches = projects.nodes.filter((p) =>
+      p.name.toLowerCase().startsWith(normalized),
+    );
+    if (prefixMatches.length === 1) {
+      return { success: true, value: prefixMatches[0].id };
     }
 
     // Partial match suggestions

@@ -517,6 +517,48 @@ describe('update_issues short key resolution', () => {
     expect(result.structuredContent).toBeUndefined();
     expect(result.content[0].text).toContain('s99');
   });
+
+  it('projectName exact match resolves and updates issue', async () => {
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001',
+            projectName: 'Infrastructure',
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(mockClient.updateIssue).toHaveBeenCalledWith(
+      'issue-001',
+      expect.objectContaining({
+        projectId: 'project-002',
+      }),
+    );
+  });
+
+  it('projectName not found passes through suggestions in error', async () => {
+    const result = await updateIssuesTool.handler(
+      {
+        items: [
+          {
+            id: 'issue-001',
+            projectName: 'Nonexistent Project',
+          },
+        ],
+      },
+      baseContext,
+    );
+
+    // Batch continues despite item failure
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content[0].text).toContain('PROJECT_RESOLUTION_FAILED');
+    expect(result.content[0].text).toContain('Nonexistent Project');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
