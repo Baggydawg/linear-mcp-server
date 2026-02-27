@@ -60,6 +60,7 @@ export interface MockProject {
   id: string;
   name: string;
   icon?: string;
+  url?: string;
   state?: string;
   priority?: number;
   progress?: number;
@@ -257,6 +258,7 @@ export const defaultMockProjects: MockProject[] = [
     id: 'project-001',
     name: 'Q1 Release',
     icon: '🚀',
+    url: 'https://linear.app/team/project/q1-release-abc123',
     state: 'started',
     priority: 2,
     progress: 0.45,
@@ -270,6 +272,7 @@ export const defaultMockProjects: MockProject[] = [
     id: 'project-002',
     name: 'Infrastructure',
     icon: '🏗️',
+    url: 'https://linear.app/team/project/infrastructure-def456',
     state: 'planned',
     priority: 1,
     progress: 0.1,

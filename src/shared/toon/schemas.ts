@@ -69,10 +69,10 @@ export const STATE_LOOKUP_SCHEMA: ToonSchema = {
  *
  * @example
  * ```
- * _projects[3]{key,name,icon,state}:
- *   pr0,MVP Sophiq Platform,🚀,started
- *   pr1,Data Intelligence,,backlog
- *   pr2,Valuation,,backlog
+ * _projects[3]{key,name,icon,state,priority,progress,lead,targetDate}:
+ *   pr0,MVP Sophiq Platform,🚀,started,2,0.45,u1,2026-03-31
+ *   pr1,Data Intelligence,,backlog,3,0.06,u2,
+ *   pr2,Valuation,,backlog,0,0,,
  * ```
  */
 export const PROJECT_LOOKUP_SCHEMA: ToonSchema = {
@@ -328,9 +328,9 @@ export const CYCLE_SCHEMA: ToonSchema = {
  *
  * @example
  * ```
- * projects[2]{key,name,icon,description,state,priority,progress,lead,teams,startDate,targetDate,health}:
- *   pr0,MVP Sophiq Platform,🚀,"Platform for property management",started,2,0.61,u1,"SQT",,2026-02-27,onTrack
- *   pr1,Data Intelligence,,,backlog,3,0.06,u2,"SQT",,,
+ * projects[2]{key,name,icon,description,state,priority,progress,lead,teams,startDate,targetDate,health,url}:
+ *   pr0,MVP Sophiq Platform,🚀,"Platform for property management",started,2,0.61,u1,"SQT",,2026-02-27,onTrack,https://linear.app/team/project/mvp-sophiq-abc123
+ *   pr1,Data Intelligence,,,backlog,3,0.06,u2,"SQT",,,,https://linear.app/team/project/data-intelligence-def456
  * ```
  */
 export const PROJECT_SCHEMA: ToonSchema = {
@@ -348,6 +348,7 @@ export const PROJECT_SCHEMA: ToonSchema = {
     'startDate',
     'targetDate',
     'health',
+    'url',
   ],
 };
 
@@ -494,13 +495,13 @@ export const PROJECT_WRITE_RESULT_SCHEMA: ToonSchema = {
  *
  * @example
  * ```
- * created[1]{key,name,icon,state}:
- *   pr2,New Project,🚀,planned
+ * created[1]{key,name,icon,state,url}:
+ *   pr2,New Project,🚀,planned,https://linear.app/team/project/new-project-abc123
  * ```
  */
 export const CREATED_PROJECT_SCHEMA: ToonSchema = {
   name: 'created',
-  fields: ['key', 'name', 'icon', 'state'],
+  fields: ['key', 'name', 'icon', 'state', 'url'],
 };
 
 /**

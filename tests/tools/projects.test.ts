@@ -508,7 +508,7 @@ describe('list_projects TOON output', () => {
     // Should have project schema header with fields
     expect(textContent).toContain('projects[');
     expect(textContent).toContain(
-      '{key,name,icon,description,state,priority,progress,lead,teams,startDate,targetDate,health}',
+      '{key,name,icon,description,state,priority,progress,lead,teams,startDate,targetDate,health,url}',
     );
   });
 
@@ -600,7 +600,7 @@ describe('create_projects TOON output', () => {
 
     // Should have created schema
     expect(textContent).toContain('created[');
-    expect(textContent).toContain('{key,name,icon,state}');
+    expect(textContent).toContain('{key,name,icon,state,url}');
   });
 });
 

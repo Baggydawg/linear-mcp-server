@@ -50,6 +50,7 @@ interface RawProjectData {
   id: string;
   name: string;
   icon?: string | null;
+  url?: string;
   description?: string | null;
   state?: string;
   priority?: number;
@@ -108,6 +109,7 @@ function projectToToonRow(
     startDate: project.startDate ?? null,
     targetDate: project.targetDate ?? null,
     health: project.health ?? null,
+    url: project.url ?? null,
   };
 }
 
@@ -437,6 +439,7 @@ export const listProjectsTool = defineTool({
         id: p.id,
         name: p.name,
         icon: (p as unknown as { icon?: string }).icon,
+        url: (p as unknown as { url?: string }).url,
         description: (p as unknown as { description?: string }).description,
         state: p.state,
         priority: (p as unknown as { priority?: number }).priority,
@@ -576,6 +579,7 @@ export const createProjectsTool = defineTool({
       projectKey?: string;
       name?: string;
       icon?: string;
+      url?: string;
       state?: string;
       error?: string | { code: string; message: string; suggestions: string[] };
       code?: string;
@@ -685,6 +689,7 @@ export const createProjectsTool = defineTool({
           id?: string;
           state?: string;
           icon?: string;
+          url?: string;
         } | null;
 
         // Register new project and get short key for TOON output
@@ -704,6 +709,7 @@ export const createProjectsTool = defineTool({
           projectKey,
           name: it.name,
           icon: project?.icon,
+          url: project?.url,
           state: project?.state ?? 'planned',
           // Legacy
           index: i,
@@ -759,6 +765,7 @@ export const createProjectsTool = defineTool({
         name: r.name ?? '',
         icon: r.icon ?? '',
         state: r.state ?? 'planned',
+        url: r.url ?? '',
       }));
 
     // Build TOON response
