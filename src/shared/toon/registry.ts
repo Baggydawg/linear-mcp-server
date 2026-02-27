@@ -159,6 +159,8 @@ export interface RegistryBuildData {
   teams?: Array<{ id: string; key: string }>;
   /** Default team UUID - states for this team get clean keys (s0, s1...) */
   defaultTeamId?: string;
+  /** Workspace URL key for constructing Linear URLs (e.g., 'sophiq-tech') */
+  urlKey?: string;
 }
 
 /**
@@ -230,6 +232,9 @@ export interface ShortKeyRegistry {
 
   /** Default team UUID (for clean keys) */
   defaultTeamId?: string;
+
+  /** Workspace URL key for constructing Linear URLs */
+  urlKey?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -593,6 +598,7 @@ export function buildRegistry(data: RegistryBuildData): ShortKeyRegistry {
     workspaceId: data.workspaceId,
     teamKeys,
     defaultTeamId: data.defaultTeamId,
+    urlKey: data.urlKey,
   };
 }
 

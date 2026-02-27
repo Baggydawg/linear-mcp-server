@@ -38,6 +38,7 @@ import {
 } from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 import {
+  autoLinkWithRegistry,
   captureIssueSnapshot,
   computeFieldChanges,
   createTeamSettingsCache,
@@ -228,7 +229,7 @@ export const updateIssuesTool = defineTool({
         }
 
         if (typeof it.description === 'string' && it.description.trim() !== '') {
-          payloadInput.description = it.description;
+          payloadInput.description = autoLinkWithRegistry(it.description, registry);
         }
 
         // Get team ID for resolution (needed for state/labels)
@@ -1020,10 +1021,14 @@ export const updateIssuesTool = defineTool({
             // State change
             if (changes.state) {
               const beforeKey = beforeSnapshot?.stateId
-                ? (tryGetShortKey(registry, 'state', beforeSnapshot.stateId) ?? beforeSnapshot?.stateName ?? '')
+                ? (tryGetShortKey(registry, 'state', beforeSnapshot.stateId) ??
+                  beforeSnapshot?.stateName ??
+                  '')
                 : '';
               const afterKey = afterSnapshot.stateId
-                ? (tryGetShortKey(registry, 'state', afterSnapshot.stateId) ?? afterSnapshot.stateName ?? '')
+                ? (tryGetShortKey(registry, 'state', afterSnapshot.stateId) ??
+                  afterSnapshot.stateName ??
+                  '')
                 : '';
               toonChanges.push({
                 identifier: finalIdentifier,
@@ -1036,10 +1041,14 @@ export const updateIssuesTool = defineTool({
             // Assignee change
             if (changes.assignee) {
               const beforeKey = beforeSnapshot?.assigneeId
-                ? (tryGetShortKey(registry, 'user', beforeSnapshot.assigneeId) ?? beforeSnapshot?.assigneeName ?? '(departed)')
+                ? (tryGetShortKey(registry, 'user', beforeSnapshot.assigneeId) ??
+                  beforeSnapshot?.assigneeName ??
+                  '(departed)')
                 : '';
               const afterKey = afterSnapshot.assigneeId
-                ? (tryGetShortKey(registry, 'user', afterSnapshot.assigneeId) ?? afterSnapshot.assigneeName ?? '(departed)')
+                ? (tryGetShortKey(registry, 'user', afterSnapshot.assigneeId) ??
+                  afterSnapshot.assigneeName ??
+                  '(departed)')
                 : '';
               toonChanges.push({
                 identifier: finalIdentifier,
@@ -1052,10 +1061,14 @@ export const updateIssuesTool = defineTool({
             // Project change
             if (changes.project) {
               const beforeKey = beforeSnapshot?.projectId
-                ? (tryGetShortKey(registry, 'project', beforeSnapshot.projectId) ?? beforeSnapshot?.projectName ?? '')
+                ? (tryGetShortKey(registry, 'project', beforeSnapshot.projectId) ??
+                  beforeSnapshot?.projectName ??
+                  '')
                 : '';
               const afterKey = afterSnapshot.projectId
-                ? (tryGetShortKey(registry, 'project', afterSnapshot.projectId) ?? afterSnapshot.projectName ?? '')
+                ? (tryGetShortKey(registry, 'project', afterSnapshot.projectId) ??
+                  afterSnapshot.projectName ??
+                  '')
                 : '';
               toonChanges.push({
                 identifier: finalIdentifier,

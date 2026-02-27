@@ -474,9 +474,7 @@ describe('TOON Tier 1 vs Tier 2 Output', () => {
     // Verify Tier 1 includes all active users section
     // (deactivated users are excluded from short key assignment)
     expect(textContent).toContain('_users[');
-    const activeUsers = defaultMockUsers.filter(
-      (u) => (u.active ?? true) !== false,
-    );
+    const activeUsers = defaultMockUsers.filter((u) => (u.active ?? true) !== false);
     for (let i = 0; i < activeUsers.length; i++) {
       expect(textContent).toContain(`u${i}`);
     }

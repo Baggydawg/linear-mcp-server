@@ -734,9 +734,9 @@ describe('get_sprint_context error handling', () => {
 
 describe('get_sprint_context API error handling', () => {
   it('returns structured error when cycles query fails', async () => {
-    mockClient.client.rawRequest = vi.fn().mockRejectedValue(
-      new Error('Network timeout'),
-    );
+    mockClient.client.rawRequest = vi
+      .fn()
+      .mockRejectedValue(new Error('Network timeout'));
 
     const result = await getSprintContextTool.handler(
       { cycle: 'current' },
@@ -786,14 +786,9 @@ describe('get_sprint_context API error handling', () => {
   });
 
   it('does not hit cycles query for direct cycle number', async () => {
-    mockClient.client.rawRequest = vi
-      .fn()
-      .mockRejectedValue(new Error('API failure'));
+    mockClient.client.rawRequest = vi.fn().mockRejectedValue(new Error('API failure'));
 
-    const result = await getSprintContextTool.handler(
-      { cycle: 5 },
-      baseContext,
-    );
+    const result = await getSprintContextTool.handler({ cycle: 5 }, baseContext);
 
     // Should fail on the sprint context query (only call), not cycles query
     expect(result.isError).toBe(true);

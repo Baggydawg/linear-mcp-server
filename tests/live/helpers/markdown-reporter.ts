@@ -237,10 +237,7 @@ export class MarkdownReporter implements Reporter {
     }
 
     // Per-file stats for ToC
-    const fileStats = new Map<
-      string,
-      { entities: number; mismatches: number }
-    >();
+    const fileStats = new Map<string, { entities: number; mismatches: number }>();
     for (const [file, comparisons] of fcByFile) {
       const mismatches = comparisons.reduce(
         (sum, fc) => sum + fc.fields.filter((f) => !f.match).length,
@@ -386,12 +383,9 @@ export class MarkdownReporter implements Reporter {
     lines.push(`| Passed | ${passed} |`);
     lines.push(`| Failed | ${failed} |`);
     lines.push(`| Skipped | ${skipped} |`);
-    lines.push(
-      `| Duration | ${(totalDuration / 1000).toFixed(1)}s |`,
-    );
+    lines.push(`| Duration | ${(totalDuration / 1000).toFixed(1)}s |`);
     lines.push(`| Timestamp | ${timestamp} |`);
-    const tokenSuffix =
-      process.env.LINEAR_ACCESS_TOKEN?.slice(-4) ?? '????';
+    const tokenSuffix = process.env.LINEAR_ACCESS_TOKEN?.slice(-4) ?? '????';
     lines.push(`| Token | ...${tokenSuffix} |`);
     lines.push('');
 
@@ -480,8 +474,7 @@ export class MarkdownReporter implements Reporter {
 
           for (const [entityType, entities] of byEntityType) {
             const emoji = ENTITY_EMOJIS[entityType] ?? '';
-            const plural =
-              entityType.endsWith('s') ? entityType : `${entityType}s`;
+            const plural = entityType.endsWith('s') ? entityType : `${entityType}s`;
             const heading = testName
               ? `#### ${emoji} ${plural} \u2014 ${testName}`
               : `#### ${emoji} ${plural}`;
@@ -492,16 +485,13 @@ export class MarkdownReporter implements Reporter {
             if (
               entityType === 'Label' &&
               entities.every(
-                (e) =>
-                  e.fields.length === 1 && e.fields[0].field === 'name',
+                (e) => e.fields.length === 1 && e.fields[0].field === 'name',
               )
             ) {
               lines.push('| Label | Match |');
               lines.push('|-------|-------|');
               for (const fc of entities) {
-                const matchStr = fc.fields[0].match
-                  ? 'ok'
-                  : '**MISMATCH**';
+                const matchStr = fc.fields[0].match ? 'ok' : '**MISMATCH**';
                 lines.push(`| ${escapeTableValue(fc.entity, 60)} | ${matchStr} |`);
               }
               lines.push('');
@@ -510,9 +500,7 @@ export class MarkdownReporter implements Reporter {
 
             // Regular entities: collapsible details blocks
             for (const fc of entities) {
-              const entityMismatches = fc.fields.filter(
-                (f) => !f.match,
-              ).length;
+              const entityMismatches = fc.fields.filter((f) => !f.match).length;
               const fieldCount = fc.fields.length;
               const statusText =
                 entityMismatches > 0
@@ -555,9 +543,7 @@ export class MarkdownReporter implements Reporter {
       lines.push('| --- | --- | --- |');
       for (const section of entitySections) {
         const ids = [...allEntities[section]].sort();
-        lines.push(
-          `| ${section} | ${ids.length} | ${ids.join(', ')} |`,
-        );
+        lines.push(`| ${section} | ${ids.length} | ${ids.join(', ')} |`);
       }
       lines.push('');
     }
@@ -569,9 +555,7 @@ export class MarkdownReporter implements Reporter {
       lines.push('| File | Test | Reason |');
       lines.push('| --- | --- | --- |');
       for (const skip of allSkips) {
-        lines.push(
-          `| ${skip.file} | ${skip.test} | ${skip.reason} |`,
-        );
+        lines.push(`| ${skip.file} | ${skip.test} | ${skip.reason} |`);
       }
       lines.push('');
     }
@@ -589,18 +573,14 @@ export class MarkdownReporter implements Reporter {
     }
 
     // ---- Completeness Results ----
-    const withMissing = allCompleteness.filter(
-      (cr) => cr.missing.length > 0,
-    );
+    const withMissing = allCompleteness.filter((cr) => cr.missing.length > 0);
     if (withMissing.length > 0) {
       lines.push('## \uD83E\uDDE9 Completeness Results');
       lines.push('');
       lines.push('| Tool | Section | Missing Fields |');
       lines.push('| --- | --- | --- |');
       for (const cr of withMissing) {
-        lines.push(
-          `| ${cr.tool} | ${cr.section} | ${cr.missing.join(', ')} |`,
-        );
+        lines.push(`| ${cr.tool} | ${cr.section} | ${cr.missing.join(', ')} |`);
       }
       lines.push('');
     } else if (allCompleteness.length > 0) {
@@ -619,8 +599,7 @@ export class MarkdownReporter implements Reporter {
       const status =
         summary.failed > 0
           ? 'FAIL'
-          : summary.skipped ===
-              summary.passed + summary.failed + summary.skipped
+          : summary.skipped === summary.passed + summary.failed + summary.skipped
             ? 'SKIP'
             : 'PASS';
 
@@ -632,19 +611,11 @@ export class MarkdownReporter implements Reporter {
       lines.push('');
 
       // Individual test results for this module
-      const moduleResults = this.results.filter(
-        (r) => r.moduleId === moduleId,
-      );
+      const moduleResults = this.results.filter((r) => r.moduleId === moduleId);
       for (const r of moduleResults) {
         const icon =
-          r.state === 'passed'
-            ? 'PASS'
-            : r.state === 'failed'
-              ? 'FAIL'
-              : 'SKIP';
-        lines.push(
-          `- \`${icon}\` ${r.fullName} (${(r.duration / 1000).toFixed(2)}s)`,
-        );
+          r.state === 'passed' ? 'PASS' : r.state === 'failed' ? 'FAIL' : 'SKIP';
+        lines.push(`- \`${icon}\` ${r.fullName} (${(r.duration / 1000).toFixed(2)}s)`);
       }
       lines.push('');
     }
@@ -652,10 +623,7 @@ export class MarkdownReporter implements Reporter {
     // ------------------------------------------------------------------
     // Write report file
     // ------------------------------------------------------------------
-    const reportsDir = path.resolve(
-      import.meta.dirname ?? __dirname,
-      '../reports',
-    );
+    const reportsDir = path.resolve(import.meta.dirname ?? __dirname, '../reports');
     fs.mkdirSync(reportsDir, { recursive: true });
 
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -670,19 +638,9 @@ export class MarkdownReporter implements Reporter {
     // Write transcript file
     // ------------------------------------------------------------------
     if (allToolCalls.length > 0) {
-      const transcriptLines = this.buildTranscript(
-        allToolCalls,
-        timestamp,
-      );
-      const transcriptPath = path.join(
-        reportsDir,
-        `transcript-${dateStr}.md`,
-      );
-      fs.writeFileSync(
-        transcriptPath,
-        transcriptLines.join('\n'),
-        'utf-8',
-      );
+      const transcriptLines = this.buildTranscript(allToolCalls, timestamp);
+      const transcriptPath = path.join(reportsDir, `transcript-${dateStr}.md`);
+      fs.writeFileSync(transcriptPath, transcriptLines.join('\n'), 'utf-8');
       console.log(`  Transcript written to: ${transcriptPath}\n`);
     } else {
       console.log('');
@@ -750,9 +708,7 @@ export class MarkdownReporter implements Reporter {
         const tc = calls[i];
         lines.push(`### Call ${i + 1}: ${tc.tool}`);
         lines.push('');
-        lines.push(
-          `**Test:** ${tc.testName ?? 'beforeAll setup'}`,
-        );
+        lines.push(`**Test:** ${tc.testName ?? 'beforeAll setup'}`);
         lines.push('');
         lines.push('**Request**');
         lines.push('```json');

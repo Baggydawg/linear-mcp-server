@@ -258,12 +258,7 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const listParams = { limit: 20 };
       const listResult = await listIssuesTool.handler(listParams, listContext);
       if (suiteRef)
-        reportToolCall(
-          suiteRef,
-          'list_issues',
-          listParams,
-          listResult.content[0].text,
-        );
+        reportToolCall(suiteRef, 'list_issues', listParams, listResult.content[0].text);
       expect(listResult.isError).not.toBe(true);
 
       const listParsed = parseToonText(listResult.content[0].text);
@@ -304,12 +299,7 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const getParams = { ids: [identifier] };
       const getResult = await getIssuesTool.handler(getParams, getContext);
       if (suiteRef)
-        reportToolCall(
-          suiteRef,
-          'get_issues',
-          getParams,
-          getResult.content[0].text,
-        );
+        reportToolCall(suiteRef, 'get_issues', getParams, getResult.content[0].text);
       expect(getResult.isError).not.toBe(true);
 
       const getParsed = parseToonText(getResult.content[0].text);
@@ -415,12 +405,7 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       const lpParams = { team: 'SQT' };
       const lpResult = await listProjectsTool.handler(lpParams, lpContext);
       if (suiteRef)
-        reportToolCall(
-          suiteRef,
-          'list_projects',
-          lpParams,
-          lpResult.content[0].text,
-        );
+        reportToolCall(suiteRef, 'list_projects', lpParams, lpResult.content[0].text);
       expect(lpResult.isError).not.toBe(true);
 
       const lpParsed = parseToonText(lpResult.content[0].text);
@@ -547,10 +532,7 @@ describe.skipIf(!canRunLiveTests)('edge cases live validation', () => {
       contexts.push(ctx);
 
       // Call workspace_metadata first (builds the registry)
-      const wmResult = await workspaceMetadataTool.handler(
-        { teamIds: ['SQT'] },
-        ctx,
-      );
+      const wmResult = await workspaceMetadataTool.handler({ teamIds: ['SQT'] }, ctx);
       expect(wmResult.isError).not.toBe(true);
       const wmParsed = parseToonText(wmResult.content[0].text);
       if (suiteRef)

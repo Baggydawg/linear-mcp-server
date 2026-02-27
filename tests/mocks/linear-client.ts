@@ -599,7 +599,10 @@ export interface MockLinearClient {
   team: (id: string) => Promise<MockTeam | null>;
   issues: (args?: Record<string, unknown>) => Promise<MockConnection<MockIssue>>;
   issue: (id: string) => Promise<MockIssue | null>;
-  users: (args?: { first?: number; includeDisabled?: boolean }) => Promise<MockConnection<MockUser>>;
+  users: (args?: {
+    first?: number;
+    includeDisabled?: boolean;
+  }) => Promise<MockConnection<MockUser>>;
   favorites: (args?: { first?: number }) => Promise<MockConnection<unknown>>;
   projects: (args?: {
     first?: number;
@@ -770,9 +773,7 @@ export function createMockLinearClient(
           nodes: slice,
           pageInfo: {
             hasNextPage: hasMore,
-            endCursor: hasMore
-              ? `project-cursor-${offset + limit}`
-              : undefined,
+            endCursor: hasMore ? `project-cursor-${offset + limit}` : undefined,
           },
         };
       },

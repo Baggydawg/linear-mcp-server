@@ -11,14 +11,12 @@ import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import {
-  createErrorFromException,
-  formatErrorMessage,
-} from '../../../utils/errors.js';
+import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { resolveTeamId } from '../../../utils/resolvers.js';
 import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
+import { autoLinkWithRegistry } from './shared/index.js';
 import {
   CREATED_PROJECT_SCHEMA,
   encodeResponse,
@@ -429,9 +427,7 @@ export const listProjectsTool = defineTool({
 
       const pageInfo = conn.pageInfo;
       const _hasMore = pageInfo?.hasNextPage ?? false;
-      const _nextCursor = _hasMore
-        ? (pageInfo?.endCursor ?? undefined)
-        : undefined;
+      const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
 
       // Convert items to RawProjectData for TOON processing
       rawProjects = conn.nodes.map((p) => ({
@@ -442,8 +438,7 @@ export const listProjectsTool = defineTool({
         priority: (p as unknown as { priority?: number }).priority,
         progress: (p as unknown as { progress?: number }).progress,
         leadId: (p as unknown as { leadId?: string }).leadId,
-        lead: (p as unknown as { lead?: { id?: string; name?: string } })
-          .lead,
+        lead: (p as unknown as { lead?: { id?: string; name?: string } }).lead,
         teams: (
           p as unknown as {
             teams?: { nodes?: Array<{ key?: string }> };
@@ -658,8 +653,12 @@ export const createProjectsTool = defineTool({
         const call = () =>
           client.createProject({
             name: it.name,
-            description: it.description,
-            content: it.content,
+            description: it.description
+              ? autoLinkWithRegistry(it.description, registry)
+              : it.description,
+            content: it.content
+              ? autoLinkWithRegistry(it.content, registry)
+              : it.content,
             leadId: resolvedLeadId,
             targetDate: it.targetDate,
             teamIds: resolvedTeamIds,
@@ -965,8 +964,10 @@ export const updateProjectsTool = defineTool({
 
         const updatePayload: Record<string, unknown> = {};
         if (it.name) updatePayload.name = it.name;
-        if (it.description) updatePayload.description = it.description;
-        if (it.content) updatePayload.content = it.content;
+        if (it.description)
+          updatePayload.description = autoLinkWithRegistry(it.description, registry);
+        if (it.content)
+          updatePayload.content = autoLinkWithRegistry(it.content, registry);
         if (resolvedLeadId) updatePayload.leadId = resolvedLeadId;
         if (it.targetDate) updatePayload.targetDate = it.targetDate;
         if (it.state) updatePayload.state = it.state;
@@ -1030,11 +1031,13 @@ export const updateProjectsTool = defineTool({
             // Convert lead UUID to short key for TOON output
             const beforeLeadKey =
               registry && beforeSnapshot.leadId
-                ? (tryGetShortKey(registry, 'user', beforeSnapshot.leadId) ?? getUserStatusLabel(registry, beforeSnapshot.leadId))
+                ? (tryGetShortKey(registry, 'user', beforeSnapshot.leadId) ??
+                  getUserStatusLabel(registry, beforeSnapshot.leadId))
                 : beforeSnapshot.leadId;
             const afterLeadKey =
               registry && afterSnapshot.leadId
-                ? (tryGetShortKey(registry, 'user', afterSnapshot.leadId) ?? getUserStatusLabel(registry, afterSnapshot.leadId))
+                ? (tryGetShortKey(registry, 'user', afterSnapshot.leadId) ??
+                  getUserStatusLabel(registry, afterSnapshot.leadId))
                 : afterSnapshot.leadId;
             changes.push({
               field: 'lead',

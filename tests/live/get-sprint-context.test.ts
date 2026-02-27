@@ -147,8 +147,7 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
               field: 'title',
               toon: toonValue,
               api: String(apiIssue.title ?? ''),
-              match:
-                normalizeEmpty(toonValue) === normalizeEmpty(apiIssue.title),
+              match: normalizeEmpty(toonValue) === normalizeEmpty(apiIssue.title),
             });
             break;
 
@@ -185,8 +184,7 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
                 field: 'estimate',
                 toon: toonValue,
                 api: String(apiIssue.estimate ?? ''),
-                match:
-                  (toonNum === null && apiNum === null) || toonNum === apiNum,
+                match: (toonNum === null && apiNum === null) || toonNum === apiNum,
               });
             }
             break;
@@ -242,11 +240,7 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
 
           case 'assignee':
             if (registry && normalizeEmpty(toonValue)) {
-              const assigneeUuid = resolveShortKey(
-                registry,
-                'user',
-                toonValue,
-              );
+              const assigneeUuid = resolveShortKey(registry, 'user', toonValue);
               const apiAssignee = await (
                 apiIssue as unknown as {
                   assignee: Promise<{ id: string; name: string } | null>;
@@ -258,11 +252,7 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
               ).toBe(apiAssignee?.id);
               comparisons.push({
                 field: 'assignee',
-                toon: formatWithResolution(
-                  registry,
-                  'assignee',
-                  toonValue,
-                ),
+                toon: formatWithResolution(registry, 'assignee', toonValue),
                 api: apiAssignee?.name ?? apiAssignee?.id ?? '',
                 match: assigneeUuid === apiAssignee?.id,
               });
@@ -286,11 +276,8 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
               comparisons.push({
                 field: 'cycle',
                 toon: toonValue,
-                api:
-                  apiCycle?.number != null ? String(apiCycle.number) : '',
-                match:
-                  (toonNum === null && apiNum === null) ||
-                  toonNum === apiNum,
+                api: apiCycle?.number != null ? String(apiCycle.number) : '',
+                match: (toonNum === null && apiNum === null) || toonNum === apiNum,
               });
             }
             break;
@@ -315,9 +302,7 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
               field: 'labels',
               toon: toonValue,
               api: apiLabelNames.join(','),
-              match:
-                JSON.stringify(toonLabelNames) ===
-                JSON.stringify(apiLabelNames),
+              match: JSON.stringify(toonLabelNames) === JSON.stringify(apiLabelNames),
             });
             break;
           }
@@ -357,7 +342,13 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
 
     const prevParams = { team: TEAM_KEY, cycle: 'previous' };
     const prevResult = await getSprintContextTool.handler(prevParams, context);
-    if (suiteRef) reportToolCall(suiteRef, 'get_sprint_context', prevParams, prevResult.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'get_sprint_context',
+        prevParams,
+        prevResult.content[0].text,
+      );
 
     // May fail if there is no previous cycle - that's acceptable
     if (prevResult.isError) {
@@ -624,20 +615,13 @@ describe.skipIf(!canRunLiveTests)('get_sprint_context live validation', () => {
             toon: toonIssuesSorted.join(','),
             api: computedIssuesSorted.join(','),
             match:
-              JSON.stringify(toonIssuesSorted) ===
-              JSON.stringify(computedIssuesSorted),
+              JSON.stringify(toonIssuesSorted) === JSON.stringify(computedIssuesSorted),
           });
         }
       }
 
       if (suiteRef && comparisons.length > 0) {
-        reportFieldComparison(
-          suiteRef,
-          gapType,
-          undefined,
-          comparisons,
-          'Gap',
-        );
+        reportFieldComparison(suiteRef, gapType, undefined, comparisons, 'Gap');
       }
     }
   }, 180_000);

@@ -10,10 +10,7 @@ import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import {
-  createErrorFromException,
-  formatErrorMessage,
-} from '../../../utils/errors.js';
+import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import { resolveTeamId } from '../../../utils/resolvers.js';
 import {
   formatProfileForToon,
@@ -148,6 +145,7 @@ type UserLike = {
 
 interface WorkspaceData {
   organizationName?: string;
+  organizationUrlKey?: string;
   viewer?: {
     id: string;
     name?: string;
@@ -287,7 +285,10 @@ function buildToonResponse(
   if (data.projects.length > 0) {
     const projectItems: ToonRow[] = data.projects.map((p) => {
       const leadKey = p.leadId
-        ? (registry.usersByUuid.get(p.leadId) ?? (registry.userMetadata.get(p.leadId)?.active === false ? '(deactivated)' : '(departed)'))
+        ? (registry.usersByUuid.get(p.leadId) ??
+          (registry.userMetadata.get(p.leadId)?.active === false
+            ? '(deactivated)'
+            : '(departed)'))
         : '';
       return {
         key: registry.projectsByUuid.get(p.id) ?? '',
@@ -429,8 +430,10 @@ export const workspaceMetadataTool = defineTool({
       try {
         const org = await viewer.organization;
         workspaceData.organizationName = org?.name ?? undefined;
+        workspaceData.organizationUrlKey =
+          (org as unknown as { urlKey?: string })?.urlKey ?? undefined;
       } catch {
-        // Organization fetch failed, leave organizationName undefined
+        // Organization fetch failed, leave organizationName/urlKey undefined
       }
 
       // ───────────────────────────────────────────────────────────────────────
@@ -509,10 +512,7 @@ export const workspaceMetadataTool = defineTool({
 
         // Transform all users with profile data
         allWorkspaceUsers = usersConn.nodes.map((u) => {
-          const profile = getUserProfile(
-            userProfilesConfig,
-            u.email ?? undefined,
-          );
+          const profile = getUserProfile(userProfilesConfig, u.email ?? undefined);
           const formattedRole = formatProfileForToon(profile);
 
           return {
@@ -521,19 +521,14 @@ export const workspaceMetadataTool = defineTool({
             displayName: u.displayName ?? undefined,
             email: u.email ?? undefined,
             active: u.active,
-            role:
-              formattedRole ||
-              (u.admin ? 'Admin' : u.guest ? 'Guest' : 'Member'),
+            role: formattedRole || (u.admin ? 'Admin' : u.guest ? 'Guest' : 'Member'),
             skills: profile.skills,
             focusArea: profile.focusArea,
             createdAt: u.createdAt,
           };
         });
       } catch (error) {
-        console.error(
-          'Failed to fetch workspace users:',
-          (error as Error).message,
-        );
+        console.error('Failed to fetch workspace users:', (error as Error).message);
         allWorkspaceUsers = [];
       }
 
@@ -628,8 +623,7 @@ export const workspaceMetadataTool = defineTool({
             state: p.state,
             priority: p.priority,
             progress: p.progress,
-            leadId:
-              (p as unknown as { leadId?: string }).leadId ?? undefined,
+            leadId: (p as unknown as { leadId?: string }).leadId ?? undefined,
             targetDate: p.targetDate ?? undefined,
             createdAt: p.createdAt,
           });
@@ -694,10 +688,7 @@ export const workspaceMetadataTool = defineTool({
     try {
       globalProjects = await fetchGlobalProjects(client);
     } catch (error) {
-      console.error(
-        'Failed to fetch global projects:',
-        (error as Error).message,
-      );
+      console.error('Failed to fetch global projects:', (error as Error).message);
     }
 
     // Prepare registry build data with ALL workspace data for cross-team resolution.
@@ -735,6 +726,7 @@ export const workspaceMetadataTool = defineTool({
       // Default team UUID for clean keys (s0, s1...) vs prefixed (sqm:s0)
       defaultTeamId: defaultTeamUuid,
       workspaceId: workspaceData.viewer?.id ?? 'unknown',
+      urlKey: workspaceData.organizationUrlKey,
     };
 
     // Build the registry

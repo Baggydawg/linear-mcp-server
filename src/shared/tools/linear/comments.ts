@@ -9,10 +9,7 @@ import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import {
-  createErrorFromException,
-  formatErrorMessage,
-} from '../../../utils/errors.js';
+import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import {
@@ -22,6 +19,7 @@ import {
   encodeResponse,
   encodeToon,
   getOrInitRegistry,
+  getStoredRegistry,
   getUserMetadata,
   type ShortKeyRegistry,
   type ToonResponse,
@@ -32,6 +30,7 @@ import {
 } from '../../toon/index.js';
 import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
+import { autoLinkWithRegistry } from './shared/index.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TOON Output Support (Tier 2 - Referenced Entities Only)
@@ -239,14 +238,11 @@ export const listCommentsTool = defineTool({
 
       const pageInfo = conn.pageInfo;
       const _hasMore = pageInfo?.hasNextPage ?? false;
-      const _nextCursor = _hasMore
-        ? (pageInfo?.endCursor ?? undefined)
-        : undefined;
+      const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
 
       // Get issue identifier for TOON output
       issueIdentifier =
-        (issue as unknown as { identifier?: string }).identifier ??
-        args.issueId;
+        (issue as unknown as { identifier?: string }).identifier ?? args.issueId;
 
       // Convert items to RawCommentData for TOON processing
       // Must await user relation as Linear SDK uses lazy-loading (returns Promise)
@@ -335,6 +331,9 @@ export const addCommentsTool = defineTool({
     const client = await getLinearClient(context);
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
 
+    // Get registry for auto-linking (graceful degradation if not available)
+    const registry = getStoredRegistry(context.sessionId);
+
     // Track results with issue identifiers for TOON output
     const results: {
       index: number;
@@ -382,7 +381,7 @@ export const addCommentsTool = defineTool({
         const call = () =>
           client.createComment({
             issueId: it.issueId,
-            body: it.body,
+            body: autoLinkWithRegistry(it.body, registry),
           });
 
         const payload = await withRetry(
@@ -527,6 +526,9 @@ export const updateCommentsTool = defineTool({
     const client = await getLinearClient(context);
     const gate = makeConcurrencyGate(config.CONCURRENCY_LIMIT);
 
+    // Get registry for auto-linking (graceful degradation if not available)
+    const registry = getStoredRegistry(context.sessionId);
+
     const results: {
       index: number;
       ok: boolean;
@@ -553,7 +555,7 @@ export const updateCommentsTool = defineTool({
 
         const call = () =>
           client.updateComment(it.id, {
-            body: it.body,
+            body: autoLinkWithRegistry(it.body, registry),
           });
 
         const payload = await withRetry(() => gate(call), {

@@ -742,8 +742,7 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     // Override the SQT team's projects() to include our project
     const sqtTeam = (await mockClient.teams()).nodes[0];
     const originalProjectsFn = sqtTeam.projects;
-    sqtTeam.projects = () =>
-      Promise.resolve({ nodes: [deactivatedLeadProject] });
+    sqtTeam.projects = () => Promise.resolve({ nodes: [deactivatedLeadProject] });
 
     try {
       const result = await workspaceMetadataTool.handler({}, baseContext);
@@ -823,15 +822,15 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
 
 describe('workspace_metadata API error handling', () => {
   it('returns structured error when viewer/teams fetch fails', async () => {
-    const { clearRegistry } = await import(
-      '../../src/shared/toon/registry.js'
-    );
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
     clearRegistry(baseContext.sessionId);
 
     // Override teams to throw a network error
-    mockClient.teams = vi.fn().mockRejectedValue(
-      new Error('Network request failed'),
-    ) as typeof mockClient.teams;
+    mockClient.teams = vi
+      .fn()
+      .mockRejectedValue(
+        new Error('Network request failed'),
+      ) as typeof mockClient.teams;
 
     const result = await workspaceMetadataTool.handler({}, baseContext);
 
@@ -845,9 +844,7 @@ describe('workspace_metadata API error handling', () => {
   });
 
   it('continues when team.states() fails for one team', async () => {
-    const { clearRegistry } = await import(
-      '../../src/shared/toon/registry.js'
-    );
+    const { clearRegistry } = await import('../../src/shared/toon/registry.js');
     clearRegistry(baseContext.sessionId);
 
     // Get the actual teams from the mock and break one team's states

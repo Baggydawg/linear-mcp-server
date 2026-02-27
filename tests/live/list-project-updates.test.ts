@@ -49,7 +49,12 @@ describe.skipIf(!canRunLiveTests)('list_project_updates live data validation', (
     const projectsParams = { team: 'SQT' };
     const projectsResult = await listProjectsTool.handler(projectsParams, context);
     expect(projectsResult.isError).not.toBe(true);
-    reportToolCall(suite, 'list_projects', projectsParams, projectsResult.content[0].text);
+    reportToolCall(
+      suite,
+      'list_projects',
+      projectsParams,
+      projectsResult.content[0].text,
+    );
 
     const projectsParsed = parseToonText(projectsResult.content[0].text);
     const projectsSection = projectsParsed.sections.get('projects');
@@ -74,7 +79,12 @@ describe.skipIf(!canRunLiveTests)('list_project_updates live data validation', (
         updatesParams,
         context,
       );
-      reportToolCall(suite, 'list_project_updates', updatesParams, updatesResult.content[0].text);
+      reportToolCall(
+        suite,
+        'list_project_updates',
+        updatesParams,
+        updatesResult.content[0].text,
+      );
       if (updatesResult.isError) continue;
 
       const text = updatesResult.content[0].text;

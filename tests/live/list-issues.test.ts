@@ -176,8 +176,7 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
           field: 'labels',
           toon: toonIssue.labels ?? '',
           api: apiLabelNames.join(','),
-          match:
-            JSON.stringify(toonLabelNames) === JSON.stringify(apiLabelNames),
+          match: JSON.stringify(toonLabelNames) === JSON.stringify(apiLabelNames),
         });
       }
 
@@ -201,11 +200,7 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
 
       // assignee short key resolution
       if (registry && normalizeEmpty(toonIssue.assignee)) {
-        const assigneeUuid = resolveShortKey(
-          registry,
-          'user',
-          toonIssue.assignee,
-        );
+        const assigneeUuid = resolveShortKey(registry, 'user', toonIssue.assignee);
         const apiAssignee = await (
           apiIssue as unknown as {
             assignee: Promise<{ id: string; name: string } | null>;
@@ -236,8 +231,7 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
           field: 'team',
           toon: toonIssue.team ?? '',
           api: apiTeam?.key ?? '',
-          match:
-            normalizeEmpty(toonIssue.team) === normalizeEmpty(apiTeam?.key),
+          match: normalizeEmpty(toonIssue.team) === normalizeEmpty(apiTeam?.key),
         });
       }
 
@@ -265,8 +259,7 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
                 toonIssue.desc.length > 80
                   ? `${toonIssue.desc.slice(0, 80)}...`
                   : toonIssue.desc,
-              api:
-                apiDesc.length > 80 ? `${apiDesc.slice(0, 80)}...` : apiDesc,
+              api: apiDesc.length > 80 ? `${apiDesc.slice(0, 80)}...` : apiDesc,
               match:
                 toonIssue.desc.endsWith('... [truncated]') &&
                 apiDesc.startsWith(toonPrefix),
@@ -285,8 +278,7 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
                 toonIssue.desc.length > 80
                   ? `${toonIssue.desc.slice(0, 80)}...`
                   : toonIssue.desc,
-              api:
-                apiDesc.length > 80 ? `${apiDesc.slice(0, 80)}...` : apiDesc,
+              api: apiDesc.length > 80 ? `${apiDesc.slice(0, 80)}...` : apiDesc,
               match: toonIssue.desc === apiDesc,
             });
           }
@@ -475,7 +467,8 @@ describe.skipIf(!canRunLiveTests)('list_issues live validation', () => {
   it('current cycle filter returns only current sprint issues', async () => {
     const cycleParams = { cycle: 'current', team: process.env.DEFAULT_TEAM || 'SQT' };
     const cycleResult = await listIssuesTool.handler(cycleParams, context);
-    if (suiteRef) reportToolCall(suiteRef, 'list_issues', cycleParams, cycleResult.content[0].text);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'list_issues', cycleParams, cycleResult.content[0].text);
 
     // May fail if team has no active cycle - that's acceptable
     if (cycleResult.isError) {

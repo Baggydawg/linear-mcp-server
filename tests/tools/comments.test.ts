@@ -665,10 +665,7 @@ describe('list_comments API error handling', () => {
   it('returns structured error when issue fetch fails', async () => {
     mockClient.issue = vi.fn().mockRejectedValue(new Error('Network error'));
 
-    const result = await listCommentsTool.handler(
-      { issueId: 'SQT-123' },
-      baseContext,
-    );
+    const result = await listCommentsTool.handler({ issueId: 'SQT-123' }, baseContext);
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('Error');

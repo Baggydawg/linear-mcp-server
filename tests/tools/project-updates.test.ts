@@ -513,9 +513,7 @@ describe('update_project_update TOON output', () => {
 
 describe('list_project_updates API error handling', () => {
   it('returns structured error when project updates fetch fails', async () => {
-    mockClient.projectUpdates = vi
-      .fn()
-      .mockRejectedValue(new Error('Network error'));
+    mockClient.projectUpdates = vi.fn().mockRejectedValue(new Error('Network error'));
 
     const result = await listProjectUpdatesTool.handler(
       { project: 'some-project-id' },

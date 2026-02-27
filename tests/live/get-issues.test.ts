@@ -66,7 +66,13 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
 
     const result = await getIssuesTool.handler({ ids: [identifier] }, context);
     expect(result.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'get_issues', { ids: [identifier] }, result.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'get_issues',
+        { ids: [identifier] },
+        result.content[0].text,
+      );
 
     const parsed = parseToonText(result.content[0].text);
 
@@ -117,8 +123,7 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
             field: 'title',
             toon: toonValue,
             api: String(apiIssue.title ?? ''),
-            match:
-              normalizeEmpty(toonValue) === normalizeEmpty(apiIssue.title),
+            match: normalizeEmpty(toonValue) === normalizeEmpty(apiIssue.title),
           });
           break;
 
@@ -155,8 +160,7 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
               field: 'estimate',
               toon: toonValue,
               api: String(apiIssue.estimate ?? ''),
-              match:
-                (toonNum === null && apiNum === null) || toonNum === apiNum,
+              match: (toonNum === null && apiNum === null) || toonNum === apiNum,
             });
           }
           break;
@@ -167,9 +171,7 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
           {
             const toonDate = normalizeEmpty(toonValue);
             const apiDateRaw = normalizeEmpty(apiIssue.dueDate);
-            const apiDateStr = apiDateRaw
-              ? String(apiDateRaw).split('T')[0]
-              : '';
+            const apiDateStr = apiDateRaw ? String(apiDateRaw).split('T')[0] : '';
             comparisons.push({
               field: 'dueDate',
               toon: toonDate,
@@ -187,9 +189,8 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
             ctx,
           );
           {
-            const apiCreatedAt = (
-              apiIssue as unknown as { createdAt?: Date | string }
-            ).createdAt;
+            const apiCreatedAt = (apiIssue as unknown as { createdAt?: Date | string })
+              .createdAt;
             const apiStr = apiCreatedAt
               ? apiCreatedAt instanceof Date
                 ? apiCreatedAt.toISOString()
@@ -265,8 +266,7 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
             field: 'team',
             toon: toonValue,
             api: apiTeam?.key ?? '',
-            match:
-              normalizeEmpty(toonValue) === normalizeEmpty(apiTeam?.key),
+            match: normalizeEmpty(toonValue) === normalizeEmpty(apiTeam?.key),
           });
           break;
         }
@@ -289,8 +289,7 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
               field: 'cycle',
               toon: toonValue,
               api: apiCycle?.number != null ? String(apiCycle.number) : '',
-              match:
-                (toonNum === null && apiNum === null) || toonNum === apiNum,
+              match: (toonNum === null && apiNum === null) || toonNum === apiNum,
             });
           }
           break;
@@ -313,9 +312,7 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
             field: 'labels',
             toon: toonValue,
             api: apiLabelNames.join(','),
-            match:
-              JSON.stringify(toonLabelNames) ===
-              JSON.stringify(apiLabelNames),
+            match: JSON.stringify(toonLabelNames) === JSON.stringify(apiLabelNames),
           });
           break;
         }
@@ -336,14 +333,8 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
             ).toBe(false);
             comparisons.push({
               field: 'desc',
-              toon:
-                toonDesc.length > 80
-                  ? `${toonDesc.slice(0, 80)}...`
-                  : toonDesc,
-              api:
-                apiDesc.length > 80
-                  ? `${apiDesc.slice(0, 80)}...`
-                  : apiDesc,
+              toon: toonDesc.length > 80 ? `${toonDesc.slice(0, 80)}...` : toonDesc,
+              api: apiDesc.length > 80 ? `${apiDesc.slice(0, 80)}...` : apiDesc,
               match: toonDesc === apiDesc,
             });
           }
@@ -378,7 +369,8 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
 
     const result = await getIssuesTool.handler({ ids }, context);
     expect(result.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'get_issues', { ids }, result.content[0].text);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'get_issues', { ids }, result.content[0].text);
 
     const parsed = parseToonText(result.content[0].text);
 
@@ -475,7 +467,8 @@ describe.skipIf(!canRunLiveTests)('get_issues live validation', () => {
 
     const partialParams = { ids: ['FAKE-999', validId] };
     const result = await getIssuesTool.handler(partialParams, context);
-    if (suiteRef) reportToolCall(suiteRef, 'get_issues', partialParams, result.content[0].text);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'get_issues', partialParams, result.content[0].text);
 
     // The tool should not be an error overall (partial success)
     expect(result.isError).not.toBe(true);

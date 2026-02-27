@@ -145,7 +145,8 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           field: 'cyclesEnabled',
           toon: toonRow.cyclesEnabled ?? '',
           api: String(apiTeam!.cyclesEnabled ?? ''),
-          match: normalizeEmpty(toonRow.cyclesEnabled) === String(apiTeam!.cyclesEnabled),
+          match:
+            normalizeEmpty(toonRow.cyclesEnabled) === String(apiTeam!.cyclesEnabled),
         });
 
         // cycleDuration
@@ -159,7 +160,8 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           field: 'cycleDuration',
           toon: toonRow.cycleDuration ?? '',
           api: String(apiCycleDuration),
-          match: normalizeEmpty(toonRow.cycleDuration) === normalizeEmpty(apiCycleDuration),
+          match:
+            normalizeEmpty(toonRow.cycleDuration) === normalizeEmpty(apiCycleDuration),
         });
 
         // estimationType (SDK field is issueEstimationType, TOON field is estimationType)
@@ -176,7 +178,8 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           toon: toonRow.estimationType ?? '',
           api: String(apiEstimationType),
           match:
-            normalizeEmpty(toonRow.estimationType) === normalizeEmpty(apiEstimationType),
+            normalizeEmpty(toonRow.estimationType) ===
+            normalizeEmpty(apiEstimationType),
         });
 
         if (suiteRef && comparisons.length > 0) {
@@ -238,7 +241,8 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
           toon: toonRow.displayName ?? '',
           api: String(apiUser!.displayName ?? ''),
           match:
-            normalizeEmpty(toonRow.displayName) === normalizeEmpty(apiUser!.displayName),
+            normalizeEmpty(toonRow.displayName) ===
+            normalizeEmpty(apiUser!.displayName),
         });
 
         // email
@@ -387,9 +391,10 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
         comparisons.push({
           field: 'type',
           toon: toonRow.type ?? '',
-          api: matchingApiStates.find((s) => s.type === toonRow.type)?.type
-            ?? matchingApiStates[0]?.type
-            ?? '',
+          api:
+            matchingApiStates.find((s) => s.type === toonRow.type)?.type ??
+            matchingApiStates[0]?.type ??
+            '',
           match: typeMatch,
         });
 
@@ -675,7 +680,8 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
         {
           const toonDate = toonRow.targetDate ?? '';
           const apiDate = apiProject!.targetDate ?? '';
-          const apiStr = apiDate instanceof Date ? apiDate.toISOString() : String(apiDate);
+          const apiStr =
+            apiDate instanceof Date ? apiDate.toISOString() : String(apiDate);
           let dateMatch: boolean;
           if (!toonDate && !apiDate) {
             dateMatch = true;
@@ -793,9 +799,10 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
         expectDateMatch(toonRow.start, apiCycle!.startsAt, ctx);
         {
           const toonDate = toonRow.start ?? '';
-          const apiStr = apiCycle!.startsAt instanceof Date
-            ? apiCycle!.startsAt.toISOString()
-            : String(apiCycle!.startsAt);
+          const apiStr =
+            apiCycle!.startsAt instanceof Date
+              ? apiCycle!.startsAt.toISOString()
+              : String(apiCycle!.startsAt);
           let dateMatch: boolean;
           if (!toonDate && !apiCycle!.startsAt) {
             dateMatch = true;
@@ -819,9 +826,10 @@ describe.skipIf(!canRunLiveTests)('workspace_metadata live validation', () => {
         expectDateMatch(toonRow.end, apiCycle!.endsAt, ctx);
         {
           const toonDate = toonRow.end ?? '';
-          const apiStr = apiCycle!.endsAt instanceof Date
-            ? apiCycle!.endsAt.toISOString()
-            : String(apiCycle!.endsAt);
+          const apiStr =
+            apiCycle!.endsAt instanceof Date
+              ? apiCycle!.endsAt.toISOString()
+              : String(apiCycle!.endsAt);
           let dateMatch: boolean;
           if (!toonDate && !apiCycle!.endsAt) {
             dateMatch = true;

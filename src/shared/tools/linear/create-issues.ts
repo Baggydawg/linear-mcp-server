@@ -35,6 +35,7 @@ import {
 } from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 import {
+  autoLinkWithRegistry,
   createTeamSettingsCache,
   validateEstimate,
   validateLabelKeyPrefix,
@@ -239,7 +240,7 @@ export const createIssuesTool = defineTool({
         };
 
         if (typeof it.description === 'string' && it.description.trim() !== '') {
-          payloadInput.description = it.description;
+          payloadInput.description = autoLinkWithRegistry(it.description, registry);
         }
 
         // Resolve state from short key, ID, name, or type

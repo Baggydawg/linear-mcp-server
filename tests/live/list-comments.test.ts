@@ -22,7 +22,11 @@ import {
 } from './helpers/assertions.js';
 import { canRunLiveTests, createLiveContext } from './helpers/context.js';
 import { fetchComments, fetchUsers } from './helpers/linear-api.js';
-import { reportEntitiesValidated, reportSkip, reportToolCall } from './helpers/report-collector.js';
+import {
+  reportEntitiesValidated,
+  reportSkip,
+  reportToolCall,
+} from './helpers/report-collector.js';
 import { type ParsedToon, parseToonText } from './helpers/toon-parser.js';
 
 describe.skipIf(!canRunLiveTests)('list_comments live data validation', () => {
@@ -58,7 +62,12 @@ describe.skipIf(!canRunLiveTests)('list_comments live data validation', () => {
 
       const commentParams = { issueId: identifier };
       const commentsResult = await listCommentsTool.handler(commentParams, context);
-      reportToolCall(suite, 'list_comments', commentParams, commentsResult.content[0].text);
+      reportToolCall(
+        suite,
+        'list_comments',
+        commentParams,
+        commentsResult.content[0].text,
+      );
 
       if (commentsResult.isError) continue;
 
@@ -148,7 +157,9 @@ describe.skipIf(!canRunLiveTests)('list_comments live data validation', () => {
       });
 
       // Compare body (NOT truncated in list_comments, unlike inline comments in list_issues)
-      const apiBody = stripMarkdownImages((apiComment as unknown as { body?: string }).body ?? '') ?? '';
+      const apiBody =
+        stripMarkdownImages((apiComment as unknown as { body?: string }).body ?? '') ??
+        '';
       expect(
         normalizeEmpty(toonRow.body),
         `Comment id=${commentId} field "body": lengths TOON=${toonRow.body?.length} API=${apiBody.length}`,

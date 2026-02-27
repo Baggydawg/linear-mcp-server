@@ -33,12 +33,7 @@ describe.skipIf(!canRunLiveTests)('live test harness smoke test', () => {
       const params = {};
       const result = await workspaceMetadataTool.handler(params, context);
       if (suiteRef)
-        reportToolCall(
-          suiteRef,
-          'workspace_metadata',
-          params,
-          result.content[0].text,
-        );
+        reportToolCall(suiteRef, 'workspace_metadata', params, result.content[0].text);
 
       // Should not be an error
       expect(result.isError).not.toBe(true);

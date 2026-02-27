@@ -12,10 +12,7 @@
 import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
-import {
-  createErrorFromException,
-  formatErrorMessage,
-} from '../../../utils/errors.js';
+import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import { getLinearClient } from '../../../services/linear/client.js';
 import {
   COMMENT_SCHEMA,
@@ -599,7 +596,8 @@ function buildProjectLookup(
             ? Math.round(metadata.progress * 100) / 100
             : null,
         lead: metadata?.leadId
-          ? (tryGetShortKey(registry, 'user', metadata.leadId) ?? getUserStatusLabel(registry, metadata.leadId))
+          ? (tryGetShortKey(registry, 'user', metadata.leadId) ??
+            getUserStatusLabel(registry, metadata.leadId))
           : '',
         targetDate: metadata?.targetDate ?? '',
       });

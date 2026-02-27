@@ -10,18 +10,17 @@
 import { z } from 'zod';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import {
-  createErrorFromException,
-  formatErrorMessage,
-} from '../../../utils/errors.js';
+import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import { delay, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
 import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
+import { autoLinkWithRegistry } from './shared/index.js';
 import {
   CREATED_PROJECT_UPDATE_SCHEMA,
   encodeResponse,
   encodeToon,
   getOrInitRegistry,
+  getStoredRegistry,
   getUserMetadata,
   PROJECT_UPDATE_SCHEMA,
   PROJECT_UPDATE_WRITE_RESULT_SCHEMA,
@@ -336,9 +335,7 @@ export const listProjectUpdatesTool = defineTool({
 
       const pageInfo = conn.pageInfo;
       const hasMore = pageInfo?.hasNextPage ?? false;
-      const nextCursor = hasMore
-        ? (pageInfo?.endCursor ?? undefined)
-        : undefined;
+      const nextCursor = hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
     } catch (error) {
       const toolError = createErrorFromException(error as Error);
       return {
@@ -449,7 +446,7 @@ export const createProjectUpdateTool = defineTool({
         () =>
           client.createProjectUpdate({
             projectId: resolvedProjectId,
-            body: args.body,
+            body: autoLinkWithRegistry(args.body, registry),
             health: args.health as 'onTrack' | 'atRisk' | 'offTrack' | undefined,
           } as Parameters<typeof client.createProjectUpdate>[0]),
         { maxRetries: 3, baseDelayMs: 500 },
@@ -545,6 +542,9 @@ export const updateProjectUpdateTool = defineTool({
   handler: async (args, context: ToolContext): Promise<ToolResult> => {
     const client = await getLinearClient(context);
 
+    // Get registry for auto-linking (graceful degradation if not available)
+    const registry = getStoredRegistry(context.sessionId);
+
     // Validate that at least one field is being updated
     if (!args.body && !args.health) {
       return {
@@ -568,7 +568,7 @@ export const updateProjectUpdateTool = defineTool({
     try {
       // Build update payload
       const updatePayload: Record<string, unknown> = {};
-      if (args.body) updatePayload.body = args.body;
+      if (args.body) updatePayload.body = autoLinkWithRegistry(args.body, registry);
       if (args.health) updatePayload.health = args.health;
 
       // Add small delay to avoid rate limits

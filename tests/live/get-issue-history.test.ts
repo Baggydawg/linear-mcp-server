@@ -46,10 +46,7 @@ describe.skipIf(!canRunLiveTests)('get_issue_history live data validation', () =
 
     // Call list_issues to find issues, then iterate to find one with history
     const issuesParams = { team: 'SQT', limit: 10 };
-    const issuesResult = await listIssuesTool.handler(
-      issuesParams,
-      context,
-    );
+    const issuesResult = await listIssuesTool.handler(issuesParams, context);
     expect(issuesResult.isError).not.toBe(true);
     reportToolCall(suite, 'list_issues', issuesParams, issuesResult.content[0].text);
 
@@ -65,11 +62,13 @@ describe.skipIf(!canRunLiveTests)('get_issue_history live data validation', () =
     for (const issue of issuesSection.rows) {
       const identifier = issue.identifier;
       const historyParams = { issueIds: [identifier] };
-      const historyResult = await getIssueHistoryTool.handler(
+      const historyResult = await getIssueHistoryTool.handler(historyParams, context);
+      reportToolCall(
+        suite,
+        'get_issue_history',
         historyParams,
-        context,
+        historyResult.content[0].text,
       );
-      reportToolCall(suite, 'get_issue_history', historyParams, historyResult.content[0].text);
       if (historyResult.isError) continue;
 
       const text = historyResult.content[0].text;

@@ -1,3 +1,4 @@
+export * from './auto-link.js';
 export * from './cache.js';
 export * from './diff.js';
 export * from './formatting.js';

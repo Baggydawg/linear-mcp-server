@@ -809,10 +809,7 @@ describe('list_issues error handling', () => {
       configurable: true,
     });
 
-    const result = await listIssuesTool.handler(
-      { assignedToMe: true },
-      baseContext,
-    );
+    const result = await listIssuesTool.handler({ assignedToMe: true }, baseContext);
 
     expect(result.isError).toBe(true);
     const text = (result.content[0] as { type: string; text: string }).text;

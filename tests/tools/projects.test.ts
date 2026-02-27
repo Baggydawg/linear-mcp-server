@@ -743,10 +743,7 @@ describe('update_projects teamIds support', () => {
 
 describe('list_projects project parameter (direct lookup)', () => {
   it('resolves short key and fetches project by ID filter', async () => {
-    const result = await listProjectsTool.handler(
-      { project: 'pr0' },
-      baseContext,
-    );
+    const result = await listProjectsTool.handler({ project: 'pr0' }, baseContext);
     expect(result.isError).toBeFalsy();
 
     // pr0 resolves to project-002 (earliest createdAt: 2024-11-01)
@@ -792,10 +789,7 @@ describe('list_projects project parameter (direct lookup)', () => {
   });
 
   it('returns error for unresolved short key', async () => {
-    const result = await listProjectsTool.handler(
-      { project: 'pr999' },
-      baseContext,
-    );
+    const result = await listProjectsTool.handler({ project: 'pr999' }, baseContext);
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('Unknown project key');
     expect(result.content[0].text).toContain('pr999');
@@ -861,9 +855,7 @@ describe('list_projects departed user handling', () => {
 
     // Project row should reference ext0 as its lead
     const lines = textContent.split('\n');
-    const projectLine = lines.find(
-      (line: string) => line.includes('Legacy Project'),
-    );
+    const projectLine = lines.find((line: string) => line.includes('Legacy Project'));
     expect(projectLine).toBeDefined();
     expect(projectLine).toContain('ext0');
   });
@@ -878,7 +870,10 @@ describe('list_projects departed user handling', () => {
         progress: 0.2,
         leadId: 'departed-user-002',
         // Cast to include name which RawProjectData supports but MockProject interface doesn't declare
-        lead: { id: 'departed-user-002', name: 'Alice Former' } as unknown as MockProject['lead'],
+        lead: {
+          id: 'departed-user-002',
+          name: 'Alice Former',
+        } as unknown as MockProject['lead'],
         teamId: 'team-sqt',
         createdAt: new Date('2024-10-01T00:00:00Z'),
       },
@@ -942,7 +937,8 @@ describe('list_projects departed user handling', () => {
     const lines = textContent.split('\n');
     const projectLines = lines.filter(
       (line: string) =>
-        line.includes('Shared Lead Project A') || line.includes('Shared Lead Project B'),
+        line.includes('Shared Lead Project A') ||
+        line.includes('Shared Lead Project B'),
     );
     expect(projectLines.length).toBe(2);
     for (const line of projectLines) {
@@ -989,8 +985,8 @@ describe('list_projects departed user handling', () => {
     // The project with no lead should have null/empty lead field, not ext0
     const lines = textContent.split('\n');
     const noLeadLine = lines.find((line: string) => line.includes('No Lead Project'));
-    const departedLeadLine = lines.find(
-      (line: string) => line.includes('Departed Lead Project'),
+    const departedLeadLine = lines.find((line: string) =>
+      line.includes('Departed Lead Project'),
     );
 
     expect(noLeadLine).toBeDefined();
@@ -1044,7 +1040,9 @@ describe('list_projects departed user handling', () => {
 
     // Verify ordering: u* entries come before ext* entries
     const lines = textContent.split('\n');
-    const usersHeaderIndex = lines.findIndex((line: string) => line.includes('_users['));
+    const usersHeaderIndex = lines.findIndex((line: string) =>
+      line.includes('_users['),
+    );
     expect(usersHeaderIndex).toBeGreaterThan(-1);
 
     // Find the user entry lines (indented lines after _users header, before next section)
@@ -1078,10 +1076,9 @@ describe('list_projects deactivated user handling', () => {
   });
 
   it('deactivated project lead uses real name from metadata in ext entry', async () => {
-    const {
-      clearRegistry,
-      storeRegistry,
-    } = await import('../../src/shared/toon/index.js');
+    const { clearRegistry, storeRegistry } = await import(
+      '../../src/shared/toon/index.js'
+    );
     type ShortKeyRegistry = import('../../src/shared/toon/index.js').ShortKeyRegistry;
     clearRegistry('test-session');
 
@@ -1165,10 +1162,9 @@ describe('update_projects departed lead diff fallback', () => {
   });
 
   it('shows (departed) in lead change diff when before lead is not in registry', async () => {
-    const {
-      clearRegistry,
-      storeRegistry,
-    } = await import('../../src/shared/toon/index.js');
+    const { clearRegistry, storeRegistry } = await import(
+      '../../src/shared/toon/index.js'
+    );
     type ShortKeyRegistry = import('../../src/shared/toon/index.js').ShortKeyRegistry;
     clearRegistry('test-session');
 
@@ -1187,8 +1183,24 @@ describe('update_projects departed lead diff fallback', () => {
       statesByUuid: new Map(),
       projectsByUuid: new Map([['project-lead-change', 'pr0']]),
       userMetadata: new Map([
-        ['user-001', { name: 'User One', displayName: 'User One', email: 'u1@test.com', active: true }],
-        ['user-002', { name: 'User Two', displayName: 'User Two', email: 'u2@test.com', active: true }],
+        [
+          'user-001',
+          {
+            name: 'User One',
+            displayName: 'User One',
+            email: 'u1@test.com',
+            active: true,
+          },
+        ],
+        [
+          'user-002',
+          {
+            name: 'User Two',
+            displayName: 'User Two',
+            email: 'u2@test.com',
+            active: true,
+          },
+        ],
       ]),
       stateMetadata: new Map(),
       projectMetadata: new Map(),
@@ -1273,9 +1285,7 @@ describe('update_projects departed lead diff fallback', () => {
 
 describe('list_projects API error handling', () => {
   it('returns structured error when projects fetch fails', async () => {
-    mockClient.projects = vi
-      .fn()
-      .mockRejectedValue(new Error('Network error'));
+    mockClient.projects = vi.fn().mockRejectedValue(new Error('Network error'));
 
     const result = await listProjectsTool.handler({}, baseContext);
 

@@ -10,10 +10,7 @@ import { z } from 'zod';
 import { config } from '../../../config/env.js';
 import { toolsMetadata } from '../../../config/metadata.js';
 import { getLinearClient } from '../../../services/linear/client.js';
-import {
-  createErrorFromException,
-  formatErrorMessage,
-} from '../../../utils/errors.js';
+import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import { resolveTeamId } from '../../../utils/resolvers.js';
 import {
   CYCLE_SCHEMA,
@@ -164,8 +161,8 @@ export const listCyclesTool = defineTool({
       const team = await client.team(resolvedTeamId);
 
       const cyclesEnabled =
-        ((team as unknown as { cyclesEnabled?: boolean } | null)
-          ?.cyclesEnabled ?? false) === true;
+        ((team as unknown as { cyclesEnabled?: boolean } | null)?.cyclesEnabled ??
+          false) === true;
 
       if (!cyclesEnabled) {
         const msg =
@@ -206,13 +203,10 @@ export const listCyclesTool = defineTool({
 
       const pageInfo = conn.pageInfo;
       const _hasMore = pageInfo?.hasNextPage ?? false;
-      const _nextCursor = _hasMore
-        ? (pageInfo?.endCursor ?? undefined)
-        : undefined;
+      const _nextCursor = _hasMore ? (pageInfo?.endCursor ?? undefined) : undefined;
 
       // Get team key for TOON output
-      const teamKey =
-        (team as unknown as { key?: string }).key ?? teamIdInput;
+      const teamKey = (team as unknown as { key?: string }).key ?? teamIdInput;
 
       // Convert items to RawCycleData for TOON processing
       const rawCycles: RawCycleData[] = conn.nodes.map((c) => ({

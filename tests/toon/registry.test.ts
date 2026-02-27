@@ -2365,9 +2365,7 @@ describe('registerNewProject', () => {
   });
 
   it('tryGetShortKey returns undefined for unknown project UUID', () => {
-    expect(
-      tryGetShortKey(registry, 'project', 'unknown-uuid'),
-    ).toBeUndefined();
+    expect(tryGetShortKey(registry, 'project', 'unknown-uuid')).toBeUndefined();
   });
 
   it('tryGetShortKey returns key for newly registered project', () => {
@@ -2388,17 +2386,14 @@ describe('registerNewProject', () => {
       workspaceId: 'empty-workspace',
     });
 
-    const key = registerNewProject(
-      emptyRegistry,
-      'project-uuid-first',
-      { name: 'First Project', state: 'planned' },
-    );
+    const key = registerNewProject(emptyRegistry, 'project-uuid-first', {
+      name: 'First Project',
+      state: 'planned',
+    });
 
     expect(key).toBe('pr0');
     expect(emptyRegistry.projects.get('pr0')).toBe('project-uuid-first');
-    expect(emptyRegistry.projectsByUuid.get('project-uuid-first')).toBe(
-      'pr0',
-    );
+    expect(emptyRegistry.projectsByUuid.get('project-uuid-first')).toBe('pr0');
   });
 });
 
@@ -2463,25 +2458,13 @@ describe('deterministic project ordering', () => {
     expect(registry1.projects.get('pr1')).toBe('project-b');
     expect(registry1.projects.get('pr2')).toBe('project-c');
 
-    expect(registry2.projects.get('pr0')).toBe(
-      registry1.projects.get('pr0'),
-    );
-    expect(registry2.projects.get('pr1')).toBe(
-      registry1.projects.get('pr1'),
-    );
-    expect(registry2.projects.get('pr2')).toBe(
-      registry1.projects.get('pr2'),
-    );
+    expect(registry2.projects.get('pr0')).toBe(registry1.projects.get('pr0'));
+    expect(registry2.projects.get('pr1')).toBe(registry1.projects.get('pr1'));
+    expect(registry2.projects.get('pr2')).toBe(registry1.projects.get('pr2'));
 
-    expect(registry3.projects.get('pr0')).toBe(
-      registry1.projects.get('pr0'),
-    );
-    expect(registry3.projects.get('pr1')).toBe(
-      registry1.projects.get('pr1'),
-    );
-    expect(registry3.projects.get('pr2')).toBe(
-      registry1.projects.get('pr2'),
-    );
+    expect(registry3.projects.get('pr0')).toBe(registry1.projects.get('pr0'));
+    expect(registry3.projects.get('pr1')).toBe(registry1.projects.get('pr1'));
+    expect(registry3.projects.get('pr2')).toBe(registry1.projects.get('pr2'));
   });
 
   it('handles Date objects and ISO strings consistently', () => {
@@ -2598,13 +2581,9 @@ describe('deactivated user handling', () => {
     const registry = buildRegistry(data);
 
     // Deactivated user in metadata with active: false
-    expect(getUserStatusLabel(registry, 'user-deactivated')).toBe(
-      '(deactivated)',
-    );
+    expect(getUserStatusLabel(registry, 'user-deactivated')).toBe('(deactivated)');
 
     // Totally unknown UUID not in metadata at all
-    expect(getUserStatusLabel(registry, 'totally-unknown-uuid')).toBe(
-      '(departed)',
-    );
+    expect(getUserStatusLabel(registry, 'totally-unknown-uuid')).toBe('(departed)');
   });
 });

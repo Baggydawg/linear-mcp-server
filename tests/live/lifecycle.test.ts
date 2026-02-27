@@ -73,10 +73,7 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
         },
       ],
     };
-    const createResult = await createIssuesTool.handler(
-      createParams,
-      context,
-    );
+    const createResult = await createIssuesTool.handler(createParams, context);
 
     expect(createResult.isError).not.toBe(true);
     reportToolCall(suite, 'create_issues', createParams, createResult.content[0].text);
@@ -114,12 +111,14 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
         },
       ],
     };
-    const commentResult = await addCommentsTool.handler(
-      addCommentsParams,
-      context,
-    );
+    const commentResult = await addCommentsTool.handler(addCommentsParams, context);
     expect(commentResult.isError).not.toBe(true);
-    reportToolCall(suite, 'add_comments', addCommentsParams, commentResult.content[0].text);
+    reportToolCall(
+      suite,
+      'add_comments',
+      addCommentsParams,
+      commentResult.content[0].text,
+    );
 
     // 4. Get comment ID for issue A (needed for update_comments test)
     const listCommentsParams1 = { issueId: issueAIdentifier };
@@ -128,7 +127,12 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       context,
     );
     expect(commentsListResult.isError).not.toBe(true);
-    reportToolCall(suite, 'list_comments', listCommentsParams1, commentsListResult.content[0].text);
+    reportToolCall(
+      suite,
+      'list_comments',
+      listCommentsParams1,
+      commentsListResult.content[0].text,
+    );
     const commentsParsed = parseToonText(commentsListResult.content[0].text);
     const commentsSection = commentsParsed.sections.get('comments');
     if (commentsSection && commentsSection.rows.length > 0) {
@@ -157,7 +161,12 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       context,
     );
     expect(relationResult.isError).not.toBe(true);
-    reportToolCall(suite, 'manage_relations', createRelationParams, relationResult.content[0].text);
+    reportToolCall(
+      suite,
+      'manage_relations',
+      createRelationParams,
+      relationResult.content[0].text,
+    );
     relationCreated = true;
 
     // 6. Create project update on pr0
@@ -171,7 +180,12 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       context,
     );
     expect(projectUpdateResult.isError).not.toBe(true);
-    reportToolCall(suite, 'create_project_update', createPuParams, projectUpdateResult.content[0].text);
+    reportToolCall(
+      suite,
+      'create_project_update',
+      createPuParams,
+      projectUpdateResult.content[0].text,
+    );
 
     const puParsed = parseToonText(projectUpdateResult.content[0].text);
     const createdSection = puParsed.sections.get('created');
@@ -206,7 +220,13 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
           cleanupRelationParams,
           context,
         );
-        if (suiteRef) reportToolCall(suiteRef, 'manage_relations', cleanupRelationParams, cleanupRelationResult.content[0].text);
+        if (suiteRef)
+          reportToolCall(
+            suiteRef,
+            'manage_relations',
+            cleanupRelationParams,
+            cleanupRelationResult.content[0].text,
+          );
       } catch (e) {
         console.warn('Failed to delete relation:', e);
       }
@@ -239,12 +259,10 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
     }
 
     const getIssuesParams1 = { ids: [issueAIdentifier, issueBIdentifier] };
-    const result = await getIssuesTool.handler(
-      getIssuesParams1,
-      context,
-    );
+    const result = await getIssuesTool.handler(getIssuesParams1, context);
     expect(result.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'get_issues', getIssuesParams1, result.content[0].text);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'get_issues', getIssuesParams1, result.content[0].text);
     const parsed = parseToonText(result.content[0].text);
 
     const issuesSection = parsed.sections.get('issues');
@@ -280,12 +298,15 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
     }
 
     const listCommentsParams2 = { issueId: issueAIdentifier };
-    const result = await listCommentsTool.handler(
-      listCommentsParams2,
-      context,
-    );
+    const result = await listCommentsTool.handler(listCommentsParams2, context);
     expect(result.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'list_comments', listCommentsParams2, result.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'list_comments',
+        listCommentsParams2,
+        result.content[0].text,
+      );
     const parsed = parseToonText(result.content[0].text);
 
     const commentsSection = parsed.sections.get('comments');
@@ -314,7 +335,8 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
     const getIssuesParams2 = { ids: [issueAIdentifier] };
     const result = await getIssuesTool.handler(getIssuesParams2, context);
     expect(result.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'get_issues', getIssuesParams2, result.content[0].text);
+    if (suiteRef)
+      reportToolCall(suiteRef, 'get_issues', getIssuesParams2, result.content[0].text);
     const parsed = parseToonText(result.content[0].text);
 
     const relationsSection = parsed.sections.get('relations');
@@ -342,7 +364,13 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
     const listPuParams = { project: 'pr0' };
     const result = await listProjectUpdatesTool.handler(listPuParams, context);
     expect(result.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'list_project_updates', listPuParams, result.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'list_project_updates',
+        listPuParams,
+        result.content[0].text,
+      );
     const parsed = parseToonText(result.content[0].text);
 
     const updatesSection = parsed.sections.get('projectUpdates');
@@ -373,12 +401,15 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
         },
       ],
     };
-    const updateResult = await updateIssuesTool.handler(
-      updateIssuesParams,
-      context,
-    );
+    const updateResult = await updateIssuesTool.handler(updateIssuesParams, context);
     expect(updateResult.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'update_issues', updateIssuesParams, updateResult.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'update_issues',
+        updateIssuesParams,
+        updateResult.content[0].text,
+      );
 
     // Verify changes section in TOON output
     const updateParsed = parseToonText(updateResult.content[0].text);
@@ -394,12 +425,15 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
 
     // Verify via get_issues
     const verifyIssuesParams = { ids: [issueAIdentifier] };
-    const verifyResult = await getIssuesTool.handler(
-      verifyIssuesParams,
-      context,
-    );
+    const verifyResult = await getIssuesTool.handler(verifyIssuesParams, context);
     expect(verifyResult.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'get_issues', verifyIssuesParams, verifyResult.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'get_issues',
+        verifyIssuesParams,
+        verifyResult.content[0].text,
+      );
     const verifyParsed = parseToonText(verifyResult.content[0].text);
     const issuesSection = verifyParsed.sections.get('issues');
     expect(issuesSection).toBeDefined();
@@ -434,16 +468,25 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       context,
     );
     expect(updateResult.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'update_comments', updateCommentsParams, updateResult.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'update_comments',
+        updateCommentsParams,
+        updateResult.content[0].text,
+      );
 
     // Verify via list_comments
     const verifyCommentsParams = { issueId: issueAIdentifier };
-    const verifyResult = await listCommentsTool.handler(
-      verifyCommentsParams,
-      context,
-    );
+    const verifyResult = await listCommentsTool.handler(verifyCommentsParams, context);
     expect(verifyResult.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'list_comments', verifyCommentsParams, verifyResult.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'list_comments',
+        verifyCommentsParams,
+        verifyResult.content[0].text,
+      );
     const verifyParsed = parseToonText(verifyResult.content[0].text);
     const commentsSection = verifyParsed.sections.get('comments');
     expect(commentsSection).toBeDefined();
@@ -477,16 +520,25 @@ describe.skipIf(!canRunLiveTests)('write tool lifecycle', () => {
       context,
     );
     expect(deleteResult.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'manage_relations', deleteRelationParams, deleteResult.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'manage_relations',
+        deleteRelationParams,
+        deleteResult.content[0].text,
+      );
 
     // Verify relation is gone
     const verifyRelationParams = { ids: [issueAIdentifier] };
-    const verifyResult = await getIssuesTool.handler(
-      verifyRelationParams,
-      context,
-    );
+    const verifyResult = await getIssuesTool.handler(verifyRelationParams, context);
     expect(verifyResult.isError).not.toBe(true);
-    if (suiteRef) reportToolCall(suiteRef, 'get_issues', verifyRelationParams, verifyResult.content[0].text);
+    if (suiteRef)
+      reportToolCall(
+        suiteRef,
+        'get_issues',
+        verifyRelationParams,
+        verifyResult.content[0].text,
+      );
     const verifyParsed = parseToonText(verifyResult.content[0].text);
     const relationsSection = verifyParsed.sections.get('relations');
     if (relationsSection) {

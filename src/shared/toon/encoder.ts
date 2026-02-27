@@ -181,6 +181,66 @@ export function stripMarkdownImages(text: string | null | undefined): string | n
 }
 
 /**
+ * Strip Linear issue URLs from text and replace with bare identifiers.
+ *
+ * Handles both:
+ * - Markdown links: [SQT-297](https://linear.app/ws/issue/SQT-297/slug) → SQT-297
+ * - Bare URLs: https://linear.app/ws/issue/SQT-297/some-slug → SQT-297
+ *
+ * Preserves markdown links with custom text (non-identifier link text).
+ *
+ * @param text - The text to process
+ * @returns Text with Linear issue URLs replaced by identifiers
+ */
+export function stripIssueUrls(text: string | null | undefined): string | null {
+  if (!text) {
+    return text === '' ? '' : null;
+  }
+
+  let result = text;
+
+  // 1. Handle markdown links where URL is a Linear issue URL
+  //    [SQT-297](https://linear.app/ws/issue/SQT-297/slug) → SQT-297
+  //    [custom text](https://linear.app/ws/issue/SQT-297) → preserved via placeholder
+  const placeholders: string[] = [];
+  const PH_PRE = '\u200B\u200BMDLNK';
+  const PH_SUF = '\u200B\u200B';
+  result = result.replace(
+    /\[([^\]]*)\]\(https?:\/\/linear\.app\/[^/]+\/issue\/([A-Z]+-\d+)(?:\/[^)]*)?\)/gi,
+    (match, linkText: string, identifier: string) => {
+      // If link text matches the identifier, collapse to just the identifier
+      if (linkText.toUpperCase() === identifier.toUpperCase()) {
+        return identifier.toUpperCase();
+      }
+      // Custom link text — protect from step 2 with placeholder
+      const idx = placeholders.length;
+      placeholders.push(match);
+      return `${PH_PRE}${idx}${PH_SUF}`;
+    },
+  );
+
+  // 2. Handle bare Linear issue URLs (not inside protected markdown links)
+  //    https://linear.app/ws/issue/SQT-297/some-slug → SQT-297
+  result = result.replace(
+    /https?:\/\/linear\.app\/[^/]+\/issue\/([A-Z]+-\d+)(?:\/[^\s)>\]]*)?/gi,
+    (_match, identifier: string) => identifier.toUpperCase(),
+  );
+
+  // 3. Restore protected markdown links
+  if (placeholders.length > 0) {
+    const restorePattern = new RegExp(
+      `${PH_PRE.replace(/\u200B/g, '\\u200B')}(\\d+)${PH_SUF.replace(/\u200B/g, '\\u200B')}`,
+      'g',
+    );
+    result = result.replace(restorePattern, (_match, idx: string) => {
+      return placeholders[parseInt(idx, 10)] ?? '';
+    });
+  }
+
+  return result;
+}
+
+/**
  * Truncate a string value if it exceeds the maximum length.
  *
  * @param value - The value to potentially truncate
@@ -243,11 +303,12 @@ export function encodeToonRow(
   for (const field of schema.fields) {
     let value = row[field];
 
-    // Strip markdown images from description fields
+    // Strip Linear issue URLs and markdown images from description fields
     if (
       (field === 'desc' || field === 'description' || field === 'body') &&
       typeof value === 'string'
     ) {
+      value = stripIssueUrls(value);
       value = stripMarkdownImages(value);
     }
 

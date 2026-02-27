@@ -13,10 +13,7 @@
 
 import { config } from '../../../config/env.js';
 import type { getLinearClient } from '../../../services/linear/client.js';
-import type {
-  RegistryBuildData,
-  RegistryProjectEntity,
-} from '../../toon/index.js';
+import type { RegistryBuildData, RegistryProjectEntity } from '../../toon/index.js';
 
 /** Linear client type extracted from getLinearClient return */
 type LinearClient = Awaited<ReturnType<typeof getLinearClient>>;
@@ -52,8 +49,8 @@ export async function fetchGlobalProjects(
       (conn as unknown as { pageInfo?: { hasNextPage?: boolean; endCursor?: string } })
         .pageInfo?.hasNextPage ?? false;
     after = hasNextPage
-      ? (conn as unknown as { pageInfo?: { endCursor?: string } }).pageInfo
-          ?.endCursor ?? undefined
+      ? ((conn as unknown as { pageInfo?: { endCursor?: string } }).pageInfo
+          ?.endCursor ?? undefined)
       : undefined;
     pages++;
     if (!hasNextPage) break;
@@ -61,8 +58,7 @@ export async function fetchGlobalProjects(
 
   return allNodes.map((p) => ({
     id: p.id,
-    createdAt:
-      (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
+    createdAt: (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
     name: (p as unknown as { name: string }).name,
     state: (p as unknown as { state?: string }).state ?? '',
     priority: (p as unknown as { priority?: number }).priority,
@@ -132,9 +128,7 @@ export async function fetchWorkspaceDataForRegistry(
     // Fetch team members for user team-membership enrichment
     const membersConn = await (
       team as unknown as {
-        members: (opts: {
-          first: number;
-        }) => Promise<{ nodes: Array<{ id: string }> }>;
+        members: (opts: { first: number }) => Promise<{ nodes: Array<{ id: string }> }>;
       }
     ).members({ first: 200 });
     for (const member of membersConn.nodes ?? []) {
@@ -175,12 +169,13 @@ export async function fetchWorkspaceDataForRegistry(
     project.teamKeys = projectTeamMap.get(project.id);
   }
 
-  // Get workspace ID from viewer
+  // Get workspace ID and URL key from viewer
   const viewer = await client.viewer;
   const viewerOrg = viewer as unknown as {
-    organization?: { id?: string };
+    organization?: { id?: string; urlKey?: string };
   };
   const workspaceId = viewerOrg?.organization?.id ?? 'unknown';
+  const urlKey = viewerOrg?.organization?.urlKey ?? undefined;
 
   // Build teams array for multi-team support
   const teams = teamsNodes.map((t) => ({
@@ -194,8 +189,8 @@ export async function fetchWorkspaceDataForRegistry(
     const defaultTeamKey = config.DEFAULT_TEAM.toLowerCase();
     const matchedTeam = teamsNodes.find(
       (t) =>
-        (t as unknown as { key?: string }).key?.toLowerCase() ===
-          defaultTeamKey || t.id === config.DEFAULT_TEAM,
+        (t as unknown as { key?: string }).key?.toLowerCase() === defaultTeamKey ||
+        t.id === config.DEFAULT_TEAM,
     );
     defaultTeamId = matchedTeam?.id;
   }
@@ -207,5 +202,6 @@ export async function fetchWorkspaceDataForRegistry(
     workspaceId,
     teams,
     defaultTeamId,
+    urlKey,
   };
 }
