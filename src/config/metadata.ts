@@ -157,7 +157,7 @@ export const toolsMetadata = {
     name: 'create_document',
     title: 'Create Document',
     description:
-      'Create a document, optionally associated with a cycle (sprint), project, or team. Primary use case: sprint summary documents inside cycles. Inputs: { title: string, content?: string (markdown), cycle?: "current"|"next"|"previous"|number, project?: string (short key pr0 or UUID), team?: string (team key or UUID, for cycle resolution) }.\nReturns: created document with id and url. Next: Use list_documents to see all documents for a cycle/project.',
+      'Create a document, optionally associated with a cycle (sprint), project, or team. Primary use case: sprint summary documents inside cycles. Inputs: { title: string, content?: string (markdown), cycle?: "current"|"next"|"previous"|number, project?: string (short key pr0 or UUID), team?: string (team key or UUID, for cycle resolution) }.\nReturns: created document with id and url. Next: Use list_documents to see all documents for a cycle/project.\nNote: Linear displays the title separately above the content — do not repeat the title as a heading in the content body.',
   },
 
   list_documents: {
