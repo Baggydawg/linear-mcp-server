@@ -65,7 +65,7 @@ describe('list_projects tool', () => {
 
     it('supports filtering by project state', async () => {
       const result = await listProjectsTool.handler(
-        { filter: { state: { eq: 'started' } } },
+        { filter: { status: { type: { eq: 'started' } } } },
         baseContext,
       );
 
@@ -74,7 +74,7 @@ describe('list_projects tool', () => {
       // Verify filter was passed to API (includes default team filter when DEFAULT_TEAM is set)
       expect(mockClient.projects).toHaveBeenCalledWith(
         expect.objectContaining({
-          filter: expect.objectContaining({ state: { eq: 'started' } }),
+          filter: expect.objectContaining({ status: { type: { eq: 'started' } } }),
         }),
       );
     });
@@ -162,7 +162,7 @@ describe('list_projects tool', () => {
 
       expect(mockClient.projects).toHaveBeenCalledWith(
         expect.objectContaining({
-          filter: expect.objectContaining({ state: { eq: 'started' } }),
+          filter: expect.objectContaining({ status: { type: { eq: 'started' } } }),
         }),
       );
     });
@@ -208,7 +208,7 @@ describe('list_projects tool', () => {
       expect(mockClient.projects).toHaveBeenCalledWith(
         expect.objectContaining({
           filter: expect.objectContaining({
-            state: { eq: 'started' },
+            status: { type: { eq: 'started' } },
             priority: { eq: 2 },
             accessibleTeams: expect.objectContaining({
               id: expect.objectContaining({ eq: expect.any(String) }),
@@ -509,7 +509,7 @@ describe('update_projects tool', () => {
 describe('projects common workflows', () => {
   it('roadmap view: list active projects with state filter', async () => {
     const result = await listProjectsTool.handler(
-      { filter: { state: { in: ['started', 'planned'] } } },
+      { filter: { status: { type: { in: ['started', 'planned'] } } } },
       baseContext,
     );
 
@@ -518,7 +518,7 @@ describe('projects common workflows', () => {
     // Verify filter was applied (includes default team filter when DEFAULT_TEAM is set)
     expect(mockClient.projects).toHaveBeenCalledWith(
       expect.objectContaining({
-        filter: expect.objectContaining({ state: { in: ['started', 'planned'] } }),
+        filter: expect.objectContaining({ status: { type: { in: ['started', 'planned'] } } }),
       }),
     );
   });
@@ -929,7 +929,7 @@ describe('list_projects project parameter (direct lookup)', () => {
 
   it('rejects project + filter conflict', async () => {
     const result = await listProjectsTool.handler(
-      { project: 'pr0', filter: { state: { eq: 'started' } } },
+      { project: 'pr0', filter: { status: { type: { eq: 'started' } } } },
       baseContext,
     );
     expect(result.isError).toBe(true);

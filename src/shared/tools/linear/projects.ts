@@ -279,8 +279,8 @@ const ListProjectsInputSchema = z.object({
     .enum(['planned', 'started', 'paused', 'completed', 'canceled', 'backlog'])
     .optional()
     .describe(
-      "Filter by project status type. Shortcut for filter: { state: { eq: value } }. " +
-        "Overrides any state in filter.",
+      "Filter by project status type. Shortcut for filter: { status: { type: { eq: value } } }. " +
+        "Overrides any status.type in filter.",
     ),
   priority: z
     .union([
@@ -439,9 +439,9 @@ export const listProjectsTool = defineTool({
     }
 
     // Apply stateType filter (project statuses: planned, started, paused, completed, canceled, backlog)
-    // Uses deprecated but functional `state` StringComparator field
+    // Uses ProjectStatusFilter.type field
     if (!args.project && args.stateType) {
-      filter = { ...filter, state: { eq: args.stateType } };
+      filter = { ...filter, status: { type: { eq: args.stateType } } };
     }
 
     // Apply priority filter
