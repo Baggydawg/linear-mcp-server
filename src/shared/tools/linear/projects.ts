@@ -14,7 +14,7 @@ import { getLinearClient } from '../../../services/linear/client.js';
 import { createErrorFromException, formatErrorMessage } from '../../../utils/errors.js';
 import { delay, makeConcurrencyGate, withRetry } from '../../../utils/limits.js';
 import { logger } from '../../../utils/logger.js';
-import { resolveTeamId } from '../../../utils/resolvers.js';
+import { resolvePriority, resolveTeamId } from '../../../utils/resolvers.js';
 import {
   CREATED_PROJECT_SCHEMA,
   encodeResponse,
@@ -264,10 +264,10 @@ const ListProjectsInputSchema = z.object({
     .record(z.any())
     .optional()
     .describe(
-      'GraphQL-style ProjectFilter. Structure: { field: { comparator: value } }. ' +
-        "Examples: { id: { eq: 'PROJECT_UUID' } } for single project, " +
-        "{ state: { eq: 'started' } }, " +
-        "{ accessibleTeams: { id: { eq: 'TEAM_UUID' } } }, " +
+      'For common filters, prefer dedicated params: stateType, priority. ' +
+        'GraphQL-style ProjectFilter for advanced use cases (date ranges, nested AND/OR). ' +
+        'Structure: { field: { comparator: value } }. ' +
+        "Examples: { accessibleTeams: { id: { eq: 'TEAM_UUID' } } }, " +
         "{ lead: { id: { eq: 'USER_UUID' } } }, " +
         "{ targetDate: { lt: '2025-01-01', gt: '2024-01-01' } }.",
     ),
@@ -275,6 +275,24 @@ const ListProjectsInputSchema = z.object({
     .boolean()
     .optional()
     .describe('Include archived projects. Default: false.'),
+  stateType: z
+    .enum(['planned', 'started', 'paused', 'completed', 'canceled', 'backlog'])
+    .optional()
+    .describe(
+      "Filter by project status type. Shortcut for filter: { state: { eq: value } }. " +
+        "Overrides any state in filter.",
+    ),
+  priority: z
+    .union([
+      z.number().int().min(0).max(4),
+      z.enum(['none', 'urgent', 'high', 'medium', 'low']),
+    ])
+    .optional()
+    .describe(
+      'Filter by exact priority. Accepts number (0=None, 1=Urgent, 2=High, 3=Medium, 4=Low) ' +
+        "or name ('urgent', 'high', 'medium', 'low', 'none'). " +
+        'Shortcut for filter: { priority: { eq: value } }. Overrides any priority in filter.',
+    ),
 });
 
 export const listProjectsTool = defineTool({
@@ -418,6 +436,29 @@ export const listProjectsTool = defineTool({
           filter = { ...filter, accessibleTeams: { id: { eq: resolved.value } } };
         }
       }
+    }
+
+    // Apply stateType filter (project statuses: planned, started, paused, completed, canceled, backlog)
+    // Uses deprecated but functional `state` StringComparator field
+    if (!args.project && args.stateType) {
+      filter = { ...filter, state: { eq: args.stateType } };
+    }
+
+    // Apply priority filter
+    if (!args.project && args.priority !== undefined) {
+      const priorityResult = resolvePriority(args.priority);
+      if (!priorityResult.success) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: priorityResult.error }],
+          structuredContent: {
+            error: 'PRIORITY_RESOLUTION_FAILED',
+            message: priorityResult.error,
+            hint: priorityResult.suggestions?.[0],
+          },
+        };
+      }
+      filter = { ...filter, priority: { eq: priorityResult.value } };
     }
 
     let rawProjects: RawProjectData[];

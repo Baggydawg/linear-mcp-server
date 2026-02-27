@@ -150,6 +150,91 @@ describe('list_projects tool', () => {
       expect(textContent).toContain('projects[');
     });
   });
+
+  describe('dedicated filter params', () => {
+    it('filters by stateType param', async () => {
+      const result = await listProjectsTool.handler(
+        { stateType: 'started' },
+        baseContext,
+      );
+
+      expect(result.isError).toBeFalsy();
+
+      expect(mockClient.projects).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: expect.objectContaining({ state: { eq: 'started' } }),
+        }),
+      );
+    });
+
+    it('filters by numeric priority param', async () => {
+      const result = await listProjectsTool.handler(
+        { priority: 2 },
+        baseContext,
+      );
+
+      expect(result.isError).toBeFalsy();
+
+      expect(mockClient.projects).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: expect.objectContaining({ priority: { eq: 2 } }),
+        }),
+      );
+    });
+
+    it('filters by string priority param', async () => {
+      const result = await listProjectsTool.handler(
+        { priority: 'high' },
+        baseContext,
+      );
+
+      expect(result.isError).toBeFalsy();
+
+      expect(mockClient.projects).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: expect.objectContaining({ priority: { eq: 2 } }),
+        }),
+      );
+    });
+
+    it('combines stateType and priority with team', async () => {
+      const result = await listProjectsTool.handler(
+        { stateType: 'started', priority: 'high', team: 'SQT' },
+        baseContext,
+      );
+
+      expect(result.isError).toBeFalsy();
+
+      expect(mockClient.projects).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: expect.objectContaining({
+            state: { eq: 'started' },
+            priority: { eq: 2 },
+            accessibleTeams: expect.objectContaining({
+              id: expect.objectContaining({ eq: expect.any(String) }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('silently ignores stateType when project param is set', async () => {
+      const result = await listProjectsTool.handler(
+        { project: 'project-001', stateType: 'started' },
+        baseContext,
+      );
+
+      expect(result.isError).toBeFalsy();
+
+      // When project param is set, filter is overridden to { id: { eq: ... } }
+      // stateType is skipped due to !args.project guard
+      expect(mockClient.projects).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: { id: { eq: 'project-001' } },
+        }),
+      );
+    });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

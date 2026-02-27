@@ -16,7 +16,11 @@ import {
   validateFilter,
 } from '../../../utils/errors.js';
 import { normalizeIssueFilter } from '../../../utils/filters.js';
-import { resolveCycleSelector, resolveTeamId } from '../../../utils/resolvers.js';
+import {
+  resolveCycleSelector,
+  resolvePriority,
+  resolveTeamId,
+} from '../../../utils/resolvers.js';
 import {
   COMMENT_SCHEMA,
   encodeResponse,
@@ -59,12 +63,12 @@ const InputSchema = z.object({
     .record(z.any())
     .optional()
     .describe(
-      'GraphQL-style IssueFilter. Structure: { field: { comparator: value } }. ' +
+      'For common filters, prefer dedicated params: stateType, priority, labels. ' +
+        'GraphQL-style IssueFilter for advanced use cases (date ranges, nested AND/OR). ' +
+        'Structure: { field: { comparator: value } }. ' +
         'Comparators: eq, neq, lt, lte, gt, gte, in, nin, containsIgnoreCase, startsWith, endsWith. ' +
-        "Examples: { state: { type: { eq: 'started' } } } for in-progress, " +
-        "{ state: { type: { neq: 'completed' } } } for open issues, " +
+        "Examples: { state: { type: { neq: 'completed' } } } for open issues, " +
         "{ assignee: { email: { eqIgnoreCase: 'x@y.com' } } }, " +
-        "{ labels: { name: { in: ['Bug', 'Urgent'] } } }, " +
         "{ title: { containsIgnoreCase: 'search' } }.",
     ),
   teamId: z.string().optional().describe('Filter by team UUID.'),
@@ -145,6 +149,31 @@ const InputSchema = z.object({
     .optional()
     .describe(
       'If true, only show issues assigned to the current viewer. Shortcut for filter.assignee.id.eq with viewer ID.',
+    ),
+  stateType: z
+    .enum(['triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled'])
+    .optional()
+    .describe(
+      "Filter by workflow state type. Shortcut for filter: { state: { type: { eq: value } } }. " +
+        "Overrides any state.type in filter.",
+    ),
+  priority: z
+    .union([
+      z.number().int().min(0).max(4),
+      z.enum(['none', 'urgent', 'high', 'medium', 'low']),
+    ])
+    .optional()
+    .describe(
+      'Filter by exact priority. Accepts number (0=None, 1=Urgent, 2=High, 3=Medium, 4=Low) ' +
+        "or name ('urgent', 'high', 'medium', 'low', 'none'). " +
+        'Shortcut for filter: { priority: { eq: value } }. Overrides any priority in filter.',
+    ),
+  labels: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Filter by label names (match any). Example: ['Bug', 'Feature']. " +
+        'Shortcut for filter: { labels: { name: { in: [...] } } }. Overrides any labels in filter.',
     ),
 });
 
@@ -809,6 +838,33 @@ export const listIssuesTool = defineTool({
       }));
       const mode = args.matchMode ?? 'all';
       filter = { ...filter, [mode === 'all' ? 'and' : 'or']: titleFilters };
+    }
+
+    // Apply stateType filter
+    if (args.stateType) {
+      filter = { ...filter, state: { type: { eq: args.stateType } } };
+    }
+
+    // Apply priority filter
+    if (args.priority !== undefined) {
+      const priorityResult = resolvePriority(args.priority);
+      if (!priorityResult.success) {
+        return {
+          isError: true,
+          content: [{ type: 'text', text: priorityResult.error }],
+          structuredContent: {
+            error: 'PRIORITY_RESOLUTION_FAILED',
+            message: priorityResult.error,
+            hint: priorityResult.suggestions?.[0],
+          },
+        };
+      }
+      filter = { ...filter, priority: { eq: priorityResult.value } };
+    }
+
+    // Apply labels filter
+    if (args.labels && args.labels.length > 0) {
+      filter = { ...filter, labels: { name: { in: args.labels } } };
     }
 
     // Validate filter structure before sending to API

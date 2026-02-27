@@ -522,18 +522,18 @@ describe('Tool Description Provides State Filtering Guidance', () => {
   it('list_issues description mentions state filtering', () => {
     const desc = listIssuesTool.description;
 
-    // Should mention state filtering
-    expect(desc).toContain('state');
+    // Should mention state filtering via dedicated params
+    expect(desc).toContain('stateType');
     expect(desc).toContain('started');
-    expect(desc).toContain('completed');
   });
 
-  it('list_issues description shows active issues filter example', () => {
+  it('list_issues description shows dedicated filter params', () => {
     const desc = listIssuesTool.description;
 
-    // Should mention how to get active/open issues
-    expect(desc).toContain('neq');
-    expect(desc).toContain('completed');
+    // Should mention dedicated params as the primary filtering approach
+    expect(desc).toContain('prefer dedicated params');
+    expect(desc).toContain('priority');
+    expect(desc).toContain('labels');
   });
 
   it('list_issues description shows in-progress filter example', () => {

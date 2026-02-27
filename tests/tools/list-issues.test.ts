@@ -249,6 +249,103 @@ describe('list_issues handler', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Dedicated Filter Params Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('list_issues dedicated filter params', () => {
+  it('injects stateType into filter', async () => {
+    const result = await listIssuesTool.handler(
+      { stateType: 'started' },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.state).toEqual({ type: { eq: 'started' } });
+  });
+
+  it('injects numeric priority into filter', async () => {
+    const result = await listIssuesTool.handler({ priority: 2 }, baseContext);
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.priority).toEqual({ eq: 2 });
+  });
+
+  it('injects string priority into filter', async () => {
+    const result = await listIssuesTool.handler(
+      { priority: 'high' },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.priority).toEqual({ eq: 2 });
+  });
+
+  it('injects labels into filter', async () => {
+    const result = await listIssuesTool.handler(
+      { labels: ['Bug', 'Feature'] },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.labels).toEqual({ name: { in: ['Bug', 'Feature'] } });
+  });
+
+  it('stateType overrides filter state type', async () => {
+    const result = await listIssuesTool.handler(
+      {
+        stateType: 'completed',
+        filter: { state: { type: { eq: 'started' } } },
+      },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.state).toEqual({ type: { eq: 'completed' } });
+  });
+
+  it('combines dedicated params with other filter params', async () => {
+    const result = await listIssuesTool.handler(
+      { stateType: 'started', priority: 'high', team: 'SQT' },
+      baseContext,
+    );
+
+    expect(result.isError).toBeFalsy();
+
+    const call = mockClient._calls.rawRequest[0];
+    const filter = call.variables?.filter as Record<string, unknown>;
+    expect(filter.state).toEqual({ type: { eq: 'started' } });
+    expect(filter.priority).toEqual({ eq: 2 });
+    expect(filter.team).toBeDefined();
+  });
+
+  it('rejects invalid stateType via schema validation', () => {
+    const result = listIssuesTool.inputSchema.safeParse({
+      stateType: 'invalid',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const errorMessage = result.error.errors.map((e) => e.message).join(', ');
+      expect(errorMessage).toContain('Invalid enum value');
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Output Shape Tests
 // ─────────────────────────────────────────────────────────────────────────────
 

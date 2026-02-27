@@ -65,6 +65,16 @@ export const ListIssuesInputSchema = PaginationInput.extend({
     .array(z.string())
     .optional()
     .describe('Explicit keywords; applies OR of title.containsIgnoreCase for each'),
+  stateType: z
+    .enum(['triage', 'backlog', 'unstarted', 'started', 'completed', 'canceled'])
+    .optional(),
+  priority: z
+    .union([
+      z.number().int().min(0).max(4),
+      z.enum(['none', 'urgent', 'high', 'medium', 'low']),
+    ])
+    .optional(),
+  labels: z.array(z.string()).optional(),
 }).strict();
 export type ListIssuesInput = z.infer<typeof ListIssuesInputSchema>;
 
@@ -170,6 +180,15 @@ export const ListProjectsInputSchema = PaginationInput.extend({
     .boolean()
     .optional()
     .describe('Include archived projects (hidden by default).'),
+  stateType: z
+    .enum(['planned', 'started', 'paused', 'completed', 'canceled', 'backlog'])
+    .optional(),
+  priority: z
+    .union([
+      z.number().int().min(0).max(4),
+      z.enum(['none', 'urgent', 'high', 'medium', 'low']),
+    ])
+    .optional(),
 }).strict();
 export type ListProjectsInput = z.infer<typeof ListProjectsInputSchema>;
 

@@ -116,6 +116,26 @@
     {
       "name": "with_team_key",
       "input": { "team": "SQT" }
+    },
+    {
+      "name": "with_state_type",
+      "input": { "stateType": "started" }
+    },
+    {
+      "name": "with_priority_number",
+      "input": { "priority": 2 }
+    },
+    {
+      "name": "with_priority_string",
+      "input": { "priority": "high" }
+    },
+    {
+      "name": "with_labels",
+      "input": { "labels": ["Bug", "Feature"] }
+    },
+    {
+      "name": "with_combined_dedicated",
+      "input": { "stateType": "started", "priority": "high", "labels": ["Bug"] }
     }
   ],
   "invalid": [
@@ -133,6 +153,16 @@
       "name": "invalid_order_by",
       "input": { "orderBy": "invalid" },
       "expectedError": "Invalid enum value"
+    },
+    {
+      "name": "invalid_state_type",
+      "input": { "stateType": "invalid" },
+      "expectedError": "Invalid enum value"
+    },
+    {
+      "name": "invalid_priority_number",
+      "input": { "priority": 5 },
+      "expectedError": "Number must be less than or equal to 4"
     }
   ]
 }
