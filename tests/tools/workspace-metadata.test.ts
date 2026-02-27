@@ -402,7 +402,7 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
     }
   });
 
-  it('PROJECT_LOOKUP_SCHEMA has all 7 fields', async () => {
+  it('PROJECT_LOOKUP_SCHEMA has all 8 fields', async () => {
     const { clearRegistry } = await import('../../src/shared/toon/registry.js');
 
     clearRegistry(baseContext.sessionId);
@@ -412,19 +412,20 @@ describe('workspace_metadata bug fix verification (Phase 8)', () => {
 
     const text = result.content[0].text;
 
-    // Verify _projects header contains all 7 fields
+    // Verify _projects header contains all 8 fields
     const projectsHeader = text.match(/_projects\[\d+\]\{([^}]+)\}/);
     expect(projectsHeader).not.toBeNull();
 
     const fields = projectsHeader![1].split(',');
     expect(fields).toContain('key');
     expect(fields).toContain('name');
+    expect(fields).toContain('icon');
     expect(fields).toContain('state');
     expect(fields).toContain('priority');
     expect(fields).toContain('progress');
     expect(fields).toContain('lead');
     expect(fields).toContain('targetDate');
-    expect(fields.length).toBe(7);
+    expect(fields.length).toBe(8);
 
     clearRegistry(baseContext.sessionId);
   });

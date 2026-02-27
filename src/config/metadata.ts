@@ -122,14 +122,14 @@ export const toolsMetadata = {
     name: 'create_projects',
     title: 'Create Projects (Batch)',
     description:
-      'Create multiple projects in one call. Inputs: { items: Array<{ name: string; teamId?: string; teamIds?: string[]; leadId?: string; description?: string; targetDate?: string; state?: string }> }.\nNotes: Use teamIds for multi-team projects (e.g., teamIds: ["SQT", "SQM"]). Accepts team keys or UUIDs. Use teamId for single-team (backward compatible). Returns: per-item results and a summary.',
+      'Create multiple projects in one call. Inputs: { items: Array<{ name: string; teamId?: string; teamIds?: string[]; leadId?: string; description?: string; targetDate?: string; state?: string; icon?: string }> }.\nNotes: Use teamIds for multi-team projects (e.g., teamIds: ["SQT", "SQM"]). Accepts team keys or UUIDs. Use teamId for single-team (backward compatible). icon accepts a colon-wrapped shortcode (e.g., ":rocket:"); raw emoji not accepted. Returns: per-item results and a summary.',
   },
 
   update_projects: {
     name: 'update_projects',
     title: 'Update Projects (Batch)',
     description:
-      "Update multiple projects in one call. Inputs: { items: Array<{ id: string; name?: string; description?: string; targetDate?: string; state?: string; leadId?: string; teamIds?: string[]; archived?: boolean }> }.\nNotes: teamIds replaces all team associations (e.g., teamIds: ['SQT', 'SQM'] to make a project span both teams). Accepts team keys or UUIDs.\nReturns: per-item results and a summary. Next: verify with 'list_projects' (filter.id.eq, limit=1); discover via 'list_projects'.",
+      "Update multiple projects in one call. Inputs: { items: Array<{ id: string; name?: string; description?: string; targetDate?: string; state?: string; leadId?: string; teamIds?: string[]; icon?: string | null; archived?: boolean }> }.\nNotes: teamIds replaces all team associations (e.g., teamIds: ['SQT', 'SQM'] to make a project span both teams). Accepts team keys or UUIDs. icon accepts a colon-wrapped shortcode (e.g., \":rocket:\"); raw emoji not accepted; set to null to clear.\nReturns: per-item results and a summary. Next: verify with 'list_projects' (filter.id.eq, limit=1); discover via 'list_projects'.",
   },
 
   create_project_update: {

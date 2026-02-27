@@ -188,6 +188,7 @@ export const CreateProjectsInputSchema = z
             description: z.string().optional(),
             targetDate: z.string().optional(),
             state: z.string().optional(),
+            icon: z.string().optional(),
           })
           .strict(),
       )
@@ -208,6 +209,7 @@ export const UpdateProjectsInputSchema = z
             targetDate: z.string().optional(),
             state: z.string().optional(),
             leadId: z.string().optional(),
+            icon: z.string().nullable().optional(),
             archived: z.boolean().optional(),
           })
           .strict(),

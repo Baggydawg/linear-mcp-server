@@ -60,6 +60,7 @@ export async function fetchGlobalProjects(
     id: p.id,
     createdAt: (p as unknown as { createdAt?: Date | string }).createdAt ?? new Date(),
     name: (p as unknown as { name: string }).name,
+    icon: (p as unknown as { icon?: string }).icon,
     state: (p as unknown as { state?: string }).state ?? '',
     priority: (p as unknown as { priority?: number }).priority,
     progress: (p as unknown as { progress?: number }).progress,

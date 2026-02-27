@@ -951,17 +951,18 @@ describe('get_sprint_context output structure', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('project lookup field population', () => {
-  it('populates all 7 project fields from registry metadata', async () => {
+  it('populates all 8 project fields from registry metadata', async () => {
     const result = await getSprintContextTool.handler({ cycle: 2 }, baseContext);
     const text = result.content[0].text;
 
-    // Verify _projects header has all 7 fields
+    // Verify _projects header has all 8 fields
     const projectHeaderMatch = text.match(/_projects\[\d+\]\{([^}]+)\}/);
     expect(projectHeaderMatch).not.toBeNull();
     const fields = projectHeaderMatch![1].split(',');
     expect(fields).toEqual([
       'key',
       'name',
+      'icon',
       'state',
       'priority',
       'progress',

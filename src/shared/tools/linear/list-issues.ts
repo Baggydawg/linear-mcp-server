@@ -466,6 +466,7 @@ function buildProjectLookup(
       items.push({
         key: shortKey,
         name: metadata?.name ?? issueInfo?.name ?? '',
+        icon: metadata?.icon ?? '',
         state: metadata?.state ?? '',
         priority: metadata?.priority ?? null,
         progress:

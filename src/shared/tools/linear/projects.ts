@@ -49,6 +49,7 @@ import { autoLinkWithRegistry } from './shared/index.js';
 interface RawProjectData {
   id: string;
   name: string;
+  icon?: string | null;
   description?: string | null;
   state?: string;
   priority?: number;
@@ -97,6 +98,7 @@ function projectToToonRow(
   return {
     key: projectKey ?? '',
     name: project.name ?? '',
+    icon: project.icon ?? null,
     description: project.description ?? null,
     state: project.state ?? null,
     priority: project.priority ?? null,
@@ -434,6 +436,7 @@ export const listProjectsTool = defineTool({
       rawProjects = conn.nodes.map((p) => ({
         id: p.id,
         name: p.name,
+        icon: (p as unknown as { icon?: string }).icon,
         description: (p as unknown as { description?: string }).description,
         state: p.state,
         priority: (p as unknown as { priority?: number }).priority,
@@ -525,6 +528,10 @@ const CreateProjectsInputSchema = z.object({
           .describe('Lead user UUID or short key (u0, u1...).'),
         lead: z.string().optional().describe('Lead user short key (u0, u1...).'),
         targetDate: z.string().optional().describe('Target date (YYYY-MM-DD).'),
+        icon: z
+          .string()
+          .optional()
+          .describe('Project icon as a colon-wrapped shortcode (e.g. ":rocket:", ":art:"). Raw emoji not accepted.'),
       }),
     )
     .min(1)
@@ -568,6 +575,7 @@ export const createProjectsTool = defineTool({
       id?: string;
       projectKey?: string;
       name?: string;
+      icon?: string;
       state?: string;
       error?: string | { code: string; message: string; suggestions: string[] };
       code?: string;
@@ -664,6 +672,7 @@ export const createProjectsTool = defineTool({
             leadId: resolvedLeadId,
             targetDate: it.targetDate,
             teamIds: resolvedTeamIds,
+            icon: it.icon,
           });
 
         const payload = await withRetry(
@@ -675,6 +684,7 @@ export const createProjectsTool = defineTool({
         const project = (await payload.project) as {
           id?: string;
           state?: string;
+          icon?: string;
         } | null;
 
         // Register new project and get short key for TOON output
@@ -682,6 +692,7 @@ export const createProjectsTool = defineTool({
         if (registry && project?.id) {
           projectKey = registerNewProject(registry, project.id, {
             name: it.name,
+            icon: project?.icon,
             state: project.state ?? 'planned',
           });
         }
@@ -692,6 +703,7 @@ export const createProjectsTool = defineTool({
           id: project?.id,
           projectKey,
           name: it.name,
+          icon: project?.icon,
           state: project?.state ?? 'planned',
           // Legacy
           index: i,
@@ -745,6 +757,7 @@ export const createProjectsTool = defineTool({
       .map((r) => ({
         key: r.projectKey ?? '',
         name: r.name ?? '',
+        icon: r.icon ?? '',
         state: r.state ?? 'planned',
       }));
 
@@ -804,6 +817,13 @@ const UpdateProjectsInputSchema = z.object({
             'Replace team associations. Team UUIDs or keys (e.g., ["SQT", "SQM"]). Sets all teams for this project.',
           ),
         targetDate: z.string().optional().describe('New target date (YYYY-MM-DD).'),
+        icon: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            'Project icon as a colon-wrapped shortcode (e.g. ":rocket:", ":art:"). Set to null to clear. Raw emoji not accepted.',
+          ),
         state: z
           .string()
           .optional()
@@ -972,6 +992,7 @@ export const updateProjectsTool = defineTool({
           updatePayload.content = autoLinkWithRegistry(it.content, registry);
         if (resolvedLeadId) updatePayload.leadId = resolvedLeadId;
         if (it.targetDate) updatePayload.targetDate = it.targetDate;
+        if (it.icon !== undefined) updatePayload.icon = it.icon;
         if (it.state) updatePayload.state = it.state;
         if (resolvedTeamIds) updatePayload.teamIds = resolvedTeamIds;
 

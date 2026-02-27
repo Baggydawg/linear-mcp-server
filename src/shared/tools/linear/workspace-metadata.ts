@@ -191,6 +191,7 @@ interface WorkspaceData {
   projects: Array<{
     id: string;
     name: string;
+    icon?: string;
     state?: string;
     priority?: number;
     progress?: number;
@@ -293,6 +294,7 @@ function buildToonResponse(
       return {
         key: registry.projectsByUuid.get(p.id) ?? '',
         name: p.name,
+        icon: p.icon ?? null,
         state: p.state ?? '',
         priority: p.priority ?? null,
         progress: p.progress !== undefined ? Math.round(p.progress * 100) / 100 : null,
@@ -620,6 +622,7 @@ export const workspaceMetadataTool = defineTool({
           workspaceData.projects.push({
             id: p.id,
             name: p.name,
+            icon: (p as unknown as { icon?: string }).icon ?? undefined,
             state: p.state,
             priority: p.priority,
             progress: p.progress,

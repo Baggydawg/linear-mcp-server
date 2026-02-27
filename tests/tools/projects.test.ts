@@ -254,6 +254,18 @@ describe('create_projects tool', () => {
       expect(result.isError).toBeFalsy();
       expect(mockClient.createProject).toHaveBeenCalledTimes(3);
     });
+
+    it('creates project with icon', async () => {
+      const result = await createProjectsTool.handler(
+        { items: [{ name: 'Rocket Project', icon: '🚀' }] },
+        baseContext,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(mockClient.createProject).toHaveBeenCalledWith(
+        expect.objectContaining({ icon: '🚀' }),
+      );
+    });
   });
 });
 
@@ -376,6 +388,32 @@ describe('update_projects tool', () => {
 
       expect(schemaResult.success).toBe(true);
     });
+
+    it('updates project icon', async () => {
+      const result = await updateProjectsTool.handler(
+        { items: [{ id: 'project-001', icon: '📦' }] },
+        baseContext,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(mockClient.updateProject).toHaveBeenCalledWith(
+        'project-001',
+        expect.objectContaining({ icon: '📦' }),
+      );
+    });
+
+    it('clears project icon with null', async () => {
+      const result = await updateProjectsTool.handler(
+        { items: [{ id: 'project-001', icon: null }] },
+        baseContext,
+      );
+
+      expect(result.isError).toBeFalsy();
+      expect(mockClient.updateProject).toHaveBeenCalledWith(
+        'project-001',
+        expect.objectContaining({ icon: null }),
+      );
+    });
   });
 });
 
@@ -470,7 +508,7 @@ describe('list_projects TOON output', () => {
     // Should have project schema header with fields
     expect(textContent).toContain('projects[');
     expect(textContent).toContain(
-      '{key,name,description,state,priority,progress,lead,teams,startDate,targetDate,health}',
+      '{key,name,icon,description,state,priority,progress,lead,teams,startDate,targetDate,health}',
     );
   });
 
@@ -562,7 +600,7 @@ describe('create_projects TOON output', () => {
 
     // Should have created schema
     expect(textContent).toContain('created[');
-    expect(textContent).toContain('{key,name,state}');
+    expect(textContent).toContain('{key,name,icon,state}');
   });
 });
 

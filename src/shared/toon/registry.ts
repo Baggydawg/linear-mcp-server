@@ -61,6 +61,7 @@ export interface StateMetadata {
  */
 export interface ProjectMetadata {
   name: string;
+  icon?: string;
   state: string;
   priority?: number;
   progress?: number;
@@ -128,6 +129,8 @@ export interface RegistryStateEntity extends RegistryEntity {
 export interface RegistryProjectEntity extends RegistryEntity {
   /** Project name */
   name: string;
+  /** Project icon (emoji string, e.g. "🚀") */
+  icon?: string;
   /** Project state (e.g., "planned", "started", "completed", "canceled") */
   state: string;
   /** Priority level (0-4, where 0=none, 1=urgent, 4=low) */
@@ -510,6 +513,7 @@ function buildProjectMetadata(
   for (const project of projects) {
     metadata.set(project.id, {
       name: project.name,
+      icon: project.icon,
       state: project.state,
       priority: project.priority,
       progress: project.progress,

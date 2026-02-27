@@ -59,6 +59,7 @@ export interface MockLabel {
 export interface MockProject {
   id: string;
   name: string;
+  icon?: string;
   state?: string;
   priority?: number;
   progress?: number;
@@ -255,6 +256,7 @@ export const defaultMockProjects: MockProject[] = [
   {
     id: 'project-001',
     name: 'Q1 Release',
+    icon: '🚀',
     state: 'started',
     priority: 2,
     progress: 0.45,
@@ -267,6 +269,7 @@ export const defaultMockProjects: MockProject[] = [
   {
     id: 'project-002',
     name: 'Infrastructure',
+    icon: '🏗️',
     state: 'planned',
     priority: 1,
     progress: 0.1,
