@@ -183,8 +183,9 @@ export function stripMarkdownImages(text: string | null | undefined): string | n
 /**
  * Strip Linear issue URLs from text and replace with bare identifiers.
  *
- * Handles both:
+ * Handles three formats:
  * - Markdown links: [SQT-297](https://linear.app/ws/issue/SQT-297/slug) → SQT-297
+ * - Angle-bracket refs: [SQM-1](<SQM-1>) → SQM-1
  * - Bare URLs: https://linear.app/ws/issue/SQT-297/some-slug → SQT-297
  *
  * Preserves markdown links with custom text (non-identifier link text).
@@ -213,6 +214,21 @@ export function stripIssueUrls(text: string | null | undefined): string | null {
         return identifier.toUpperCase();
       }
       // Custom link text — protect from step 2 with placeholder
+      const idx = placeholders.length;
+      placeholders.push(match);
+      return `${PH_PRE}${idx}${PH_SUF}`;
+    },
+  );
+
+  // 1b. Handle Linear's internal reference format: [SQM-1](<SQM-1>)
+  //     [SQM-1](<SQM-1>) → SQM-1 (text matches identifier)
+  //     [custom text](<SQT-160>) → preserved via placeholder
+  result = result.replace(
+    /\[([^\]]*)\]\(<([A-Z]+-\d+)>\)/gi,
+    (match, linkText: string, identifier: string) => {
+      if (linkText.toUpperCase() === identifier.toUpperCase()) {
+        return identifier.toUpperCase();
+      }
       const idx = placeholders.length;
       placeholders.push(match);
       return `${PH_PRE}${idx}${PH_SUF}`;
