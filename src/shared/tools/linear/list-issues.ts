@@ -200,6 +200,7 @@ interface RawIssueData {
   createdAt: string | Date;
   updatedAt: string | Date;
   archivedAt?: string | null;
+  completedAt?: string | Date | null;
   dueDate?: string | null;
   url?: string;
   labels?: { nodes?: Array<{ id: string; name: string }> };
@@ -342,6 +343,11 @@ function issueToToonRow(
       ? issue.createdAt instanceof Date
         ? issue.createdAt.toISOString()
         : issue.createdAt
+      : null,
+    completedAt: issue.completedAt
+      ? issue.completedAt instanceof Date
+        ? issue.completedAt.toISOString()
+        : issue.completedAt
       : null,
     creator: creatorKey ?? '',
   };
@@ -926,6 +932,7 @@ export const listIssuesTool = defineTool({
             createdAt
             updatedAt
             archivedAt
+            completedAt
             dueDate
             url
             labels { nodes { id name } }
@@ -1003,6 +1010,7 @@ export const listIssuesTool = defineTool({
         createdAt: (i.createdAt as string | Date) ?? '',
         updatedAt: (i.updatedAt as string | Date) ?? '',
         archivedAt: (i.archivedAt as string | null) ?? undefined,
+        completedAt: (i.completedAt as string | null) ?? undefined,
         dueDate: (i.dueDate as string | null) ?? undefined,
         url: (i.url as string) ?? undefined,
         labels: i.labels as { nodes?: Array<{ id: string; name: string }> } | undefined,

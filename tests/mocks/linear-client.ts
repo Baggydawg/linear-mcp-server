@@ -81,6 +81,7 @@ export interface MockIssue {
   createdAt: Date;
   updatedAt: Date;
   archivedAt?: Date;
+  completedAt?: Date;
   dueDate?: string;
   url?: string;
   branchName?: string;
@@ -485,6 +486,7 @@ export const defaultMockIssues: MockIssue[] = [
     priority: 2,
     createdAt: new Date('2024-12-01T08:00:00Z'),
     updatedAt: new Date('2024-12-10T16:00:00Z'),
+    completedAt: new Date('2024-12-10T16:00:00Z'),
     state: Promise.resolve({ id: 'state-sqt-done', name: 'Done', type: 'completed' }),
     project: Promise.resolve({ id: 'project-001', name: 'Q1 Release' }),
     assignee: Promise.resolve({ id: 'user-002', name: 'Jane Doe' }),
@@ -500,6 +502,7 @@ export const defaultMockIssues: MockIssue[] = [
     priority: 4,
     createdAt: new Date('2024-11-15T08:00:00Z'),
     updatedAt: new Date('2024-12-01T12:00:00Z'),
+    completedAt: new Date('2024-12-01T12:00:00Z'),
     state: Promise.resolve({
       id: 'state-sqt-canceled',
       name: 'Canceled',
@@ -1224,6 +1227,7 @@ export function createMockLinearClient(
                 createdAt: issue.createdAt.toISOString(),
                 updatedAt: issue.updatedAt.toISOString(),
                 archivedAt: issue.archivedAt?.toISOString() ?? null,
+                completedAt: issue.completedAt?.toISOString() ?? null,
                 dueDate: issue.dueDate ?? null,
                 url: issue.url ?? null,
                 labels: { nodes: [] },

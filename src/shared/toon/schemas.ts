@@ -174,6 +174,7 @@ export const ISSUE_SCHEMA: ToonSchema = {
     'url', // Direct URL to issue
     'desc', // Description (may be truncated)
     'createdAt', // ISO timestamp
+    'completedAt', // ISO timestamp or empty (set when issue reaches completed state)
     'creator', // u0 (short key -> lookup) or empty
   ],
 };

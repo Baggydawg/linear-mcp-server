@@ -33,6 +33,7 @@ const GetIssueOutputSchema = z
     branchName: z.string().optional(),
     attachments: z.array(z.unknown()).optional(),
     createdAt: z.string().optional(),
+    completedAt: z.string().optional(),
   })
   .strict();
 
@@ -91,6 +92,7 @@ interface RawIssueData {
   cycle?: { number?: number } | null;
   parent?: { identifier?: string } | null;
   createdAt?: string | Date;
+  completedAt?: string | Date | null;
   updatedAt?: string | Date;
   archivedAt?: string | null;
   dueDate?: string | null;
@@ -196,6 +198,11 @@ function issueToToonRow(
       ? issue.createdAt instanceof Date
         ? issue.createdAt.toISOString()
         : issue.createdAt
+      : null,
+    completedAt: issue.completedAt
+      ? issue.completedAt instanceof Date
+        ? issue.completedAt.toISOString()
+        : issue.completedAt
       : null,
     creator: creatorKey ?? '',
   };
@@ -529,6 +536,8 @@ export const getIssuesTool = defineTool({
         const issueUrl = (issue as unknown as { url?: string })?.url;
         const issueCreatedAt = (issue as unknown as { createdAt?: Date | string })
           ?.createdAt;
+        const issueCompletedAt = (issue as unknown as { completedAt?: Date | string })
+          ?.completedAt;
 
         const structured = GetIssueOutputSchema.parse({
           id: issue.id,
@@ -574,6 +583,11 @@ export const getIssuesTool = defineTool({
             ? issueCreatedAt instanceof Date
               ? issueCreatedAt.toISOString()
               : issueCreatedAt
+            : undefined,
+          completedAt: issueCompletedAt
+            ? issueCompletedAt instanceof Date
+              ? issueCompletedAt.toISOString()
+              : issueCompletedAt
             : undefined,
         });
 
@@ -638,6 +652,7 @@ export const getIssuesTool = defineTool({
           branchName?: string | null;
           creator?: { id: string; name?: string };
           createdAt?: string;
+          completedAt?: string;
         };
         return {
           id: issue.id,
@@ -655,6 +670,7 @@ export const getIssuesTool = defineTool({
           labels: issue.labels,
           creator: issue.creator,
           createdAt: issue.createdAt,
+          completedAt: issue.completedAt,
         };
       });
 

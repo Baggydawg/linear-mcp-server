@@ -81,6 +81,7 @@ interface RawIssueData {
   cycle?: { number: number } | null;
   parent?: { identifier: string } | null;
   createdAt?: string | Date;
+  completedAt?: string | Date | null;
   updatedAt: string;
   labels?: Array<{ id: string; name: string }>;
   creator?: { id: string; name?: string } | null;
@@ -151,6 +152,7 @@ const SPRINT_CONTEXT_QUERY = `
               priority
               estimate
               createdAt
+              completedAt
               updatedAt
               state { id name type }
               project { id name }
@@ -363,6 +365,11 @@ function issueToToonRow(
       ? issue.createdAt instanceof Date
         ? issue.createdAt.toISOString()
         : issue.createdAt
+      : null,
+    completedAt: issue.completedAt
+      ? issue.completedAt instanceof Date
+        ? issue.completedAt.toISOString()
+        : issue.completedAt
       : null,
     creator: creatorKey ?? '',
   };
@@ -636,6 +643,7 @@ const SPRINT_ISSUE_SCHEMA = {
     'parent',
     'desc',
     'createdAt',
+    'completedAt',
     'creator',
   ],
 };
@@ -1021,6 +1029,7 @@ export const getSprintContextTool = defineTool({
                     priority?: number;
                     estimate?: number;
                     createdAt?: string;
+                    completedAt?: string;
                     updatedAt: string;
                     state: { id: string; name: string; type: string };
                     project?: { id: string; name?: string } | null;
@@ -1098,6 +1107,7 @@ export const getSprintContextTool = defineTool({
       cycle: { number: cycle.number },
       parent: node.parent,
       createdAt: node.createdAt,
+      completedAt: node.completedAt,
       updatedAt: node.updatedAt,
       labels: node.labels?.nodes ?? [],
     }));
