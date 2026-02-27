@@ -81,6 +81,7 @@ export {
   safeEncode,
   stripIssueUrls,
   stripMarkdownImages,
+  stripProjectUrls,
   validateRowAgainstSchema,
 } from './encoder.js';
 
@@ -163,8 +164,8 @@ export type {
   ProjectMetadata,
   RegistryBuildData,
   RegistryEntity,
-  RegistryProjectEntity,
   RegistryInitContext,
+  RegistryProjectEntity,
   ShortKeyEntityType,
   ShortKeyRegistry,
   StateMetadata,
@@ -184,6 +185,7 @@ export {
   createEmptyRegistry,
   getOrInitRegistry,
   getProjectMetadata,
+  getProjectSlugMap,
   getRegistryAge,
   getRegistryStats,
   getRemainingTtl,

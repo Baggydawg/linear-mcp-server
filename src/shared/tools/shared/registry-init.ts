@@ -65,6 +65,7 @@ export async function fetchGlobalProjects(
     progress: (p as unknown as { progress?: number }).progress,
     leadId: (p as unknown as { leadId?: string }).leadId,
     targetDate: (p as unknown as { targetDate?: string }).targetDate,
+    slugId: (p as unknown as { slugId?: string }).slugId,
   }));
 }
 

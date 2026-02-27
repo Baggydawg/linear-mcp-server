@@ -68,6 +68,7 @@ export interface ProjectMetadata {
   targetDate?: string;
   /** Team keys this project belongs to (e.g., ["SQT", "GRW"]) */
   teamKeys?: string[];
+  slugId?: string;
 }
 
 /**
@@ -139,6 +140,7 @@ export interface RegistryProjectEntity extends RegistryEntity {
   targetDate?: string;
   /** Team keys this project belongs to (e.g., ["SQT", "GRW"]) */
   teamKeys?: string[];
+  slugId?: string;
 }
 
 /**
@@ -196,6 +198,9 @@ export interface ShortKeyRegistry {
 
   /** Project UUIDs to short keys: UUID -> pr0 */
   projectsByUuid: Map<string, string>;
+
+  /** Project slugIds to short keys: slugId -> pr0 (for read path URL stripping) */
+  projectsBySlugId: Map<string, string>;
 
   // ─────────────────────────────────────────────────────────────────────────
   // Entity Metadata (UUID -> metadata)
@@ -356,6 +361,7 @@ export function createEmptyRegistry(
     usersByUuid: new Map(),
     statesByUuid: new Map(),
     projectsByUuid: new Map(),
+    projectsBySlugId: new Map(),
     userMetadata: new Map(),
     stateMetadata: new Map(),
     projectMetadata: new Map(),
@@ -510,6 +516,7 @@ function buildProjectMetadata(
       leadId: project.leadId,
       targetDate: project.targetDate,
       teamKeys: project.teamKeys,
+      slugId: project.slugId,
     });
   }
   return metadata;
@@ -584,6 +591,45 @@ export function buildRegistry(data: RegistryBuildData): ShortKeyRegistry {
   const stateMetadata = buildStateMetadata(filteredStates);
   const projectMetadata = buildProjectMetadata(data.projects);
 
+  // Build project slugId -> shortKey map for read path URL stripping
+  const projectsBySlugId = new Map<string, string>();
+  for (const project of data.projects) {
+    if (project.slugId) {
+      const shortKey = projectsByUuid.get(project.id);
+      if (shortKey) {
+        projectsBySlugId.set(project.slugId, shortKey);
+        // Also index by hash suffix for Linear's shortened URLs in descriptions
+        // Linear reformats project URLs: /project/full-slug-878d2a8b5972 → /project/878d2a8b5972
+        const lastHyphen = project.slugId.lastIndexOf('-');
+        if (lastHyphen > 0) {
+          const hashSuffix = project.slugId.slice(lastHyphen + 1);
+          if (/^[a-f0-9]+$/.test(hashSuffix)) {
+            projectsBySlugId.set(hashSuffix, shortKey);
+          }
+        }
+      }
+    }
+  }
+
+  // Also index by lowercase project name for Linear's named markdown links
+  // Linear reformats: bare URL → [Project Name](url) in descriptions
+  const ambiguousNames = new Set<string>();
+  for (const [uuid, meta] of projectMetadata) {
+    if (!meta.name) continue;
+    const nameKey = meta.name.toLowerCase();
+    const shortKey = projectsByUuid.get(uuid);
+    if (!shortKey) continue;
+    if (ambiguousNames.has(nameKey)) continue;
+    const existing = projectsBySlugId.get(nameKey);
+    if (existing === undefined) {
+      projectsBySlugId.set(nameKey, shortKey);
+    } else if (existing !== shortKey) {
+      // Two different projects with same name — remove to avoid wrong resolution
+      projectsBySlugId.delete(nameKey);
+      ambiguousNames.add(nameKey);
+    }
+  }
+
   return {
     users,
     states,
@@ -591,6 +637,7 @@ export function buildRegistry(data: RegistryBuildData): ShortKeyRegistry {
     usersByUuid,
     statesByUuid,
     projectsByUuid,
+    projectsBySlugId,
     userMetadata,
     stateMetadata,
     projectMetadata,
@@ -896,6 +943,14 @@ export function getProjectMetadata(
   uuid: string,
 ): ProjectMetadata | undefined {
   return registry.projectMetadata.get(uuid);
+}
+
+/**
+ * Get the project slugId -> shortKey map for read path URL stripping.
+ * Returns the registry's projectsBySlugId map directly (no copy needed).
+ */
+export function getProjectSlugMap(registry: ShortKeyRegistry): Map<string, string> {
+  return registry.projectsBySlugId;
 }
 
 /**
@@ -1255,6 +1310,32 @@ export function registerNewProject(
 
   // Add metadata
   registry.projectMetadata.set(projectId, metadata);
+
+  // Update slugId reverse lookup if available
+  if (metadata.slugId) {
+    registry.projectsBySlugId.set(metadata.slugId, nextKey);
+  }
+
+  // Also index by hash suffix
+  if (metadata.slugId) {
+    const lastHyphen = metadata.slugId.lastIndexOf('-');
+    if (lastHyphen > 0) {
+      const hashSuffix = metadata.slugId.slice(lastHyphen + 1);
+      if (/^[a-f0-9]+$/.test(hashSuffix)) {
+        registry.projectsBySlugId.set(hashSuffix, nextKey);
+      }
+    }
+  }
+
+  // Also index by lowercase name
+  if (metadata.name) {
+    const nameKey = metadata.name.toLowerCase();
+    const existing = registry.projectsBySlugId.get(nameKey);
+    if (existing === undefined) {
+      registry.projectsBySlugId.set(nameKey, nextKey);
+    }
+    // If existing !== nextKey, another project has this name — don't overwrite
+  }
 
   return nextKey;
 }

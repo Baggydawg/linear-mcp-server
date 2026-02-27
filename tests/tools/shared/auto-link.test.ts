@@ -11,9 +11,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   autoLinkIssueReferences,
+  autoLinkProjectReferences,
   autoLinkWithRegistry,
 } from '../../../src/shared/tools/linear/shared/auto-link.js';
-import { stripIssueUrls } from '../../../src/shared/toon/encoder.js';
+import { stripIssueUrls, stripProjectUrls } from '../../../src/shared/toon/encoder.js';
 import type { ShortKeyRegistry } from '../../../src/shared/toon/registry.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,6 +51,7 @@ function createMockRegistry(
     usersByUuid: new Map(),
     statesByUuid: new Map(),
     projectsByUuid: new Map(),
+    projectsBySlugId: new Map(),
     userMetadata: new Map(),
     stateMetadata: new Map(),
     projectMetadata: new Map(),
@@ -380,5 +382,438 @@ describe('round-trip: autoLink then stripIssueUrls', () => {
     const original = 'No issues here.';
     const linked = autoLink(original);
     expect(stripIssueUrls(linked)).toBe(original);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Project Auto-Link Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Map of project short key to slugId for autoLinkProjectReferences tests. */
+const PROJECT_KEY_TO_SLUG = new Map([
+  ['pr0', 'mvp-platform-abc123'],
+  ['pr71', 'design-system-def456'],
+]);
+
+/** Map of project slugId to short key for stripProjectUrls tests.
+ *  Includes full slugs, hash suffixes, and lowercase project names
+ *  to match the enriched projectsBySlugId map. */
+const SLUG_TO_SHORT_KEY = new Map([
+  ['mvp-platform-abc123', 'pr0'], // full slug
+  ['abc123', 'pr0'], // hash suffix
+  ['mvp platform', 'pr0'], // lowercase name
+  ['design-system-def456', 'pr71'], // full slug
+  ['def456', 'pr71'], // hash suffix
+  ['design system', 'pr71'], // lowercase name
+]);
+
+/** Build a Linear project URL. */
+function projectUrl(slugId: string): string {
+  return `https://linear.app/${URL_KEY}/project/${slugId}`;
+}
+
+/**
+ * Create a mock registry with project entries for autoLinkWithRegistry tests.
+ */
+function createMockRegistryWithProjects(urlKey?: string): ShortKeyRegistry {
+  const registry = createMockRegistry(urlKey);
+  // Add project entries
+  registry.projects.set('pr0', 'proj-uuid-1');
+  registry.projects.set('pr71', 'proj-uuid-2');
+  registry.projectsByUuid.set('proj-uuid-1', 'pr0');
+  registry.projectsByUuid.set('proj-uuid-2', 'pr71');
+  registry.projectsBySlugId.set('mvp-platform-abc123', 'pr0');
+  registry.projectsBySlugId.set('design-system-def456', 'pr71');
+  registry.projectMetadata.set('proj-uuid-1', {
+    name: 'MVP Platform',
+    state: 'started',
+    slugId: 'mvp-platform-abc123',
+  });
+  registry.projectMetadata.set('proj-uuid-2', {
+    name: 'Design System',
+    state: 'planned',
+    slugId: 'design-system-def456',
+  });
+  return registry;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// autoLinkProjectReferences (write path)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('autoLinkProjectReferences', () => {
+  /** Shorthand for autoLinkProjectReferences with standard test params. */
+  function autoLinkProject(text: string): string {
+    return autoLinkProjectReferences(text, URL_KEY, PROJECT_KEY_TO_SLUG);
+  }
+
+  describe('basic linking', () => {
+    it('links a single project reference', () => {
+      expect(autoLinkProject('See pr0')).toBe(
+        `See ${projectUrl('mvp-platform-abc123')}`,
+      );
+    });
+
+    it('links multiple project references', () => {
+      expect(autoLinkProject('pr0 and pr71')).toBe(
+        `${projectUrl('mvp-platform-abc123')} and ${projectUrl('design-system-def456')}`,
+      );
+    });
+
+    it('converts uppercase PR71 to URL (case insensitive)', () => {
+      expect(autoLinkProject('See PR71')).toBe(
+        `See ${projectUrl('design-system-def456')}`,
+      );
+    });
+
+    it('links project at start of text', () => {
+      expect(autoLinkProject('pr0 is important')).toBe(
+        `${projectUrl('mvp-platform-abc123')} is important`,
+      );
+    });
+
+    it('links project at end of text', () => {
+      expect(autoLinkProject('blocked by pr71')).toBe(
+        `blocked by ${projectUrl('design-system-def456')}`,
+      );
+    });
+
+    it('links project in the middle of text', () => {
+      expect(autoLinkProject('Project pr0 needs review')).toBe(
+        `Project ${projectUrl('mvp-platform-abc123')} needs review`,
+      );
+    });
+  });
+
+  describe('protected regions', () => {
+    it('does not link inside markdown link text', () => {
+      const text = '[See pr0](https://example.com)';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('does not link inside markdown link URL', () => {
+      const text = '[link](https://linear.app/ws/project/pr0)';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('does not link inside bare URL', () => {
+      const text = 'https://linear.app/workspace/project/pr0';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('does not link inside inline code', () => {
+      const text = '`pr0`';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('does not link inside fenced code block', () => {
+      const text = '```\npr0\n```';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('links identifiers adjacent to but outside protected regions', () => {
+      const text = 'pr0 [link](https://example.com) pr71';
+      expect(autoLinkProject(text)).toBe(
+        `${projectUrl('mvp-platform-abc123')} [link](https://example.com) ${projectUrl('design-system-def456')}`,
+      );
+    });
+  });
+
+  describe('false positive prevention', () => {
+    it('does not link expr71 (letters before pr)', () => {
+      const text = 'expr71 is a variable';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('does not link improve0 (letters before pr)', () => {
+      const text = 'improve0 results';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('does not link sprint71 (letters before pr)', () => {
+      const text = 'sprint71 is active';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('does not link pr999 (not in map) — left unchanged', () => {
+      const text = 'pr999 is unknown';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('links pr0 inside parentheses', () => {
+      expect(autoLinkProject('(pr0)')).toBe(
+        `(${projectUrl('mvp-platform-abc123')})`,
+      );
+    });
+  });
+
+  describe('edge cases', () => {
+    it('returns empty string unchanged', () => {
+      expect(autoLinkProject('')).toBe('');
+    });
+
+    it('returns text without project refs unchanged', () => {
+      const text = 'No project references here.';
+      expect(autoLinkProject(text)).toBe(text);
+    });
+
+    it('empty projectKeyToSlug map returns text unchanged', () => {
+      const text = 'pr0 should stay';
+      expect(autoLinkProjectReferences(text, URL_KEY, new Map())).toBe(text);
+    });
+
+    it('is idempotent (no double-linking)', () => {
+      const once = autoLinkProject('pr0');
+      const twice = autoLinkProject(once);
+      expect(twice).toBe(once);
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// stripProjectUrls (read path)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('stripProjectUrls', () => {
+  describe('bare URLs', () => {
+    it('strips bare project URL to short key', () => {
+      expect(
+        stripProjectUrls(
+          `See ${projectUrl('mvp-platform-abc123')}`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('See pr0');
+    });
+
+    it('strips bare project URL with trailing path (e.g., /updates)', () => {
+      expect(
+        stripProjectUrls(
+          `${projectUrl('mvp-platform-abc123')}/updates`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('pr0');
+    });
+
+    it('strips multiple bare project URLs', () => {
+      expect(
+        stripProjectUrls(
+          `Check ${projectUrl('mvp-platform-abc123')} and ${projectUrl('design-system-def456')}`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('Check pr0 and pr71');
+    });
+
+    it('leaves unknown slug as URL (slug not in map)', () => {
+      const unknownUrl = `https://linear.app/${URL_KEY}/project/unknown-slug-xyz`;
+      expect(stripProjectUrls(unknownUrl, SLUG_TO_SHORT_KEY)).toBe(unknownUrl);
+    });
+  });
+
+  describe('markdown links', () => {
+    it('strips markdown link where text matches short key', () => {
+      expect(
+        stripProjectUrls(
+          `[pr0](${projectUrl('mvp-platform-abc123')})`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('pr0');
+    });
+
+    it('strips markdown link where text is the project URL (Linear cross-ref format)', () => {
+      const url = projectUrl('mvp-platform-abc123');
+      expect(
+        stripProjectUrls(`[${url}](<${url}>)`, SLUG_TO_SHORT_KEY),
+      ).toBe('pr0');
+    });
+
+    it('preserves markdown link with custom text', () => {
+      const text = `[my project](${projectUrl('mvp-platform-abc123')})`;
+      expect(stripProjectUrls(text, SLUG_TO_SHORT_KEY)).toBe(text);
+    });
+  });
+
+  describe('hash suffix stripping (Linear shortened URLs)', () => {
+    it('strips bare URL with hash-only slug', () => {
+      expect(
+        stripProjectUrls(
+          `See https://linear.app/${URL_KEY}/project/abc123`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('See pr0');
+    });
+
+    it('strips markdown link with hash-only slug', () => {
+      expect(
+        stripProjectUrls(
+          `[pr0](https://linear.app/${URL_KEY}/project/abc123)`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('pr0');
+    });
+
+    it('strips bare URL with hash-only slug and trailing path', () => {
+      expect(
+        stripProjectUrls(
+          `https://linear.app/${URL_KEY}/project/def456/updates`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('pr71');
+    });
+  });
+
+  describe('named link stripping (Linear description reformatting)', () => {
+    it('strips markdown link where text is project name', () => {
+      expect(
+        stripProjectUrls(
+          `[MVP Platform](https://linear.app/${URL_KEY}/project/abc123)`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('pr0');
+    });
+
+    it('case insensitive name matching', () => {
+      expect(
+        stripProjectUrls(
+          `[mvp platform](https://linear.app/${URL_KEY}/project/abc123)`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('pr0');
+    });
+
+    it('strips named link with hash suffix slug', () => {
+      expect(
+        stripProjectUrls(
+          `[Design System](https://linear.app/${URL_KEY}/project/def456)`,
+          SLUG_TO_SHORT_KEY,
+        ),
+      ).toBe('pr71');
+    });
+
+    it('preserves markdown link with unrecognized text', () => {
+      const text = `[custom docs](https://linear.app/${URL_KEY}/project/abc123)`;
+      expect(stripProjectUrls(text, SLUG_TO_SHORT_KEY)).toBe(text);
+    });
+
+    it('preserves named link when name resolves to different project than URL', () => {
+      // Link text says "MVP Platform" (pr0) but URL points to def456 (pr71)
+      const text = `[MVP Platform](https://linear.app/${URL_KEY}/project/design-system-def456)`;
+      expect(stripProjectUrls(text, SLUG_TO_SHORT_KEY)).toBe(text);
+    });
+  });
+
+  describe('round-trip with Linear description reformatting', () => {
+    it('write pr0 → autoLink → simulate Linear reformat → strip → pr0', () => {
+      // Write path: pr0 → full URL
+      const linked = autoLinkProjectReferences('see pr0', URL_KEY, PROJECT_KEY_TO_SLUG);
+      expect(linked).toBe(`see ${projectUrl('mvp-platform-abc123')}`);
+
+      // Simulate Linear reformatting: full URL → [Project Name](hash-url)
+      const linearReformatted = `see [MVP Platform](https://linear.app/${URL_KEY}/project/abc123)`;
+
+      // Read path: strip back to pr0
+      expect(stripProjectUrls(linearReformatted, SLUG_TO_SHORT_KEY)).toBe('see pr0');
+    });
+  });
+
+  describe('null/empty handling', () => {
+    it('returns null for null input', () => {
+      expect(stripProjectUrls(null, SLUG_TO_SHORT_KEY)).toBe(null);
+    });
+
+    it('returns null for undefined input', () => {
+      expect(stripProjectUrls(undefined, SLUG_TO_SHORT_KEY)).toBe(null);
+    });
+
+    it('returns empty string for empty string', () => {
+      expect(stripProjectUrls('', SLUG_TO_SHORT_KEY)).toBe('');
+    });
+
+    it('returns text unchanged when slugToShortKey is null', () => {
+      const text = projectUrl('mvp-platform-abc123');
+      expect(stripProjectUrls(text, null)).toBe(text);
+    });
+
+    it('returns text unchanged when slugToShortKey is undefined', () => {
+      const text = projectUrl('mvp-platform-abc123');
+      expect(stripProjectUrls(text, undefined)).toBe(text);
+    });
+
+    it('returns text unchanged when slugToShortKey is empty map', () => {
+      const text = projectUrl('mvp-platform-abc123');
+      expect(stripProjectUrls(text, new Map())).toBe(text);
+    });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// autoLinkWithRegistry — project linking
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('autoLinkWithRegistry — project linking', () => {
+  it('links project references when registry has projects with slugIds', () => {
+    const registry = createMockRegistryWithProjects('ws');
+    expect(autoLinkWithRegistry('See pr0', registry)).toBe(
+      `See ${projectUrl('mvp-platform-abc123')}`,
+    );
+  });
+
+  it('does not link projects when registry has no urlKey', () => {
+    const registry = createMockRegistryWithProjects(undefined);
+    expect(autoLinkWithRegistry('See pr0', registry)).toBe('See pr0');
+  });
+
+  it('does not link projects when registry has empty projects', () => {
+    const registry = createMockRegistry('ws');
+    // registry has no project entries
+    expect(autoLinkWithRegistry('See pr0', registry)).toBe('See pr0');
+  });
+
+  it('links both issue and project references in the same text', () => {
+    const registry = createMockRegistryWithProjects('ws');
+    expect(autoLinkWithRegistry('SQT-297 depends on pr0', registry)).toBe(
+      `${issueUrl('SQT-297')} depends on ${projectUrl('mvp-platform-abc123')}`,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Round-trip: autoLink project then stripProjectUrls
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('round-trip: autoLink project then stripProjectUrls', () => {
+  function autoLinkProject(text: string): string {
+    return autoLinkProjectReferences(text, URL_KEY, PROJECT_KEY_TO_SLUG);
+  }
+
+  it('single project ref round-trips', () => {
+    const original = 'see pr0';
+    const linked = autoLinkProject(original);
+    expect(linked).not.toBe(original); // sanity: was actually linked
+    expect(stripProjectUrls(linked, SLUG_TO_SHORT_KEY)).toBe('see pr0');
+  });
+
+  it('multiple project refs round-trip', () => {
+    const original = 'pr0 and pr71';
+    const linked = autoLinkProject(original);
+    expect(stripProjectUrls(linked, SLUG_TO_SHORT_KEY)).toBe('pr0 and pr71');
+  });
+
+  it('mixed issue + project refs round-trip', () => {
+    const original = 'SQT-1 depends on pr0';
+    const linkedIssues = autoLink(original);
+    const linkedAll = autoLinkProjectReferences(linkedIssues, URL_KEY, PROJECT_KEY_TO_SLUG);
+    const strippedIssues = stripIssueUrls(linkedAll)!;
+    const strippedAll = stripProjectUrls(strippedIssues, SLUG_TO_SHORT_KEY);
+    expect(strippedAll).toBe(original);
+  });
+
+  it('protected regions with project refs round-trip', () => {
+    const original = 'pr0 see `pr71` and pr0';
+    const linked = autoLinkProject(original);
+    // pr0 was linked (twice), pr71 was protected by inline code
+    expect(linked).toContain(projectUrl('mvp-platform-abc123'));
+    expect(linked).toContain('`pr71`');
+    // After stripping, we get back the original
+    expect(stripProjectUrls(linked, SLUG_TO_SHORT_KEY)).toBe(original);
   });
 });

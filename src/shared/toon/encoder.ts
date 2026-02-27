@@ -26,7 +26,18 @@ import type {
 /**
  * Default encoding options.
  */
-const DEFAULT_OPTIONS: Required<ToonEncodingOptions> = {
+/**
+ * Resolved encoding options type. Identical to Required<ToonEncodingOptions>
+ * except projectSlugMap remains nullable (undefined = no project URL stripping).
+ */
+type ResolvedToonEncodingOptions = Omit<
+  Required<ToonEncodingOptions>,
+  'projectSlugMap'
+> & {
+  projectSlugMap: Map<string, string> | undefined;
+};
+
+const DEFAULT_OPTIONS: ResolvedToonEncodingOptions = {
   indent: '  ',
   includeEmptySections: false,
   truncation: {
@@ -35,6 +46,7 @@ const DEFAULT_OPTIONS: Required<ToonEncodingOptions> = {
     default: undefined,
   },
   truncationIndicator: '... [truncated]',
+  projectSlugMap: undefined,
 };
 
 /**
@@ -249,6 +261,94 @@ export function stripIssueUrls(text: string | null | undefined): string | null {
 }
 
 /**
+ * Strip Linear project URLs from text and replace with short keys.
+ *
+ * Handles three formats (same as stripIssueUrls):
+ * - Markdown links: [pr0](https://linear.app/.../project/slug) → pr0
+ * - Angle-bracket links: [url](<url>) → short key (Linear cross-reference format)
+ * - Bare URLs: https://linear.app/ws/project/slug → pr0
+ *
+ * Preserves markdown links with custom text (non-short-key link text).
+ * Returns text unchanged if slugToShortKey map is null/undefined/empty.
+ *
+ * @param text - The text to process
+ * @param slugToShortKey - Map of project slugId to short key (e.g., 'my-project-abc123' → 'pr0')
+ * @returns Text with Linear project URLs replaced by short keys
+ */
+export function stripProjectUrls(
+  text: string | null | undefined,
+  slugToShortKey: Map<string, string> | null | undefined,
+): string | null {
+  if (!text) {
+    return text === '' ? '' : null;
+  }
+  if (!slugToShortKey || slugToShortKey.size === 0) {
+    return text;
+  }
+
+  let result = text;
+
+  // 1. Handle markdown links where URL is a Linear project URL
+  //    [pr0](https://linear.app/ws/project/slug) → pr0
+  //    [custom text](https://linear.app/ws/project/slug) → preserved via placeholder
+  const placeholders: string[] = [];
+  const PH_PRE = '\u200B\u200BPJLNK';
+  const PH_SUF = '\u200B\u200B';
+  result = result.replace(
+    /\[([^\]]*)\]\(<?https?:\/\/linear\.app\/[^/]+\/project\/([^/\s)>\]]+)(?:\/[^)>]*)?>?\)/gi,
+    (match, linkText: string, slugId: string) => {
+      const shortKey = slugToShortKey.get(slugId);
+      if (!shortKey) {
+        // Unknown slug — leave the markdown link intact
+        return match;
+      }
+      // If link text matches the short key, collapse to just the short key
+      if (linkText.toLowerCase() === shortKey.toLowerCase()) {
+        return shortKey;
+      }
+      // If link text is a Linear URL for the same project, collapse
+      const urlMatch = linkText.match(/linear\.app\/[^/]+\/project\/([^/\s)>\]]+)/i);
+      if (urlMatch && urlMatch[1] === slugId) {
+        return shortKey;
+      }
+      // If link text matches a known project name for this same project, collapse
+      // (Linear reformats bare project URLs to [Project Name](url) in descriptions)
+      if (slugToShortKey.get(linkText.toLowerCase()) === shortKey) {
+        return shortKey;
+      }
+      // Custom link text — protect from step 2 with placeholder
+      const idx = placeholders.length;
+      placeholders.push(match);
+      return `${PH_PRE}${idx}${PH_SUF}`;
+    },
+  );
+
+  // 2. Handle bare Linear project URLs (not inside protected markdown links)
+  //    https://linear.app/ws/project/slug → pr0
+  //    https://linear.app/ws/project/slug/updates → pr0
+  result = result.replace(
+    /https?:\/\/linear\.app\/[^/]+\/project\/([^/\s)>\]]+)(?:\/[^\s)>\]]*)?/gi,
+    (match, slugId: string) => {
+      const shortKey = slugToShortKey.get(slugId);
+      return shortKey ?? match; // Unknown slug: leave URL unchanged
+    },
+  );
+
+  // 3. Restore protected markdown links
+  if (placeholders.length > 0) {
+    const restorePattern = new RegExp(
+      `${PH_PRE.replace(/\u200B/g, '\\u200B')}(\\d+)${PH_SUF.replace(/\u200B/g, '\\u200B')}`,
+      'g',
+    );
+    result = result.replace(restorePattern, (_match, idx: string) => {
+      return placeholders[parseInt(idx, 10)] ?? '';
+    });
+  }
+
+  return result;
+}
+
+/**
  * Truncate a string value if it exceeds the maximum length.
  *
  * @param value - The value to potentially truncate
@@ -279,7 +379,7 @@ function truncateValue(
  */
 function getTruncationLimit(
   fieldName: string,
-  options: Required<ToonEncodingOptions>,
+  options: ResolvedToonEncodingOptions,
 ): number | undefined {
   const { truncation } = options;
 
@@ -304,7 +404,7 @@ function getTruncationLimit(
 export function encodeToonRow(
   row: ToonRow,
   schema: ToonSchema,
-  options: Required<ToonEncodingOptions> = DEFAULT_OPTIONS,
+  options: ResolvedToonEncodingOptions = DEFAULT_OPTIONS,
 ): string {
   const values: string[] = [];
 
@@ -318,6 +418,7 @@ export function encodeToonRow(
     ) {
       value = stripIssueUrls(value);
       value = stripMarkdownImages(value);
+      value = stripProjectUrls(value, options.projectSlugMap);
     }
 
     let encoded = encodeToonValue(value);

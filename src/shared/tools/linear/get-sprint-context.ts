@@ -34,6 +34,7 @@ import {
   type ToonSection,
   tryGetShortKey,
   USER_LOOKUP_SCHEMA,
+  getProjectSlugMap,
 } from '../../toon/index.js';
 import { fetchWorkspaceDataForRegistry } from '../shared/registry-init.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
@@ -1162,7 +1163,8 @@ export const getSprintContextTool = defineTool({
     );
 
     // Encode TOON output
-    const toonOutput = encodeResponse(issues, toonResponse);
+    const projectSlugMap = registry ? getProjectSlugMap(registry) : undefined;
+    const toonOutput = encodeResponse(issues, toonResponse, { projectSlugMap });
 
     return {
       content: [{ type: 'text', text: toonOutput }],

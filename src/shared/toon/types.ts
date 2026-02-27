@@ -141,6 +141,12 @@ export interface ToonEncodingOptions {
    * Default: '... [truncated]'
    */
   truncationIndicator?: string;
+
+  /**
+   * Map of project slugId -> short key for stripping project URLs in description fields.
+   * Built from registry's projectsBySlugId. Undefined means no stripping (graceful degradation).
+   */
+  projectSlugMap?: Map<string, string> | undefined;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

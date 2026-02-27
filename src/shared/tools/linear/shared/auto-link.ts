@@ -88,6 +88,76 @@ export function autoLinkIssueReferences(
 }
 
 /**
+ * Replace bare project short keys (pr0, pr71) with full Linear project URLs.
+ *
+ * Only replaces keys that exist in the provided map (registry-validated).
+ * Skips references inside markdown links, URLs, inline code, or fenced code blocks.
+ *
+ * @param text - The text to transform
+ * @param urlKey - Workspace URL slug (e.g., 'sophiq-tech')
+ * @param projectKeyToSlug - Map of short key (e.g., 'pr0') to slugId for URL construction
+ * @returns Text with project references replaced by Linear URLs
+ */
+export function autoLinkProjectReferences(
+  text: string,
+  urlKey: string,
+  projectKeyToSlug: Map<string, string>,
+): string {
+  if (!text || projectKeyToSlug.size === 0) return text;
+
+  // Sequential masking approach (same as autoLinkIssueReferences):
+  // 1. Find all protected regions and replace with placeholders
+  // 2. Run the project reference replacement on the masked text
+  // 3. Restore protected regions
+
+  const placeholders: string[] = [];
+  let masked = text;
+
+  const PH_PREFIX = '\u200B\u200BPROT';
+  const PH_SUFFIX = '\u200B\u200B';
+
+  function mask(pattern: RegExp): void {
+    masked = masked.replace(pattern, (match) => {
+      const idx = placeholders.length;
+      placeholders.push(match);
+      return `${PH_PREFIX}${idx}${PH_SUFFIX}`;
+    });
+  }
+
+  // Order matters: highest precedence first
+  // 1. Fenced code blocks
+  mask(/```[\s\S]*?```/g);
+  // 2. Inline code
+  mask(/`[^`]+`/g);
+  // 3. Markdown links [text](url)
+  mask(/\[[^\]]*\]\([^)]*\)/g);
+  // 4. Bare URLs
+  mask(/https?:\/\/[^\s)>\]]+/g);
+
+  // Replace bare project references: pr0, pr71, PR5, etc.
+  // Negative lookbehind prevents matching inside words like "expr71" or "improve0"
+  const projectPattern = /(?<![a-zA-Z])pr(\d+)\b/gi;
+
+  masked = masked.replace(projectPattern, (match, num: string) => {
+    const shortKey = `pr${num}`;
+    const slugId = projectKeyToSlug.get(shortKey);
+    if (!slugId) return match; // Unknown project key, leave unchanged
+    return `https://linear.app/${urlKey}/project/${slugId}`;
+  });
+
+  // Restore protected regions
+  const restorePattern = new RegExp(
+    `${PH_PREFIX.replace(/\u200B/g, '\\u200B')}(\\d+)${PH_SUFFIX.replace(/\u200B/g, '\\u200B')}`,
+    'g',
+  );
+  masked = masked.replace(restorePattern, (_match, idx: string) => {
+    return placeholders[parseInt(idx, 10)] ?? '';
+  });
+
+  return masked;
+}
+
+/**
  * Convenience wrapper that extracts urlKey and teamKeys from the registry.
  * Returns original text unchanged if registry data is missing (graceful degradation).
  *
@@ -101,13 +171,28 @@ export function autoLinkWithRegistry(
 ): string {
   if (!registry?.urlKey) return text;
 
-  // Build Set of known team keys (uppercase) from registry.teamKeys values
+  let result = text;
+
+  // 1. Auto-link issue references (SQT-297 → URL)
   const teamKeys = new Set<string>();
   for (const key of registry.teamKeys.values()) {
     teamKeys.add(key.toUpperCase());
   }
+  if (teamKeys.size > 0) {
+    result = autoLinkIssueReferences(result, registry.urlKey, teamKeys);
+  }
 
-  if (teamKeys.size === 0) return text;
+  // 2. Auto-link project references (pr71 → URL)
+  const projectKeyToSlug = new Map<string, string>();
+  for (const [shortKey, uuid] of registry.projects) {
+    const meta = registry.projectMetadata.get(uuid);
+    if (meta?.slugId) {
+      projectKeyToSlug.set(shortKey, meta.slugId);
+    }
+  }
+  if (projectKeyToSlug.size > 0) {
+    result = autoLinkProjectReferences(result, registry.urlKey, projectKeyToSlug);
+  }
 
-  return autoLinkIssueReferences(text, registry.urlKey, teamKeys);
+  return result;
 }

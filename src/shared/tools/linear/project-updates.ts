@@ -31,6 +31,7 @@ import {
   tryGetShortKey,
   tryResolveShortKey,
   USER_LOOKUP_SCHEMA,
+  getProjectSlugMap,
 } from '../../toon/index.js';
 import { defineTool, type ToolContext, type ToolResult } from '../types.js';
 
@@ -357,7 +358,8 @@ export const listProjectUpdatesTool = defineTool({
     );
 
     // Encode TOON output
-    const toonOutput = encodeResponse(rawUpdates, toonResponse);
+    const projectSlugMap = registry ? getProjectSlugMap(registry) : undefined;
+    const toonOutput = encodeResponse(rawUpdates, toonResponse, { projectSlugMap });
 
     return {
       content: [{ type: 'text', text: toonOutput }],
