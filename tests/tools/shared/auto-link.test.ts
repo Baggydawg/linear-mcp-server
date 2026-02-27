@@ -197,6 +197,16 @@ describe('autoLinkIssueReferences', () => {
       const text = 'SQT-297';
       expect(autoLinkIssueReferences(text, URL_KEY, new Set())).toBe(text);
     });
+
+    it('does not link identifier embedded in a longer word', () => {
+      expect(autoLink('NOSQT-297 and SQT-297abc')).toBe('NOSQT-297 and SQT-297abc');
+    });
+
+    it('is idempotent (no double-linking)', () => {
+      const once = autoLink('SQT-297');
+      const twice = autoLink(once);
+      expect(twice).toBe(once);
+    });
   });
 });
 

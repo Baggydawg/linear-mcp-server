@@ -79,6 +79,7 @@ export {
   formatEstimateToon,
   formatPriorityToon,
   safeEncode,
+  stripIssueUrls,
   stripMarkdownImages,
   validateRowAgainstSchema,
 } from './encoder.js';
